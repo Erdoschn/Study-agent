@@ -1,9 +1,9 @@
-from core.planner import Planner
+from core.planner import TaskPlanner
 from core.task_analyzer import TaskAnalysis
 
 
 def test_planner_creates_dynamic_steps():
-    planner = Planner()
+    planner = TaskPlanner()
     analysis = TaskAnalysis(
         task_type="math",
         domain="algebra",
@@ -13,15 +13,15 @@ def test_planner_creates_dynamic_steps():
         answer_strategy="derive, calculate, then verify",
     )
     plan = planner.create(analysis)
-    assert plan
-    assert plan[0].action == "ANALYZE"
-    assert any(step.action == "CALCULATE" for step in plan)
-    assert any(step.action == "VERIFY" for step in plan)
-    assert plan[-1].action == "ANSWER"
+    assert plan.steps
+    assert plan.steps[0].action == "ANALYZE"
+    assert "CALCULATE" in plan.actions
+    assert "VERIFY" in plan.actions
+    assert plan.steps[-1].action == "ANSWER"
 
 
 def test_planner_uses_search_when_analysis_requires_it():
-    planner = Planner()
+    planner = TaskPlanner()
     analysis = TaskAnalysis(
         task_type="research",
         domain="machine learning",
@@ -31,6 +31,5 @@ def test_planner_uses_search_when_analysis_requires_it():
         answer_strategy="search authoritative sources and compare evidence",
     )
     plan = planner.create(analysis)
-    actions = [step.action for step in plan]
-    assert "SEARCH" in actions
-    assert actions[-1] == "ANSWER"
+    assert "SEARCH" in plan.actions
+    assert plan.actions[-1] == "ANSWER"
