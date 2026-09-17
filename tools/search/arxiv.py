@@ -16,7 +16,6 @@ class ArxivSearchProvider(SearchProvider):
 
     name = "arxiv"
 
-    # 官方 API。发生 406 时再尝试官方主站入口。
     API_URLS = (
         "https://export.arxiv.org/api/query",
         "https://arxiv.org/api/query",
@@ -57,13 +56,18 @@ class ArxivSearchProvider(SearchProvider):
             "sortOrder": query.sort_order,
         }
 
-        # API 有请求频率限制；无论成功还是失败，都更新时间戳，避免连续失败轰炸 API。
         self._wait_for_rate_limit()
 
         last_error: Exception | None = None
         for index, api_url in enumerate(self.API_URLS):
             url = api_url + "?" + urllib.parse.urlencode(params)
             request = self._build_request(url)
+
+            debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
+            debug.log(
+                "ArxivSearchProvider",
+                f"REQUEST HEADERS → {dict(request.header_items())}",
+            )
             debug.log(
                 "ArxivSearchProvider",
                 f"API CALL → {api_url}"
@@ -75,10 +79,7 @@ class ArxivSearchProvider(SearchProvider):
                 return self._parse_atom(xml_data)
             except urllib.error.HTTPError as exc:
                 last_error = exc
-                debug.log(
-                    "ArxivSearchProvider",
-                    f"HTTP ERROR → {exc.code} {exc.reason}",
-                )
+                self._log_http_error(exc)
                 if exc.code != 406 or index == len(self.API_URLS) - 1:
                     break
             except Exception as exc:
@@ -89,7 +90,6 @@ class ArxivSearchProvider(SearchProvider):
                 )
                 break
 
-            # 只有发生 406 并准备切换官方入口时才再次等待。
             self._wait_for_rate_limit()
 
         raise RuntimeError(
@@ -126,7 +126,40 @@ class ArxivSearchProvider(SearchProvider):
             request,
             timeout=self.REQUEST_TIMEOUT,
         ) as response:
+            debug.log("ArxivSearchProvider", f"HTTP STATUS → {response.status}")
+            debug.log(
+                "ArxivSearchProvider",
+                f"RESPONSE HEADERS → {dict(response.headers.items())}",
+            )
             return response.read()
+
+    @staticmethod
+    def _log_http_error(exc: urllib.error.HTTPError) -> None:
+        debug.log(
+            "ArxivSearchProvider",
+            f"HTTP STATUS → {exc.code} {exc.reason}",
+        )
+        debug.log(
+            "ArxivSearchProvider",
+            f"RESPONSE HEADERS → {dict(exc.headers.items()) if exc.headers else {}}",
+        )
+
+        try:
+            body = exc.read(2048)
+        except Exception as read_exc:
+            debug.log(
+                "ArxivSearchProvider",
+                f"RESPONSE BODY → <unreadable: {type(read_exc).__name__}: {read_exc}>",
+            )
+            return
+
+        text = body.decode("utf-8", errors="replace").strip()
+        if len(text) > 1000:
+            text = text[:1000] + "..."
+        debug.log(
+            "ArxivSearchProvider",
+            f"RESPONSE BODY → {text or '<empty>'}",
+        )
 
     def _parse_atom(self, xml_data: bytes) -> list[SearchResult]:
         try:
