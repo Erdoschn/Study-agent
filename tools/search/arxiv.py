@@ -54,6 +54,13 @@ class ArxivSearchProvider(SearchProvider):
                 f"({search_expression}) AND ({category_expression})"
             )
 
+        # 记录最终送入 arXiv 的 search_query，便于定位 HTTP 406。
+        # 不改变请求内容，只增加诊断信息。
+        debug.log(
+            "ArxivSearchProvider",
+            f"FINAL SEARCH EXPRESSION → {search_expression}",
+        )
+
         params = {
             "search_query": search_expression,
             "start": 0,
