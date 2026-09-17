@@ -47,8 +47,6 @@ class ArxivSearchProvider(SearchProvider):
             category_expression = " OR ".join(
                 f"cat:{category}" for category in categories
             )
-            # arXiv API 对 OR 分类表达式支持括号；保留查询字段和分类字段
-            # 的标准布尔结构，不对整个 search expression 再包一层括号。
             search_expression = f"{search_expression} AND ({category_expression})"
 
         debug.log(
@@ -123,8 +121,9 @@ class ArxivSearchProvider(SearchProvider):
                     "StudyAgent/2.0 (educational research client; "
                     "arXiv API search)"
                 ),
-                "Accept": "*/*",
-                "Connection": "keep-alive",
+                "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
+                "Accept-Encoding": "identity",
+                "Connection": "close",
             },
         )
 
@@ -142,10 +141,7 @@ class ArxivSearchProvider(SearchProvider):
 
     @staticmethod
     def _log_http_error(exc: urllib.error.HTTPError) -> None:
-        debug.log(
-            "ArxivSearchProvider",
-            f"HTTP STATUS → {exc.code} {exc.reason}",
-        )
+        debug.log("ArxivSearchProvider", f"HTTP STATUS → {exc.code} {exc.reason}")
         debug.log(
             "ArxivSearchProvider",
             f"RESPONSE HEADERS → {dict(exc.headers.items()) if exc.headers else {}}",
@@ -161,10 +157,7 @@ class ArxivSearchProvider(SearchProvider):
         text = body.decode("utf-8", errors="replace").strip()
         if len(text) > 1000:
             text = text[:1000] + "..."
-        debug.log(
-            "ArxivSearchProvider",
-            f"RESPONSE BODY → {text or '<empty>'}",
-        )
+        debug.log("ArxivSearchProvider", f"RESPONSE BODY → {text or '<empty>'}")
 
     def _parse_atom(self, xml_data: bytes) -> list[SearchResult]:
         try:
@@ -176,9 +169,7 @@ class ArxivSearchProvider(SearchProvider):
         for entry in root.findall("atom:entry", self.NS):
             identifier_url = self._text(entry.find("atom:id", self.NS))
             title = self._normalize(self._text(entry.find("atom:title", self.NS)))
-            abstract = self._normalize(
-                self._text(entry.find("atom:summary", self.NS))
-            )
+            abstract = self._normalize(self._text(entry.find("atom:summary", self.NS)))
             published = self._text(entry.find("atom:published", self.NS))
             updated = self._text(entry.find("atom:updated", self.NS))
             html_url = self._find_html_url(entry) or identifier_url
