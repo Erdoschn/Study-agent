@@ -28,26 +28,51 @@ def load_config() -> dict[str, Any]:
         ) from exc
 
 
+def setup_debug(
+    config: dict[str, Any],
+) -> None:
+    from core.__debug__ import debug
+
+    debug.set_enabled(
+        bool(
+            config.get(
+                "debug",
+                False,
+            )
+        )
+    )
+
+
 def get_model_config(
     config: dict[str, Any],
     model_name: str,
 ) -> dict[str, Any]:
 
-    models = config.get("models", {})
+    models = config.get(
+        "models",
+        {},
+    )
 
-    model = models.get(model_name)
+    model = models.get(
+        model_name
+    )
 
     if not model:
         raise KeyError(
             f"找不到模型：{model_name}"
         )
 
-    if not model.get("enabled", False):
+    if not model.get(
+        "enabled",
+        False,
+    ):
         raise RuntimeError(
             f"模型已禁用：{model_name}"
         )
 
-    provider_name = model.get("provider")
+    provider_name = model.get(
+        "provider"
+    )
 
     providers = config.get(
         "providers",
@@ -60,7 +85,8 @@ def get_model_config(
 
     if not provider:
         raise KeyError(
-            f"找不到 Provider：{provider_name}"
+            f"找不到 Provider："
+            f"{provider_name}"
         )
 
     if not provider.get(

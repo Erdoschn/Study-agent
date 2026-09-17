@@ -1,19 +1,37 @@
 from .agent import StudyAgent
+
 from .reasoner import (
     AgentReasoner,
     ModelClient,
     OpenAICompatibleClient,
     ReasoningDecision,
 )
+
 from .state import (
     AgentState,
     AgentStep,
     StudentState,
 )
+
 from .teacher import Teacher
+
 from .tool_loop import (
     AgentToolLoop,
     ToolExecutor,
+)
+
+from .model_registry import (
+    ModelInfo,
+    ModelRegistry,
+)
+
+from .model_router import (
+    ModelRouter,
+    ModelSelection,
+)
+
+from .model_factory import (
+    ModelClientFactory,
 )
 
 __all__ = [
@@ -28,4 +46,9 @@ __all__ = [
     "Teacher",
     "AgentToolLoop",
     "ToolExecutor",
+    "ModelInfo",
+    "ModelRegistry",
+    "ModelRouter",
+    "ModelSelection",
+    "ModelClientFactory",
 ]

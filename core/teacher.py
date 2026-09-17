@@ -1,48 +1,56 @@
 import json
-
+from .__debug__ import debug
 
 class Teacher:
     """
     最终教学回答生成器。
+
+    每次生成回答时：
+        ModelRouter
+            ↓
+        动态选择模型
     """
 
     SYSTEM_PROMPT = """
 你是 Study Agent 的教学引擎。
 
-你必须根据：
-- 用户原问题
-- Agent 的任务理解
+根据：
+- 用户问题
+- Agent 目标
 - 学生状态
 - Agent 执行过程
 - 搜索证据
-- Claim 验证结果
+- Claim
 
-生成最终学习回答。
+生成最终教学回答。
 
 要求：
 
-1. 先回答用户真正的问题。
-2. 如果用户理解存在错误，要明确指出错误在哪里。
-3. 区分：
-   - 外部事实
-   - 数学/逻辑推导
-   - 实验结果
-   - 模型推断
-4. 外部事实尽量给出来源链接。
-5. 没有证据支持的内容不要伪装成确定事实。
-6. 搜索资料只能作为证据，不能因为搜到了就自动认为正确。
-7. 如果证据不足，明确说明不确定。
-8. 根据 Student Model 调整解释深度。
-9. 不要输出模型隐藏思维链。
-10. 可以给出简洁的“为什么这样判断”的决策摘要。
-
-最终答案应以正常教学文本输出。
+1. 直接回答问题。
+2. 发现学生理解错误时明确指出。
+3. 区分外部事实、推导、实验和推断。
+4. 外部资料尽量给出来源链接。
+5. 无证据支持时不要伪装成事实。
+6. 根据学生状态调整解释深度。
+7. 不输出隐藏思维链。
+8. 可以简洁说明 Agent 为什么进行了某些操作。
 """
 
-    def __init__(self, client):
-        self.client = client
+    def __init__(
+        self,
+        model_router,
+        model_factory,
+        allow_paid: bool = False,
+    ):
+        self.model_router = model_router
+        self.model_factory = model_factory
+        self.allow_paid = allow_paid
 
-    def generate(self, state) -> str:
+    def generate(
+        self,
+        state,
+    ) -> str:
+
         payload = {
             "question": state.question,
             "goal": state.goal,
@@ -63,11 +71,14 @@ class Teacher:
                 {
                     "step": step.step_id,
                     "action": step.action,
+                    "model": step.model,
                     "tool": step.tool,
                     "reasoning_summary": (
                         step.reasoning_summary
                     ),
-                    "observation": step.observation,
+                    "observation": (
+                        step.observation
+                    ),
                     "success": step.success,
                     "error": step.error,
                 }
@@ -77,11 +88,73 @@ class Teacher:
             "claims": state.claims,
         }
 
-        return self.client.generate(
-            self.SYSTEM_PROMPT,
-            json.dumps(
-                payload,
-                ensure_ascii=False,
-                indent=2,
-            ),
+        prompt = json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        debug.log(
+            "Teacher",
+            "SELECT MODEL → teaching",
+        )
+        candidates = (
+            self.model_router.select_candidates(
+                capability="teaching",
+                allow_paid=self.allow_paid,
+            )
+        )
+
+        if not candidates:
+            raise RuntimeError(
+                "没有可用于 Teacher 的模型。"
+            )
+
+        errors = []
+
+        for model in candidates:
+
+            try:
+                client = (
+                    self.model_factory.create(
+                        model
+                    )
+                )
+
+                debug.log(
+                    "Teacher",
+                    f"CALL LLM → {model.name}",
+                )
+
+                result = client.generate(
+                    self.SYSTEM_PROMPT,
+                    prompt,
+                )
+
+                debug.log(
+                    "Teacher",
+                    f"SUCCESS → {model.name}",
+                )
+
+                self.model_router.registry.record_success(
+                    model.name
+                )
+
+                return result
+
+            except Exception as exc:
+
+                self.model_router.registry.record_failure(
+                    model.name
+                )
+
+                errors.append(
+                    f"{model.name}: "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+
+        raise RuntimeError(
+            "所有 Teacher 候选模型均调用失败：\n"
+            + "\n".join(errors)
         )

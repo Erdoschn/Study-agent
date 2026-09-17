@@ -1,6 +1,6 @@
 from .base import SearchProvider
 from .models import SearchQuery, SearchResult
-
+from core.__debug__ import debug
 
 class SearchRouter:
     """
@@ -22,19 +22,43 @@ class SearchRouter:
     def available_sources(self) -> list[str]:
         return sorted(self.providers)
 
-    def search(self, query: SearchQuery) -> list[SearchResult]:
+    def search(
+        self,
+        query: SearchQuery,
+    ) -> list[SearchResult]:
+
         source = query.source.strip().lower()
 
-        if not source:
-            raise ValueError("SearchQuery.source 不能为空。")
+        debug.log(
+            "SearchRouter",
+            (
+                f"ROUTE → source={source}, "
+                f"query={query.query}"
+            ),
+        )
 
-        provider = self.providers.get(source)
+        if not source:
+            raise ValueError(
+                "SearchQuery.source 不能为空。"
+            )
+
+        provider = self.providers.get(
+            source
+        )
 
         if provider is None:
-            available = ", ".join(self.available_sources())
+            available = ", ".join(
+                self.available_sources()
+            )
+
             raise ValueError(
                 f"未知搜索源：{source}。"
                 f"可用搜索源：{available}"
             )
+
+        debug.log(
+            "SearchRouter",
+            f"PROVIDER → {provider.name}",
+        )
 
         return provider.search(query)

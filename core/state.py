@@ -3,17 +3,16 @@ from typing import Any
 
 
 @dataclass
-class ToolCall:
-    name: str
-    arguments: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class AgentStep:
     step_id: int
     action: str
+
+    model: str | None = None
     tool: str | None = None
-    arguments: dict[str, Any] = field(default_factory=dict)
+
+    arguments: dict[str, Any] = field(
+        default_factory=dict
+    )
 
     reasoning_summary: str = ""
     observation: Any = None
@@ -24,9 +23,17 @@ class AgentStep:
 
 @dataclass
 class StudentState:
-    known_topics: set[str] = field(default_factory=set)
-    weak_topics: set[str] = field(default_factory=set)
-    misconceptions: list[str] = field(default_factory=list)
+    known_topics: set[str] = field(
+        default_factory=set
+    )
+
+    weak_topics: set[str] = field(
+        default_factory=set
+    )
+
+    misconceptions: list[str] = field(
+        default_factory=list
+    )
 
 
 @dataclass
@@ -64,7 +71,10 @@ class AgentState:
     def step_count(self) -> int:
         return len(self.steps)
 
-    def add_step(self, step: AgentStep) -> None:
+    def add_step(
+        self,
+        step: AgentStep,
+    ) -> None:
         self.steps.append(step)
 
     def observations(self) -> list[Any]:

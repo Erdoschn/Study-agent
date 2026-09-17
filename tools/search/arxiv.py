@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from core.__debug__ import debug
 import time
 import urllib.parse
 import urllib.request
@@ -50,6 +50,10 @@ class ArxivSearchProvider(SearchProvider):
         """
         执行一次 arXiv 搜索。
         """
+        debug.log(
+            "ArxivSearchProvider",
+            f"SEARCH → {query.query}",
+        )
 
         if not query.query.strip():
             raise ValueError("arXiv query 不能为空。")
@@ -117,7 +121,10 @@ class ArxivSearchProvider(SearchProvider):
                 )
             },
         )
-
+        debug.log(
+        "ArxivSearchProvider",
+        "API CALL",
+        )
         try:
             with urllib.request.urlopen(
                 req,
@@ -237,7 +244,10 @@ class ArxivSearchProvider(SearchProvider):
                     ),
                 )
             )
-
+        debug.log(
+            "ArxivSearchProvider",
+            f"RESULTS → {len(results)}",
+        )
         return results
 
     def _find_html_url(self, entry) -> str:

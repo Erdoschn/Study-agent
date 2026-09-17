@@ -4,7 +4,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
-
+from .__debug__ import debug
 
 @dataclass
 class ReasoningDecision:
@@ -21,19 +21,10 @@ class ReasoningDecision:
     claims: list[dict[str, Any]] | None = None
 
     finish_reason: str = ""
+    model: str | None = None
 
 
 class ModelClient(ABC):
-    """
-    LLM 接口。
-
-    Agent 不关心底层究竟是：
-    - OpenAI
-    - Gemini
-    - DeepSeek
-    - Ollama
-    - 其他 OpenAI-compatible API
-    """
 
     @abstractmethod
     def generate(
@@ -46,15 +37,6 @@ class ModelClient(ABC):
 
 
 class OpenAICompatibleClient(ModelClient):
-    """
-    通用 OpenAI-compatible API 客户端。
-
-    可用于：
-    - OpenAI-compatible 服务
-    - 本地模型服务
-    - Ollama OpenAI-compatible endpoint
-    - 其他兼容接口
-    """
 
     def __init__(
         self,
@@ -74,6 +56,7 @@ class OpenAICompatibleClient(ModelClient):
         user_prompt: str,
         json_mode: bool = False,
     ) -> str:
+
         url = f"{self.base_url}/chat/completions"
 
         payload = {
@@ -93,16 +76,20 @@ class OpenAICompatibleClient(ModelClient):
 
         if json_mode:
             payload["response_format"] = {
-                "type": "json_object",
+                "type": "json_object"
             }
 
         request = urllib.request.Request(
             url=url,
-            data=json.dumps(payload).encode("utf-8"),
+            data=json.dumps(
+                payload
+            ).encode("utf-8"),
             method="POST",
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": (
+                    f"Bearer {self.api_key}"
+                ),
             },
         )
 
@@ -118,6 +105,7 @@ class OpenAICompatibleClient(ModelClient):
                 "utf-8",
                 errors="replace",
             )
+
             raise RuntimeError(
                 f"LLM HTTP {exc.code}: {body}"
             ) from exc
@@ -133,7 +121,9 @@ class OpenAICompatibleClient(ModelClient):
                 raw.decode("utf-8")
             )
 
-            return data["choices"][0]["message"]["content"]
+            return data["choices"][0][
+                "message"
+            ]["content"]
 
         except Exception as exc:
             raise RuntimeError(
@@ -142,93 +132,187 @@ class OpenAICompatibleClient(ModelClient):
 
 
 class AgentReasoner:
-    """
-    Agent 的核心推理器。
-
-    输入：
-        当前 AgentState
-
-    输出：
-        一个结构化行动决策。
-
-    注意：
-        模型只提供“决策摘要”。
-        不把隐藏内部思维链暴露给最终用户。
-    """
 
     SYSTEM_PROMPT = """
 你是 Study Agent 的核心决策器。
 
-你的任务不是直接回答用户，而是决定 Agent 下一步应该做什么。
+你不是最终回答器。
+你的任务是分析当前 Agent 状态，并决定下一步行动。
 
-你可以选择：
+可选 action：
 
 SEARCH
-    使用搜索工具获取外部资料。
-
 CALCULATE
-    使用计算工具。
-
 VERIFY
-    验证已有关键结论或 Claim。
-
 ANSWER
-    当前信息已经足够，可以生成最终回答。
-
 STOP
-    当前无法继续执行。
 
-你的决策必须基于：
-1. 用户真正的问题和目标
-2. 当前已经掌握的信息
-3. 已经执行过的工具
-4. 当前仍然缺少的信息
-5. 是否需要外部证据
-6. 是否需要验证关键结论
+决策必须考虑：
+
+1. 用户真正想解决什么问题
+2. 当前已经知道什么
+3. 当前还缺什么
+4. 是否需要外部资料
+5. 已经执行过哪些工具
+6. 搜索结果是否足够
+7. 是否需要验证
+8. 是否应该继续行动
 
 重要规则：
-- 不要因为出现某个关键词就机械搜索。
-- 可以多轮行动。
-- 工具返回结果后必须重新判断。
-- 不确定时优先获取证据，而不是编造。
-- 数学推导可以直接推理，不需要强行搜索。
-- 外部事实、最新信息、论文结论等应尽量获得来源。
-- 不得把未经验证的推测当成事实。
-- VERIFY 用于重要 Claim 的验证。
-- ANSWER 只能在信息足够时使用。
 
-只输出 JSON，不要输出 Markdown。
+- 不要因为关键词出现就机械调用工具。
+- 工具返回结果后必须重新分析。
+- 信息不足时可以再次行动。
+- 不确定时不要编造。
+- 外部事实、最新信息、论文结论尽量获得证据。
+- 数学推导不需要为了“有来源”而强行搜索。
+- ANSWER 表示信息已经足够，可以交给 Teacher 生成最终答案。
+- 不输出隐藏思维链，只输出简洁、可审计的 reasoning_summary。
 
-JSON 格式：
+必须只输出 JSON：
 
 {
   "action": "SEARCH|CALCULATE|VERIFY|ANSWER|STOP",
-  "reasoning_summary": "对当前决策的简洁依据",
-  "tool": "工具名，没有工具时为 null",
+  "reasoning_summary": "...",
+  "tool": null,
   "arguments": {},
-  "goal": "用户真正目标",
-  "task_type": "任务类型",
-  "domain": "问题领域",
+  "goal": "...",
+  "task_type": "...",
+  "domain": "...",
   "claims": [],
-  "finish_reason": "只有 ANSWER/STOP 时填写"
+  "finish_reason": "..."
 }
+
+其中 reasoning_summary 是决策依据摘要，不是隐藏思维链。
 """
 
-    def __init__(self, client: ModelClient):
-        self.client = client
+    def __init__(
+        self,
+        model_router,
+        model_factory,
+        allow_paid: bool = False,
+    ):
+        self.model_router = model_router
+        self.model_factory = model_factory
+        self.allow_paid = allow_paid
 
-    def decide(self, state) -> ReasoningDecision:
-        prompt = self._build_prompt(state)
+    def decide(self, state):
 
-        raw = self.client.generate(
-            self.SYSTEM_PROMPT,
-            prompt,
-            json_mode=True,
-        )
+        with debug.scope(
+            "AgentReasoner",
+            f"DECIDE → step={state.step_count + 1}",
+        ):
 
-        return self._parse(raw)
+            prompt = self._build_prompt(
+                state
+            )
 
-    def _build_prompt(self, state) -> str:
+            debug.log(
+                "AgentReasoner",
+                f"PROMPT → {len(prompt)} chars",
+            )
+
+            excluded: set[str] = set()
+
+            candidates = (
+                self.model_router.select_candidates(
+                    capability="reasoning",
+                    allow_paid=self.allow_paid,
+                    exclude=excluded,
+                )
+            )
+
+            if not candidates:
+                raise RuntimeError(
+                    "没有可用于 Reasoning 的模型。"
+                )
+
+            errors = []
+
+            for model in candidates:
+
+                debug.log(
+                    "AgentReasoner",
+                    f"TRY MODEL → {model.name}",
+                )
+
+                try:
+                    client = (
+                        self.model_factory.create(
+                            model
+                        )
+                    )
+
+                    debug.log(
+                        "AgentReasoner",
+                        f"CALL LLM → {model.name}",
+                    )
+
+                    raw = client.generate(
+                        self.SYSTEM_PROMPT,
+                        prompt,
+                        json_mode=True,
+                    )
+
+                    debug.log(
+                        "AgentReasoner",
+                        f"LLM RETURN → "
+                        f"{len(raw)} chars",
+                    )
+
+                    decision = self._parse(
+                        raw
+                    )
+
+                    self.model_router.registry.record_success(
+                        model.name
+                    )
+
+                    decision.model = model.name
+
+                    debug.log(
+                        "AgentReasoner",
+                        f"ACTION → "
+                        f"{decision.action}",
+                    )
+
+                    if decision.tool:
+                        debug.log(
+                            "AgentReasoner",
+                            f"TOOL → {decision.tool}",
+                        )
+
+                    return decision
+
+                except Exception as exc:
+
+                    self.model_router.registry.record_failure(
+                        model.name
+                    )
+
+                    excluded.add(
+                        model.name
+                    )
+
+                    debug.log(
+                        "AgentReasoner",
+                        f"MODEL FAILED → "
+                        f"{model.name}",
+                    )
+
+                    errors.append(
+                        f"{model.name}: "
+                        f"{type(exc).__name__}: "
+                        f"{exc}"
+                    )
+
+            raise RuntimeError(
+                "所有 Reasoner 候选模型均调用失败：\n"
+                + "\n".join(errors)
+            )
+
+    def _build_prompt(self, state):
+
         observations = []
 
         for step in state.steps:
@@ -236,6 +320,7 @@ JSON 格式：
                 {
                     "step": step.step_id,
                     "action": step.action,
+                    "model": step.model,
                     "tool": step.tool,
                     "arguments": step.arguments,
                     "reasoning_summary": (
@@ -281,17 +366,23 @@ JSON 格式：
             indent=2,
         )
 
-    def _parse(self, raw: str) -> ReasoningDecision:
+    @staticmethod
+    def _parse(raw):
+
         try:
             data = json.loads(raw)
+
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Reasoner 返回的不是有效 JSON：{exc}\n"
-                f"原始输出：{raw}"
+                f"Reasoner JSON 解析失败："
+                f"{exc}\n原始输出：{raw}"
             ) from exc
 
         action = str(
-            data.get("action", "")
+            data.get(
+                "action",
+                "",
+            )
         ).upper()
 
         valid_actions = {
@@ -304,17 +395,29 @@ JSON 格式：
 
         if action not in valid_actions:
             raise RuntimeError(
-                f"Reasoner 返回了未知 action：{action}"
+                f"未知 action：{action}"
             )
 
-        arguments = data.get("arguments")
+        arguments = data.get(
+            "arguments",
+            {},
+        )
 
-        if not isinstance(arguments, dict):
+        if not isinstance(
+            arguments,
+            dict,
+        ):
             arguments = {}
 
-        claims = data.get("claims")
+        claims = data.get(
+            "claims",
+            [],
+        )
 
-        if not isinstance(claims, list):
+        if not isinstance(
+            claims,
+            list,
+        ):
             claims = []
 
         return ReasoningDecision(
@@ -331,13 +434,29 @@ JSON 格式：
                 else None
             ),
             arguments=arguments,
-            goal=str(data.get("goal", "")),
-            task_type=str(
-                data.get("task_type", "")
+            goal=str(
+                data.get(
+                    "goal",
+                    "",
+                )
             ),
-            domain=str(data.get("domain", "")),
+            task_type=str(
+                data.get(
+                    "task_type",
+                    "",
+                )
+            ),
+            domain=str(
+                data.get(
+                    "domain",
+                    "",
+                )
+            ),
             claims=claims,
             finish_reason=str(
-                data.get("finish_reason", "")
+                data.get(
+                    "finish_reason",
+                    "",
+                )
             ),
         )

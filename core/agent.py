@@ -1,6 +1,6 @@
 from .state import AgentState
 from .tool_loop import AgentToolLoop
-
+from .__debug__ import debug
 
 class StudyAgent:
     """
@@ -43,49 +43,91 @@ class StudyAgent:
         student_state=None,
     ) -> AgentState:
 
-        state = AgentState(
-            question=question,
-            max_steps=self.max_steps,
-        )
+        with debug.scope(
+            "StudyAgent",
+            "RUN",
+        ):
 
-        if student_state is not None:
-            state.student = student_state
+            debug.log(
+                "StudyAgent",
+                f"QUESTION → {question}",
+            )
 
-        loop = AgentToolLoop(
-            self.reasoner,
-            self.tool_executor,
-        )
+            state = AgentState(
+                question=question,
+                max_steps=self.max_steps,
+            )
 
-        state = loop.run(state)
+            if student_state is not None:
+                state.student = student_state
 
-        if state.final_answer is None:
-            if state.error:
-                state.final_answer = (
-                    "Agent 未能完成任务。\n\n"
-                    f"原因：{state.error}"
-                )
-            else:
-                try:
+            debug.log(
+                "StudyAgent",
+                "START → AgentToolLoop",
+            )
+
+            loop = AgentToolLoop(
+                self.reasoner,
+                self.tool_executor,
+            )
+
+            state = loop.run(
+                state
+            )
+
+            debug.log(
+                "StudyAgent",
+                f"LOOP FINISHED → "
+                f"steps={state.step_count}",
+            )
+
+            if state.final_answer is None:
+
+                if state.error:
+
                     state.final_answer = (
-                        self.teacher.generate(
-                            state
+                        "Agent 未能完成任务。\n\n"
+                        f"原因：{state.error}"
+                    )
+
+                else:
+
+                    debug.log(
+                        "StudyAgent",
+                        "TEACHER → generate",
+                    )
+
+                    try:
+
+                        state.final_answer = (
+                            self.teacher.generate(
+                                state
+                            )
                         )
-                    )
-                except Exception as exc:
-                    state.error = (
-                        f"Teacher 执行失败："
-                        f"{type(exc).__name__}: {exc}"
-                    )
 
-                    state.final_answer = (
-                        "Agent 已完成推理，但"
-                        "最终教学回答生成失败。\n\n"
-                        f"{state.error}"
-                    )
+                    except Exception as exc:
 
-        self._update_student_model(state)
+                        state.error = (
+                            f"Teacher 执行失败："
+                            f"{type(exc).__name__}: "
+                            f"{exc}"
+                        )
 
-        return state
+                        state.final_answer = (
+                            "最终教学回答生成失败。\n\n"
+                            f"{state.error}"
+                        )
+
+            self._update_student_model(
+                state
+            )
+
+            debug.log(
+                "StudyAgent",
+                "STUDENT MODEL → updated",
+            )
+
+            return state
 
     def _update_student_model(
         self,
