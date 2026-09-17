@@ -47,8 +47,8 @@ class ArxivSearchProvider(SearchProvider):
             category_expression = " OR ".join(
                 f"cat:{category}" for category in categories
             )
-            # arXiv API 支持布尔表达式。这里保持字段表达式本身不再额外套
-            # 一层括号，避免某些 HTTP/CDN 路径对编码后的复杂查询产生 406。
+            # arXiv API 对 OR 分类表达式支持括号；保留查询字段和分类字段
+            # 的标准布尔结构，不对整个 search expression 再包一层括号。
             search_expression = f"{search_expression} AND ({category_expression})"
 
         debug.log(
