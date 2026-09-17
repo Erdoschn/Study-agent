@@ -12,14 +12,25 @@ from .models import SearchError, SearchQuery, SearchResponse, SearchResult
 
 
 class ArxivSearchProvider(SearchProvider):
-    """arXiv Atom API provider with transport isolation and endpoint fallback."""
+    """arXiv Atom API provider with shared HTTP transport and endpoint fallback."""
 
     name = "arxiv"
+
+    # Keep the original public contract for existing callers/tests.
     API_URL = "https://export.arxiv.org/api/query"
     API_URLS = (
         "https://export.arxiv.org/api/query",
         "https://arxiv.org/api/query",
     )
+
+    # arXiv's own documentation uses the HTTP form of these endpoints as a
+    # supported API entry point. They are useful as a transport fallback when
+    # HTTPS is rejected by an intermediate network/proxy with 406.
+    FALLBACK_API_URLS = (
+        "http://export.arxiv.org/api/query",
+        "http://arxiv.org/api/query",
+    )
+
     MIN_REQUEST_INTERVAL = 3.0
     REQUEST_TIMEOUT = 30.0
     MAX_RESULTS = 50
@@ -39,6 +50,15 @@ class ArxivSearchProvider(SearchProvider):
         self.api_urls = (api_url,) if api_url else self.API_URLS
         self._last_request_time = 0.0
 
+    @property
+    def endpoints(self) -> tuple[str, ...]:
+        """Return configured endpoints without introducing duplicates."""
+        ordered: list[str] = []
+        for endpoint in (*self.api_urls, *self.FALLBACK_API_URLS):
+            if endpoint not in ordered:
+                ordered.append(endpoint)
+        return tuple(ordered)
+
     def search(self, query: SearchQuery) -> list[SearchResult]:
         response = self.search_detailed(query)
         if not response.success:
@@ -53,10 +73,12 @@ class ArxivSearchProvider(SearchProvider):
             search_query = self._build_search_query(
                 query.query.strip(), query.categories
             )
-            self._wait_for_rate_limit()
 
             last_error: HttpRequestError | None = None
-            for endpoint in self.api_urls:
+            endpoints = self.endpoints
+
+            for index, endpoint in enumerate(endpoints):
+                self._wait_for_rate_limit()
                 url = self._build_url(search_query, query, endpoint)
                 debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
                 debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
@@ -65,10 +87,14 @@ class ArxivSearchProvider(SearchProvider):
                     response = self.http.get(url, headers=self._headers())
                 except HttpRequestError as exc:
                     last_error = exc
-                    if exc.status_code == 406 and endpoint != self.api_urls[-1]:
+                    should_fallback = (
+                        exc.status_code == 406 and index < len(endpoints) - 1
+                    )
+                    if should_fallback:
+                        next_endpoint = endpoints[index + 1]
                         debug.log(
                             "ArxivSearchProvider",
-                            f"ENDPOINT FALLBACK → {endpoint} → next endpoint",
+                            f"ENDPOINT FALLBACK → {endpoint} → {next_endpoint}",
                         )
                         continue
                     raise
@@ -85,6 +111,8 @@ class ArxivSearchProvider(SearchProvider):
                         "status_code": response.status,
                         "url": url,
                         "endpoint": endpoint,
+                        "endpoint_index": index,
+                        "endpoint_count": len(endpoints),
                     },
                 )
 
@@ -111,11 +139,12 @@ class ArxivSearchProvider(SearchProvider):
 
     @staticmethod
     def _headers() -> dict[str, str]:
+        # Keep the request deliberately simple. In particular, do not force
+        # content negotiation or persistent connections; those can cause
+        # 406/connection problems on some proxies even though the arXiv API
+        # itself supports a normal Atom response.
         return {
             "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
-            "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
-            "Accept-Encoding": "identity",
-            "Connection": "close",
         }
 
     @classmethod
