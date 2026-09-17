@@ -38,6 +38,12 @@ class ArxivSearchProvider(SearchProvider):
 
         max_results = max(1, min(query.max_results, 50))
         search_expression = query.query.strip()
+
+        # 对裸文本/短语明确指定 all:，避免 arXiv 查询解析器把带连字符的
+        # 引号短语按复杂布尔表达式处理。已有字段前缀/布尔表达式保持原样。
+        if search_expression.startswith('"') and search_expression.endswith('"'):
+            search_expression = f"all:{search_expression}"
+
         categories = [c.strip() for c in query.categories if c.strip()]
 
         if categories:
