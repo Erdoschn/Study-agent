@@ -4,6 +4,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Callable
 
 from core.__debug__ import debug
 
@@ -40,7 +41,11 @@ class HttpRequestError(RuntimeError):
 
 
 class HttpClient:
-    """Small stdlib-only HTTP transport shared by search providers."""
+    """Shared stdlib HTTP transport.
+
+    The opener is resolved dynamically by default so existing tests that
+    monkeypatch urllib.request.urlopen continue to exercise the real path.
+    """
 
     RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
@@ -50,21 +55,36 @@ class HttpClient:
         timeout: float = 30.0,
         retries: int = 2,
         backoff_seconds: float = 2.0,
+        opener: Callable | None = None,
     ) -> None:
         self.timeout = timeout
         self.retries = max(0, retries)
         self.backoff_seconds = max(0.0, backoff_seconds)
+        self._opener = opener
 
-    def get(self, url: str, *, headers: dict[str, str] | None = None) -> HttpResponse:
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> HttpResponse:
         total_attempts = self.retries + 1
         started = time.monotonic()
 
         for attempt in range(1, total_attempts + 1):
-            debug.log("HttpClient", f"GET attempt={attempt}/{total_attempts} → {url}")
-            request = urllib.request.Request(url=url, method="GET", headers=headers or {})
+            debug.log(
+                "HttpClient",
+                f"GET attempt={attempt}/{total_attempts} → {url}",
+            )
+            request = urllib.request.Request(
+                url=url,
+                method="GET",
+                headers=headers or {},
+            )
 
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                opener = self._opener or urllib.request.urlopen
+                with opener(request, timeout=self.timeout) as response:
                     body = response.read()
                     return HttpResponse(
                         status=response.status,
@@ -83,7 +103,7 @@ class HttpClient:
                 )
                 if not retryable or attempt >= total_attempts:
                     raise HttpRequestError(
-                        f"HTTP 请求失败：{exc.code} {exc.reason}",
+                        f"HTTPError: HTTP Error {exc.code}: {exc.reason}",
                         status_code=exc.code,
                         reason=str(exc.reason or ""),
                         response_body=body,
@@ -92,7 +112,10 @@ class HttpClient:
                     ) from exc
             except urllib.error.URLError as exc:
                 reason = str(exc.reason)
-                debug.log("HttpClient", f"NETWORK ERROR attempt={attempt}: {reason}")
+                debug.log(
+                    "HttpClient",
+                    f"NETWORK ERROR attempt={attempt}: {reason}",
+                )
                 if attempt >= total_attempts:
                     raise HttpRequestError(
                         f"网络请求失败：{reason}",
