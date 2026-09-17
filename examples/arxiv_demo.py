@@ -1,10 +1,41 @@
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
 from tools.search import (
     ArxivSearchProvider,
     SearchQuery,
 )
 
 
+def diagnose_arxiv_http():
+    url = "https://export.arxiv.org/api/query?search_query=all%3Aelectron&start=0&max_results=1"
+    print("=== 独立 urllib 诊断 ===")
+    print(f"URL: {url}")
+
+    request = Request(url, method="GET")
+    request.add_header("User-Agent", "StudyAgent/2.0")
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            body = response.read(2048).decode("utf-8", errors="replace")
+            print(f"HTTP STATUS: {response.status}")
+            print(f"RESPONSE HEADERS: {dict(response.headers)}")
+            print(f"RESPONSE BODY: {body[:1000]}")
+    except HTTPError as exc:
+        print(f"HTTP STATUS: {exc.code} {exc.reason}")
+        print(f"RESPONSE HEADERS: {dict(exc.headers)}")
+        body = exc.read(2048).decode("utf-8", errors="replace")
+        print(f"RESPONSE BODY: {body[:1000]}")
+    except URLError as exc:
+        print(f"URL ERROR: {exc}")
+    except Exception as exc:
+        print(f"UNEXPECTED ERROR: {type(exc).__name__}: {exc}")
+
+
 def main():
+    diagnose_arxiv_http()
+    print("\n=== ArxivSearchProvider 原测试 ===")
+
     provider = ArxivSearchProvider()
 
     query = SearchQuery(
@@ -18,7 +49,6 @@ def main():
 
     try:
         results = provider.search(query)
-
     except Exception as exc:
         print(f"搜索失败：{exc}")
         return
