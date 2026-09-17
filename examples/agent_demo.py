@@ -74,7 +74,7 @@ def build_agent(
     reasoner = AgentReasoner(
         model_router=model_router,
         model_factory=model_factory,
-        allow_paid=False,
+        allow_paid=True,  # 允许付费模型，便于测试
     )
 
     # -----------------------------
