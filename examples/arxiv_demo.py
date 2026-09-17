@@ -29,30 +29,6 @@ def _request_and_print(label: str, url: str, headers: dict[str, str] | None = No
 
 def diagnose_arxiv_http() -> None:
     base = "https://export.arxiv.org/api/query"
-    query = SearchQuery(
-        query='"multi-head attention"',
-        source="arxiv",
-        categories=["cs.LG", "cs.CL"],
-        max_results=5,
-        sort_by="relevance",
-        sort_order="descending",
-    )
-
-    search_expression = query.query.strip()
-    categories = [c.strip() for c in query.categories if c.strip()]
-    if categories:
-        category_expression = " OR ".join(f"cat:{category}" for category in categories)
-        search_expression = f"({search_expression}) AND ({category_expression})"
-
-    params = {
-        "search_query": search_expression,
-        "start": 0,
-        "max_results": max(1, min(query.max_results, 50)),
-        "sortBy": query.sort_by,
-        "sortOrder": query.sort_order,
-    }
-    url = base + "?" + urllib.parse.urlencode(params)
-
     headers = {
         "User-Agent": (
             "StudyAgent/2.0 (educational research client; "
@@ -63,10 +39,29 @@ def diagnose_arxiv_http() -> None:
         "Connection": "close",
     }
 
-    print("=== 实际 ArxivSearchProvider 查询独立诊断 ===")
-    print(f"SEARCH EXPRESSION: {search_expression}")
-    print(f"PARAMS: {params}")
-    _request_and_print("完整 Provider 请求", url, headers)
+    expressions = [
+        "all:electron",
+        '"multi-head attention"',
+        'all:"multi-head attention"',
+        "cat:cs.LG",
+        "cat:cs.CL",
+        "cat:cs.LG OR cat:cs.CL",
+        '("multi-head attention") AND cat:cs.LG',
+        '("multi-head attention") AND (cat:cs.LG OR cat:cs.CL)',
+    ]
+
+    print("=== arXiv search_query 分步诊断 ===")
+    for index, expression in enumerate(expressions, 1):
+        params = {
+            "search_query": expression,
+            "start": 0,
+            "max_results": 5,
+            "sortBy": "relevance",
+            "sortOrder": "descending",
+        }
+        url = base + "?" + urllib.parse.urlencode(params)
+        print(f"\n[{index}] SEARCH EXPRESSION: {expression}")
+        _request_and_print(f"query case {index}", url, headers)
 
 
 def main() -> None:
