@@ -21,6 +21,7 @@ def test_arxiv_provider_structure():
     provider = ArxivSearchProvider()
     assert provider.name == "arxiv"
     assert len(provider.API_URLS) == 2
+    assert len(provider.endpoints) == 4
 
 
 def test_wikipedia_provider_structure():
@@ -97,7 +98,6 @@ def test_arxiv_query_building(monkeypatch):
     assert results[0].identifier == "1234.5678"
     assert captured["timeout"] == 30
     assert "User-agent" in captured["headers"]
-    assert "Accept" in captured["headers"]
     assert "transformer" in captured["url"]
     assert "cat%3Acs.LG" in captured["url"]
 
@@ -167,6 +167,29 @@ def test_arxiv_406_fallback(monkeypatch):
     monkeypatch.setattr("tools.search.arxiv.time.sleep", lambda _: None)
     assert provider.search(SearchQuery(query="transformer")) == []
     assert calls == list(provider.API_URLS)
+
+
+def test_arxiv_all_406_endpoints(monkeypatch):
+    provider = ArxivSearchProvider(http_client=HttpClient(retries=0))
+    provider._last_request_time = 0
+    calls = []
+
+    def fake_urlopen(request, timeout=30):
+        calls.append(request.full_url.split("?", 1)[0])
+        raise urllib.error.HTTPError(
+            request.full_url, 406, "Not Acceptable", hdrs=None, fp=None
+        )
+
+    monkeypatch.setattr("tools.search.arxiv.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("tools.search.arxiv.time.sleep", lambda _: None)
+
+    response = provider.search_detailed(SearchQuery(query="transformer"))
+
+    assert response.success is False
+    assert response.error is not None
+    assert response.error.stage == "http"
+    assert response.error.status_code == 406
+    assert calls == list(provider.endpoints)
 
 
 def test_arxiv_non_406_error(monkeypatch):
@@ -266,9 +289,7 @@ def test_wikipedia_detailed_response_http_error():
                 attempts=3,
             )
 
-    provider = WikipediaSearchProvider(
-        http_client=FakeHttpClient()
-    )
+    provider = WikipediaSearchProvider(http_client=FakeHttpClient())
     provider._last_request_time = 0
     response = provider.search_detailed(SearchQuery(query="transformer"))
 
