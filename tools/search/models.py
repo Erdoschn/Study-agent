@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,3 +28,35 @@ class SearchResult:
     relevance_score: float | None = None
     source_type: str = "unknown"
     notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SearchError:
+    """Structured search failure information.
+
+    Keeping the failure data separate from the provider makes it possible for
+    the Study Agent to distinguish HTTP, network, validation and parse errors.
+    """
+
+    provider: str
+    stage: str
+    message: str
+    status_code: int | None = None
+    reason: str = ""
+    response_body: str = ""
+    retryable: bool = False
+    attempts: int = 1
+
+
+@dataclass
+class SearchResponse:
+    """Unified result returned by the modern router API."""
+
+    query: SearchQuery
+    provider: str
+    results: list[SearchResult] = field(default_factory=list)
+    success: bool = True
+    elapsed_seconds: float = 0.0
+    attempts: int = 1
+    error: SearchError | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
