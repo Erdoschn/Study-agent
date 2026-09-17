@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -7,61 +8,54 @@ import urllib.request
 from tools.search import ArxivSearchProvider, SearchQuery
 
 
-def _request_and_print(label: str, url: str, headers: dict[str, str] | None = None) -> None:
+HEADERS = {
+    "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
+    "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
+    "Accept-Encoding": "identity",
+    "Connection": "close",
+}
+
+
+def request_once(label: str, base_url: str) -> None:
+    params = {
+        "search_query": "all:electron",
+        "start": 0,
+        "max_results": 1,
+        "sortBy": "relevance",
+        "sortOrder": "descending",
+    }
+    url = base_url + "?" + urllib.parse.urlencode(params)
     print(f"\n--- {label} ---")
     print(f"URL: {url}")
-    request = urllib.request.Request(url=url, method="GET", headers=headers or {})
-    print(f"REQUEST HEADERS: {dict(request.header_items())}")
     try:
+        request = urllib.request.Request(url=url, method="GET", headers=HEADERS)
         with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read(2048).decode("utf-8", errors="replace")
+            body = response.read(512).decode("utf-8", errors="replace")
             print(f"HTTP STATUS: {response.status} {response.reason}")
-            print(f"RESPONSE HEADERS: {dict(response.headers)}")
-            print(f"RESPONSE BODY: {body[:1000]}")
+            print(f"CONTENT-TYPE: {response.headers.get('Content-Type')}")
+            print(f"RESPONSE BODY: {body[:300]}")
     except urllib.error.HTTPError as exc:
         print(f"HTTP STATUS: {exc.code} {exc.reason}")
         print(f"RESPONSE HEADERS: {dict(exc.headers)}")
-        body = exc.read(2048).decode("utf-8", errors="replace")
-        print(f"RESPONSE BODY: {body[:1000]}")
+        body = exc.read(512).decode("utf-8", errors="replace")
+        print(f"RESPONSE BODY: {body[:300]}")
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc}")
 
 
 def diagnose_arxiv_http() -> None:
-    base = "https://export.arxiv.org/api/query"
-    headers = {
-        "User-Agent": (
-            "StudyAgent/2.0 (educational research client; "
-            "arXiv API search)"
-        ),
-        "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
-        "Accept-Encoding": "identity",
-        "Connection": "close",
-    }
+    print("=== arXiv 5 秒间隔最小诊断 ===")
+    print("只使用 all:electron；每个 endpoint 仅请求 2 次，中间等待 5 秒。")
 
-    expressions = [
-        "all:electron",
-        '"multi-head attention"',
-        'all:"multi-head attention"',
-        "cat:cs.LG",
-        "cat:cs.CL",
-        "cat:cs.LG OR cat:cs.CL",
-        '("multi-head attention") AND cat:cs.LG',
-        '("multi-head attention") AND (cat:cs.LG OR cat:cs.CL)',
-    ]
-
-    print("=== arXiv search_query 分步诊断 ===")
-    for index, expression in enumerate(expressions, 1):
-        params = {
-            "search_query": expression,
-            "start": 0,
-            "max_results": 5,
-            "sortBy": "relevance",
-            "sortOrder": "descending",
-        }
-        url = base + "?" + urllib.parse.urlencode(params)
-        print(f"\n[{index}] SEARCH EXPRESSION: {expression}")
-        _request_and_print(f"query case {index}", url, headers)
+    for base_url in (
+        "https://export.arxiv.org/api/query",
+        "https://arxiv.org/api/query",
+    ):
+        host = urllib.parse.urlparse(base_url).netloc
+        request_once(f"{host} · 第 1 次", base_url)
+        print("等待 5 秒，不发送任何请求……")
+        time.sleep(5)
+        request_once(f"{host} · 5 秒后第 2 次", base_url)
 
 
 def main() -> None:
