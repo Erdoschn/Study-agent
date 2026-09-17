@@ -39,8 +39,11 @@ class ArxivSearchProvider(SearchProvider):
         max_results = max(1, min(query.max_results, 50))
         search_expression = query.query.strip()
 
+        # arXiv Search API 对连字符词存在已知解析问题；将带连字符的
+        # 精确短语规范化为空格短语，避免把 '-' 解释成查询运算符。
         if search_expression.startswith('"') and search_expression.endswith('"'):
-            search_expression = f"all:{search_expression}"
+            phrase = search_expression[1:-1].replace("-", " ")
+            search_expression = f'all:"{phrase}"'
 
         categories = [c.strip() for c in query.categories if c.strip()]
         if categories:
