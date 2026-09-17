@@ -1,82 +1,122 @@
 from __future__ import annotations
 
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 
 from core.__debug__ import debug
 from .base import SearchProvider
-from .models import SearchQuery, SearchResult
+from .http import HttpClient, HttpRequestError
+from .models import SearchError, SearchQuery, SearchResponse, SearchResult
 
 
 class ArxivSearchProvider(SearchProvider):
-    """arXiv Atom API 搜索提供器。"""
+    """arXiv Atom API 搜索提供器。
+
+    Provider 只负责：
+      1. 校验/构造 arXiv 查询
+      2. 解析 Atom
+      3. 把传输错误转换成搜索层错误
+
+    HTTP 重试、超时、网络错误等统一交给 HttpClient。
+    """
 
     name = "arxiv"
     API_URL = "https://export.arxiv.org/api/query"
     MIN_REQUEST_INTERVAL = 3.0
-    REQUEST_TIMEOUT = 30
-    _last_request_time = 0.0
+    REQUEST_TIMEOUT = 30.0
+    MAX_RESULTS = 50
 
     NS = {
         "atom": "http://www.w3.org/2005/Atom",
         "arxiv": "http://arxiv.org/schemas/atom",
     }
 
-    def search(self, query: SearchQuery) -> list[SearchResult]:
-        text = query.query.strip()
-        if not text:
-            raise ValueError("arXiv query 不能为空。")
+    def __init__(
+        self,
+        *,
+        http_client: HttpClient | None = None,
+        api_url: str | None = None,
+    ) -> None:
+        self.http = http_client or HttpClient(timeout=self.REQUEST_TIMEOUT)
+        self.api_url = api_url or self.API_URL
+        self._last_request_time = 0.0
 
-        search_query = self._build_search_query(text, query.categories)
+    def search(self, query: SearchQuery) -> list[SearchResult]:
+        response = self.search_detailed(query)
+        if not response.success:
+            assert response.error is not None
+            raise RuntimeError(response.error.message)
+        return response.results
+
+    def search_detailed(self, query: SearchQuery) -> SearchResponse:
+        started = time.monotonic()
+        try:
+            self._validate_query(query)
+            search_query = self._build_search_query(
+                query.query.strip(), query.categories
+            )
+            url = self._build_url(search_query, query)
+
+            debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
+            debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
+
+            self._wait_for_rate_limit()
+            response = self.http.get(
+                url,
+                headers={
+                    "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
+                    "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
+                    "Accept-Encoding": "identity",
+                    "Connection": "close",
+                },
+            )
+            results = self._parse_atom(response.body)
+            return SearchResponse(
+                query=query,
+                provider=self.name,
+                results=results,
+                success=True,
+                elapsed_seconds=time.monotonic() - started,
+                attempts=response.attempts,
+                metadata={"status_code": response.status, "url": url},
+            )
+        except ValueError as exc:
+            return self._failure(query, started, "validation", str(exc))
+        except HttpRequestError as exc:
+            return self._failure(
+                query,
+                started,
+                "http",
+                str(exc),
+                status_code=exc.status_code,
+                reason=exc.reason,
+                response_body=exc.response_body,
+                retryable=exc.retryable,
+                attempts=exc.attempts,
+            )
+        except RuntimeError as exc:
+            return self._failure(query, started, "parse", str(exc))
+
+    @classmethod
+    def _validate_query(cls, query: SearchQuery) -> None:
+        if not query.query.strip():
+            raise ValueError("arXiv query 不能为空。")
+        if query.max_results < 1:
+            raise ValueError("arXiv max_results 必须大于 0。")
+
+    def _build_url(self, search_query: str, query: SearchQuery) -> str:
         params = {
             "search_query": search_query,
             "start": "0",
-            "max_results": str(max(1, min(query.max_results, 50))),
+            "max_results": str(max(1, min(query.max_results, self.MAX_RESULTS))),
             "sortBy": query.sort_by or "relevance",
             "sortOrder": query.sort_order or "descending",
         }
-        url = f"{self.API_URL}?{urllib.parse.urlencode(params)}"
-
-        debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
-        debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
-
-        self._wait_for_rate_limit()
-        request = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
-                "Accept": "application/atom+xml",
-            },
-        )
-
-        try:
-            with urllib.request.urlopen(request, timeout=self.REQUEST_TIMEOUT) as response:
-                if response.status != 200:
-                    raise RuntimeError(f"arXiv API HTTP {response.status}")
-                data = response.read()
-        except urllib.error.HTTPError as exc:
-            try:
-                body = exc.read(2048).decode("utf-8", errors="replace").strip()
-            except Exception:
-                body = ""
-            debug.log(
-                "ArxivSearchProvider",
-                f"HTTP ERROR → {exc.code} {exc.reason}; body={body or '<empty>'}",
-            )
-            raise RuntimeError(
-                f"arXiv API 请求失败：HTTPError: HTTP Error {exc.code}: {exc.reason}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"arXiv API 网络请求失败：{exc.reason}") from exc
-
-        return self._parse_atom(data)
+        return f"{self.api_url}?{urllib.parse.urlencode(params)}"
 
     @staticmethod
     def _build_search_query(text: str, categories: list[str]) -> str:
-        """只负责生成 arXiv search_query；不混入 HTTP 层逻辑。"""
         if text.startswith('"') and text.endswith('"'):
             phrase = text[1:-1].strip()
             expression = f'all:"{phrase}"'
@@ -90,13 +130,12 @@ class ArxivSearchProvider(SearchProvider):
             expression += " AND (" + " OR ".join(cats) + ")"
         return expression
 
-    @classmethod
-    def _wait_for_rate_limit(cls) -> None:
-        now = time.monotonic()
-        delay = cls.MIN_REQUEST_INTERVAL - (now - cls._last_request_time)
+    def _wait_for_rate_limit(self) -> None:
+        elapsed = time.monotonic() - self._last_request_time
+        delay = self.MIN_REQUEST_INTERVAL - elapsed
         if delay > 0:
             time.sleep(delay)
-        cls._last_request_time = time.monotonic()
+        self._last_request_time = time.monotonic()
 
     def _parse_atom(self, data: bytes) -> list[SearchResult]:
         try:
@@ -122,11 +161,36 @@ class ArxivSearchProvider(SearchProvider):
                     published=self._text(entry.find("atom:published", self.NS)),
                     updated=self._text(entry.find("atom:updated", self.NS)),
                     identifier=self._extract_id(identifier),
+                    raw=entry,
                 )
             )
 
         debug.log("ArxivSearchProvider", f"RESULTS → {len(results)}")
         return results
+
+    def _failure(
+        self,
+        query: SearchQuery,
+        started: float,
+        stage: str,
+        message: str,
+        **kwargs,
+    ) -> SearchResponse:
+        error = SearchError(
+            provider=self.name,
+            stage=stage,
+            message=f"arXiv API 请求失败：{message}" if stage != "validation" else message,
+            **kwargs,
+        )
+        debug.log("ArxivSearchProvider", f"FAILED → {error.message}")
+        return SearchResponse(
+            query=query,
+            provider=self.name,
+            success=False,
+            elapsed_seconds=time.monotonic() - started,
+            attempts=error.attempts,
+            error=error,
+        )
 
     def _find_html_url(self, entry) -> str:
         for link in entry.findall("atom:link", self.NS):
