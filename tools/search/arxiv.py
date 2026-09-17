@@ -115,9 +115,11 @@ class ArxivSearchProvider(SearchProvider):
                     "StudyAgent/2.0 (educational research client; "
                     "arXiv API search)"
                 ),
-                "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
-                "Accept-Encoding": "identity",
-                "Connection": "close",
+                # arXiv API 返回 Atom XML，但不要用过于严格的 Accept。
+                # 某些网络/CDN 路径会因复杂的 media-type negotiation 返回 406。
+                # 使用通用 Accept 与 curl 的默认行为保持一致。
+                "Accept": "*/*",
+                "Connection": "keep-alive",
             },
         )
 
