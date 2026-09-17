@@ -39,23 +39,18 @@ class ArxivSearchProvider(SearchProvider):
         max_results = max(1, min(query.max_results, 50))
         search_expression = query.query.strip()
 
-        # 对裸文本/短语明确指定 all:，避免 arXiv 查询解析器把带连字符的
-        # 引号短语按复杂布尔表达式处理。已有字段前缀/布尔表达式保持原样。
         if search_expression.startswith('"') and search_expression.endswith('"'):
             search_expression = f"all:{search_expression}"
 
         categories = [c.strip() for c in query.categories if c.strip()]
-
         if categories:
             category_expression = " OR ".join(
                 f"cat:{category}" for category in categories
             )
-            search_expression = (
-                f"({search_expression}) AND ({category_expression})"
-            )
+            # arXiv API 支持布尔表达式。这里保持字段表达式本身不再额外套
+            # 一层括号，避免某些 HTTP/CDN 路径对编码后的复杂查询产生 406。
+            search_expression = f"{search_expression} AND ({category_expression})"
 
-        # 记录最终送入 arXiv 的 search_query，便于定位 HTTP 406。
-        # 不改变请求内容，只增加诊断信息。
         debug.log(
             "ArxivSearchProvider",
             f"FINAL SEARCH EXPRESSION → {search_expression}",
@@ -128,9 +123,6 @@ class ArxivSearchProvider(SearchProvider):
                     "StudyAgent/2.0 (educational research client; "
                     "arXiv API search)"
                 ),
-                # arXiv API 返回 Atom XML，但不要用过于严格的 Accept。
-                # 某些网络/CDN 路径会因复杂的 media-type negotiation 返回 406。
-                # 使用通用 Accept 与 curl 的默认行为保持一致。
                 "Accept": "*/*",
                 "Connection": "keep-alive",
             },
@@ -158,7 +150,6 @@ class ArxivSearchProvider(SearchProvider):
             "ArxivSearchProvider",
             f"RESPONSE HEADERS → {dict(exc.headers.items()) if exc.headers else {}}",
         )
-
         try:
             body = exc.read(2048)
         except Exception as read_exc:
@@ -167,7 +158,6 @@ class ArxivSearchProvider(SearchProvider):
                 f"RESPONSE BODY → <unreadable: {type(read_exc).__name__}: {read_exc}>",
             )
             return
-
         text = body.decode("utf-8", errors="replace").strip()
         if len(text) > 1000:
             text = text[:1000] + "..."
