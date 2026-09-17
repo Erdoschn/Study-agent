@@ -1,26 +1,21 @@
 from __future__ import annotations
 
-from core.__debug__ import debug
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from core.__debug__ import debug
 from .base import SearchProvider
 from .models import SearchQuery, SearchResult
 
 
 class ArxivSearchProvider(SearchProvider):
-    """arXiv Public API 搜索适配器。"""
+    """arXiv Atom API 搜索提供器。"""
 
     name = "arxiv"
-
-    API_URLS = (
-        "https://export.arxiv.org/api/query",
-        "https://arxiv.org/api/query",
-    )
-
+    API_URL = "https://export.arxiv.org/api/query"
     MIN_REQUEST_INTERVAL = 3.0
     REQUEST_TIMEOUT = 30
     _last_request_time = 0.0
@@ -31,168 +26,102 @@ class ArxivSearchProvider(SearchProvider):
     }
 
     def search(self, query: SearchQuery) -> list[SearchResult]:
-        debug.log("ArxivSearchProvider", f"SEARCH → {query.query}")
-
-        if not query.query.strip():
+        text = query.query.strip()
+        if not text:
             raise ValueError("arXiv query 不能为空。")
 
-        max_results = max(1, min(query.max_results, 50))
-        search_expression = query.query.strip()
-
-        if search_expression.startswith('"') and search_expression.endswith('"'):
-            phrase = search_expression[1:-1].replace("-", " ")
-            terms = [term for term in phrase.split() if term]
-            search_expression = " AND ".join(f"all:{term}" for term in terms)
-
-        categories = [c.strip() for c in query.categories if c.strip()]
-        if categories:
-            category_expression = " OR ".join(
-                f"cat:{category}" for category in categories
-            )
-            search_expression = f"{search_expression} AND ({category_expression})"
-
-        debug.log(
-            "ArxivSearchProvider",
-            f"FINAL SEARCH EXPRESSION → {search_expression}",
-        )
-
+        search_query = self._build_search_query(text, query.categories)
         params = {
-            "search_query": search_expression,
-            "start": 0,
-            "max_results": max_results,
-            "sortBy": query.sort_by,
-            "sortOrder": query.sort_order,
+            "search_query": search_query,
+            "start": "0",
+            "max_results": str(max(1, min(query.max_results, 50))),
+            "sortBy": query.sort_by or "relevance",
+            "sortOrder": query.sort_order or "descending",
         }
+        url = f"{self.API_URL}?{urllib.parse.urlencode(params)}"
+
+        debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
+        debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
 
         self._wait_for_rate_limit()
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
+                "Accept": "application/atom+xml",
+            },
+        )
 
-        last_error: Exception | None = None
-        for index, api_url in enumerate(self.API_URLS):
-            url = api_url + "?" + urllib.parse.urlencode(params)
-            request = self._build_request(url)
-
-            debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
-            debug.log(
-                "ArxivSearchProvider",
-                f"REQUEST HEADERS → {dict(request.header_items())}",
-            )
-            debug.log(
-                "ArxivSearchProvider",
-                f"API CALL → {api_url}"
-                + (" (406 fallback)" if index else ""),
-            )
-
+        try:
+            with urllib.request.urlopen(request, timeout=self.REQUEST_TIMEOUT) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"arXiv API HTTP {response.status}")
+                data = response.read()
+        except urllib.error.HTTPError as exc:
             try:
-                xml_data = self._request(request)
-                return self._parse_atom(xml_data)
-            except urllib.error.HTTPError as exc:
-                last_error = exc
-                self._log_http_error(exc)
-                if exc.code != 406 or index == len(self.API_URLS) - 1:
-                    break
-            except Exception as exc:
-                last_error = exc
-                debug.log(
-                    "ArxivSearchProvider",
-                    f"REQUEST ERROR → {type(exc).__name__}: {exc}",
-                )
-                break
+                body = exc.read(2048).decode("utf-8", errors="replace").strip()
+            except Exception:
+                body = ""
+            debug.log(
+                "ArxivSearchProvider",
+                f"HTTP ERROR → {exc.code} {exc.reason}; body={body or '<empty>'}",
+            )
+            raise RuntimeError(
+                f"arXiv API 请求失败：HTTPError: HTTP Error {exc.code}: {exc.reason}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"arXiv API 网络请求失败：{exc.reason}") from exc
 
-            self._wait_for_rate_limit()
+        return self._parse_atom(data)
 
-        raise RuntimeError(
-            "arXiv API 请求失败："
-            f"{type(last_error).__name__}: {last_error}"
-        ) from last_error
+    @staticmethod
+    def _build_search_query(text: str, categories: list[str]) -> str:
+        """只负责生成 arXiv search_query；不混入 HTTP 层逻辑。"""
+        if text.startswith('"') and text.endswith('"'):
+            phrase = text[1:-1].strip()
+            expression = f'all:"{phrase}"'
+        elif any(op in text.upper().split() for op in ("AND", "OR", "ANDNOT")):
+            expression = text
+        else:
+            expression = f"all:{text}"
+
+        cats = [f"cat:{c.strip()}" for c in categories if c.strip()]
+        if cats:
+            expression += " AND (" + " OR ".join(cats) + ")"
+        return expression
 
     @classmethod
     def _wait_for_rate_limit(cls) -> None:
         now = time.monotonic()
-        elapsed = now - cls._last_request_time
-        if elapsed < cls.MIN_REQUEST_INTERVAL:
-            time.sleep(cls.MIN_REQUEST_INTERVAL - elapsed)
+        delay = cls.MIN_REQUEST_INTERVAL - (now - cls._last_request_time)
+        if delay > 0:
+            time.sleep(delay)
         cls._last_request_time = time.monotonic()
 
-    @staticmethod
-    def _build_request(url: str) -> urllib.request.Request:
-        return urllib.request.Request(
-            url=url,
-            method="GET",
-            headers={
-                "User-Agent": (
-                    "StudyAgent/2.0 (educational research client; "
-                    "arXiv API search)"
-                ),
-                "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
-                "Accept-Encoding": "identity",
-                "Connection": "close",
-            },
-        )
-
-    def _request(self, request: urllib.request.Request) -> bytes:
-        with urllib.request.urlopen(
-            request,
-            timeout=self.REQUEST_TIMEOUT,
-        ) as response:
-            debug.log("ArxivSearchProvider", f"HTTP STATUS → {response.status}")
-            debug.log(
-                "ArxivSearchProvider",
-                f"RESPONSE HEADERS → {dict(response.headers.items())}",
-            )
-            return response.read()
-
-    @staticmethod
-    def _log_http_error(exc: urllib.error.HTTPError) -> None:
-        debug.log("ArxivSearchProvider", f"HTTP STATUS → {exc.code} {exc.reason}")
-        debug.log(
-            "ArxivSearchProvider",
-            f"RESPONSE HEADERS → {dict(exc.headers.items()) if exc.headers else {}}",
-        )
+    def _parse_atom(self, data: bytes) -> list[SearchResult]:
         try:
-            body = exc.read(2048)
-        except Exception as read_exc:
-            debug.log(
-                "ArxivSearchProvider",
-                f"RESPONSE BODY → <unreadable: {type(read_exc).__name__}: {read_exc}>",
-            )
-            return
-        text = body.decode("utf-8", errors="replace").strip()
-        if len(text) > 1000:
-            text = text[:1000] + "..."
-        debug.log("ArxivSearchProvider", f"RESPONSE BODY → {text or '<empty>'}")
-
-    def _parse_atom(self, xml_data: bytes) -> list[SearchResult]:
-        try:
-            root = ET.fromstring(xml_data)
+            root = ET.fromstring(data)
         except ET.ParseError as exc:
             raise RuntimeError(f"arXiv XML 解析失败：{exc}") from exc
 
         results: list[SearchResult] = []
         for entry in root.findall("atom:entry", self.NS):
-            identifier_url = self._text(entry.find("atom:id", self.NS))
-            title = self._normalize(self._text(entry.find("atom:title", self.NS)))
-            abstract = self._normalize(self._text(entry.find("atom:summary", self.NS)))
-            published = self._text(entry.find("atom:published", self.NS))
-            updated = self._text(entry.find("atom:updated", self.NS))
-            html_url = self._find_html_url(entry) or identifier_url
-
-            authors = []
-            for author in entry.findall("atom:author", self.NS):
-                name = self._text(author.find("atom:name", self.NS))
-                if name:
-                    authors.append(name)
-
+            identifier = self._text(entry.find("atom:id", self.NS))
             results.append(
                 SearchResult(
                     source=self.name,
                     source_type="paper",
-                    title=title,
-                    url=html_url,
-                    abstract=abstract,
-                    authors=authors,
-                    published=published,
-                    updated=updated,
-                    identifier=self._extract_id(identifier_url),
+                    title=self._normalize(self._text(entry.find("atom:title", self.NS))),
+                    url=self._find_html_url(entry) or identifier,
+                    abstract=self._normalize(self._text(entry.find("atom:summary", self.NS))),
+                    authors=[
+                        self._text(author.find("atom:name", self.NS))
+                        for author in entry.findall("atom:author", self.NS)
+                        if self._text(author.find("atom:name", self.NS))
+                    ],
+                    published=self._text(entry.find("atom:published", self.NS)),
+                    updated=self._text(entry.find("atom:updated", self.NS)),
+                    identifier=self._extract_id(identifier),
                 )
             )
 
@@ -201,9 +130,8 @@ class ArxivSearchProvider(SearchProvider):
 
     def _find_html_url(self, entry) -> str:
         for link in entry.findall("atom:link", self.NS):
-            href = link.attrib.get("href", "")
-            if href and link.attrib.get("type", "") == "text/html":
-                return href
+            if link.attrib.get("type") == "text/html" and link.attrib.get("href"):
+                return link.attrib["href"]
         return ""
 
     @staticmethod
@@ -216,7 +144,4 @@ class ArxivSearchProvider(SearchProvider):
 
     @staticmethod
     def _extract_id(identifier: str) -> str:
-        marker = "/abs/"
-        if marker in identifier:
-            return identifier.rsplit(marker, 1)[1]
-        return identifier
+        return identifier.rsplit("/abs/", 1)[-1] if "/abs/" in identifier else identifier
