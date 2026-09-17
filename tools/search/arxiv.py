@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 
 from core.__debug__ import debug
@@ -11,18 +12,14 @@ from .models import SearchError, SearchQuery, SearchResponse, SearchResult
 
 
 class ArxivSearchProvider(SearchProvider):
-    """arXiv Atom API 搜索提供器。
-
-    Provider 只负责：
-      1. 校验/构造 arXiv 查询
-      2. 解析 Atom
-      3. 把传输错误转换成搜索层错误
-
-    HTTP 重试、超时、网络错误等统一交给 HttpClient。
-    """
+    """arXiv Atom API provider with transport isolation and endpoint fallback."""
 
     name = "arxiv"
     API_URL = "https://export.arxiv.org/api/query"
+    API_URLS = (
+        "https://export.arxiv.org/api/query",
+        "https://arxiv.org/api/query",
+    )
     MIN_REQUEST_INTERVAL = 3.0
     REQUEST_TIMEOUT = 30.0
     MAX_RESULTS = 50
@@ -39,7 +36,7 @@ class ArxivSearchProvider(SearchProvider):
         api_url: str | None = None,
     ) -> None:
         self.http = http_client or HttpClient(timeout=self.REQUEST_TIMEOUT)
-        self.api_url = api_url or self.API_URL
+        self.api_urls = (api_url,) if api_url else self.API_URLS
         self._last_request_time = 0.0
 
     def search(self, query: SearchQuery) -> list[SearchResult]:
@@ -56,31 +53,45 @@ class ArxivSearchProvider(SearchProvider):
             search_query = self._build_search_query(
                 query.query.strip(), query.categories
             )
-            url = self._build_url(search_query, query)
-
-            debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
-            debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
-
             self._wait_for_rate_limit()
-            response = self.http.get(
-                url,
-                headers={
-                    "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
-                    "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
-                    "Accept-Encoding": "identity",
-                    "Connection": "close",
-                },
-            )
-            results = self._parse_atom(response.body)
-            return SearchResponse(
-                query=query,
-                provider=self.name,
-                results=results,
-                success=True,
-                elapsed_seconds=time.monotonic() - started,
-                attempts=response.attempts,
-                metadata={"status_code": response.status, "url": url},
-            )
+
+            last_error: HttpRequestError | None = None
+            for endpoint in self.api_urls:
+                url = self._build_url(search_query, query, endpoint)
+                debug.log("ArxivSearchProvider", f"SEARCH QUERY → {search_query}")
+                debug.log("ArxivSearchProvider", f"REQUEST URL → {url}")
+
+                try:
+                    response = self.http.get(url, headers=self._headers())
+                except HttpRequestError as exc:
+                    last_error = exc
+                    if exc.status_code == 406 and endpoint != self.api_urls[-1]:
+                        debug.log(
+                            "ArxivSearchProvider",
+                            f"ENDPOINT FALLBACK → {endpoint} → next endpoint",
+                        )
+                        continue
+                    raise
+
+                results = self._parse_atom(response.body)
+                return SearchResponse(
+                    query=query,
+                    provider=self.name,
+                    results=results,
+                    success=True,
+                    elapsed_seconds=time.monotonic() - started,
+                    attempts=response.attempts,
+                    metadata={
+                        "status_code": response.status,
+                        "url": url,
+                        "endpoint": endpoint,
+                    },
+                )
+
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("没有可用的 arXiv API endpoint。")
+
         except ValueError as exc:
             return self._failure(query, started, "validation", str(exc))
         except HttpRequestError as exc:
@@ -98,6 +109,15 @@ class ArxivSearchProvider(SearchProvider):
         except RuntimeError as exc:
             return self._failure(query, started, "parse", str(exc))
 
+    @staticmethod
+    def _headers() -> dict[str, str]:
+        return {
+            "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
+            "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+        }
+
     @classmethod
     def _validate_query(cls, query: SearchQuery) -> None:
         if not query.query.strip():
@@ -105,15 +125,21 @@ class ArxivSearchProvider(SearchProvider):
         if query.max_results < 1:
             raise ValueError("arXiv max_results 必须大于 0。")
 
-    def _build_url(self, search_query: str, query: SearchQuery) -> str:
+    @classmethod
+    def _build_url(
+        cls,
+        search_query: str,
+        query: SearchQuery,
+        endpoint: str | None = None,
+    ) -> str:
         params = {
             "search_query": search_query,
             "start": "0",
-            "max_results": str(max(1, min(query.max_results, self.MAX_RESULTS))),
+            "max_results": str(max(1, min(query.max_results, cls.MAX_RESULTS))),
             "sortBy": query.sort_by or "relevance",
             "sortOrder": query.sort_order or "descending",
         }
-        return f"{self.api_url}?{urllib.parse.urlencode(params)}"
+        return f"{endpoint or cls.API_URL}?{urllib.parse.urlencode(params)}"
 
     @staticmethod
     def _build_search_query(text: str, categories: list[str]) -> str:
@@ -179,7 +205,7 @@ class ArxivSearchProvider(SearchProvider):
         error = SearchError(
             provider=self.name,
             stage=stage,
-            message=f"arXiv API 请求失败：{message}" if stage != "validation" else message,
+            message=message if stage == "validation" else f"arXiv API 请求失败：{message}",
             **kwargs,
         )
         debug.log("ArxivSearchProvider", f"FAILED → {error.message}")
