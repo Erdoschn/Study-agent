@@ -3,6 +3,7 @@ from tools.search import (
     SearchQuery,
     SearchResult,
     SearchRouter,
+    WikipediaSearchProvider,
 )
 
 
@@ -20,26 +21,35 @@ def test_arxiv_provider_structure():
     assert provider.name == "arxiv"
 
 
+def test_wikipedia_provider_structure():
+    provider = WikipediaSearchProvider()
+
+    assert provider.name == "wikipedia"
+
+
 def test_router():
     router = SearchRouter()
+
     router.register(ArxivSearchProvider())
+    router.register(WikipediaSearchProvider())
 
     assert "arxiv" in router.available_sources()
+    assert "wikipedia" in router.available_sources()
 
 
 def test_search_result_structure():
     result = SearchResult(
-        source="arxiv",
-        title="Test Paper",
-        url="https://arxiv.org/abs/1234.5678",
+        source="wikipedia",
+        source_type="encyclopedia",
+        title="Transformer",
+        url="https://en.wikipedia.org/wiki/Transformer",
         abstract="Test abstract",
-        identifier="1234.5678",
     )
 
-    assert result.source == "arxiv"
-    assert result.title == "Test Paper"
+    assert result.source == "wikipedia"
+    assert result.source_type == "encyclopedia"
+    assert result.title == "Transformer"
     assert result.url.startswith("https://")
-    assert result.identifier == "1234.5678"
 
 
 def test_arxiv_query_building(monkeypatch):
@@ -94,7 +104,7 @@ def test_arxiv_query_building(monkeypatch):
 
 
 def test_empty_query():
-    provider = ArxivSearchProvider()
+    provider = WikipediaSearchProvider()
 
     try:
         provider.search(SearchQuery(query=""))
@@ -102,3 +112,57 @@ def test_empty_query():
         return
 
     raise AssertionError("空查询应该被拒绝")
+
+from tools.search import SearchStrategy
+
+
+def test_search_strategy_empty():
+    strategy = SearchStrategy()
+
+    decision = strategy.decide("")
+
+    assert decision.need_search is False
+    assert decision.confidence == 1.0
+
+
+def test_search_strategy_realtime():
+    strategy = SearchStrategy()
+
+    decision = strategy.decide("现在最新的人工智能新闻是什么？")
+
+    assert decision.need_search is True
+    assert decision.source == "wikipedia"
+    assert decision.confidence >= 0.9
+
+
+def test_search_strategy_research():
+    strategy = SearchStrategy()
+
+    decision = strategy.decide(
+        "Transformer 最近有哪些重要论文？"
+    )
+
+    assert decision.need_search is True
+    assert decision.source == "arxiv"
+    assert decision.confidence >= 0.9
+
+
+def test_search_strategy_concept():
+    strategy = SearchStrategy()
+
+    decision = strategy.decide(
+        "什么是 Multi-Head Attention？"
+    )
+
+    assert decision.need_search is True
+    assert decision.source == "wikipedia"
+
+
+def test_search_strategy_unknown():
+    strategy = SearchStrategy()
+
+    decision = strategy.decide(
+        "计算 12345 × 67890"
+    )
+
+    assert decision.need_search is False

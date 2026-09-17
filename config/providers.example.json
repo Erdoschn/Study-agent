@@ -1,0 +1,46 @@
+{
+  "default_role": "reasoner",
+
+  "providers": {
+    "local": {
+      "type": "openai_compatible",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama",
+      "enabled": false
+    },
+
+    "deepseek": {
+      "type": "openai_compatible",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "YOUR_DEEPSEEK_API_KEY",
+      "enabled": false
+    },
+
+    "custom": {
+      "type": "openai_compatible",
+      "base_url": "https://YOUR_API_BASE_URL/v1",
+      "api_key": "YOUR_API_KEY",
+      "enabled": false
+    }
+  },
+
+  "models": {
+    "reasoner": {
+      "provider": "local",
+      "model": "YOUR_REASONING_MODEL",
+      "enabled": true
+    },
+
+    "teacher": {
+      "provider": "local",
+      "model": "YOUR_TEACHING_MODEL",
+      "enabled": true
+    },
+
+    "verifier": {
+      "provider": "local",
+      "model": "YOUR_VERIFICATION_MODEL",
+      "enabled": true
+    }
+  }
+}
