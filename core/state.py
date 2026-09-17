@@ -39,6 +39,9 @@ class AgentState:
     finished: bool = False
     error: str | None = None
     max_steps: int = 8
+    action_counts: dict[str, int] = field(default_factory=dict)
+    last_action: str = ""
+    last_observation: Any = None
 
     @property
     def step_count(self) -> int:
@@ -46,6 +49,9 @@ class AgentState:
 
     def add_step(self, step: AgentStep) -> None:
         self.steps.append(step)
+        self.last_action = step.action
+        self.last_observation = step.observation
+        self.action_counts[step.action] = self.action_counts.get(step.action, 0) + 1
 
     def observations(self) -> list[Any]:
         return [step.observation for step in self.steps if step.observation is not None]
