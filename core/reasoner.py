@@ -56,11 +56,11 @@ class AgentReasoner:
 根据任务分析、计划和当前 Agent 状态决定下一步行动。
 
 可选 action：SEARCH / CALCULATE / VERIFY / ANSWER / STOP
-规则：计划是行动参考，不是固定流程；必须根据最新观察重新判断。
-不要因为关键词出现就机械调用工具。工具返回结果后必须重新分析。
-信息不足时可以继续行动；足够时 ANSWER。外部事实、最新信息、论文结论尽量获得证据；数学推导不必强行搜索。
-发现前提、概念、逻辑或范围问题时优先处理。不确定时不要编造。
-不输出隐藏思维链，只输出简洁、可审计的 reasoning_summary。
+计划只是参考，不是固定流程；每次调用都必须重新评估最新观察结果。
+工具结果是新的环境观察：先理解观察，再决定下一步，而不是机械执行剩余计划。
+信息已经足够时 ANSWER；工具失败时可改变策略；发现前提、概念、逻辑或范围问题时优先处理。
+不要重复完全相同的工具调用，除非最新观察明确改变了调用依据。外部事实、最新信息、论文结论尽量获得证据；数学推导不必强行搜索。
+不确定时不要编造。不输出隐藏思维链，只输出简洁、可审计的 reasoning_summary。
 必须只输出 JSON，并且 JSON 中包含单词 JSON。
 
 格式：
@@ -73,9 +73,10 @@ class AgentReasoner:
     def decide(self, state):
         with debug.scope("AgentReasoner", f"DECIDE → step={state.step_count + 1}"):
             prompt = self._build_prompt(state)
+            excluded = []
             candidates = self.model_router.select_candidates(
                 capability="reasoning", allow_paid=self.allow_paid,
-                task_analysis=state.task_analysis, plan=state.plan,
+                task_analysis=state.task_analysis, plan=state.plan, exclude=excluded,
             )
             if not candidates:
                 raise RuntimeError("没有可用于 Reasoning 的模型。")
@@ -108,7 +109,10 @@ class AgentReasoner:
             "goal": state.goal, "task_type": state.task_type, "domain": state.domain,
             "student_state": {"known_topics": sorted(state.student.known_topics), "weak_topics": sorted(state.student.weak_topics), "misconceptions": state.student.misconceptions},
             "available_tools": ["search", "calculate", "verify"], "previous_steps": observations,
-            "evidence": state.evidence, "claims": state.claims, "step_count": state.step_count, "max_steps": state.max_steps,
+            "evidence": state.evidence, "claims": state.claims,
+            "action_counts": state.action_counts, "last_action": state.last_action,
+            "last_observation": state.last_observation,
+            "step_count": state.step_count, "max_steps": state.max_steps,
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
