@@ -13,28 +13,45 @@ def diagnose_arxiv_http():
         "https://export.arxiv.org/api/query?search_query=all%3Aelectron&start=0&max_results=1",
     ]
 
-    print("=== HTTP / HTTPS 对照诊断 ===")
+    tests = [
+        ("Python urllib 原请求", {
+            "User-Agent": "StudyAgent/2.0",
+        }),
+        ("Python urllib 模拟 curl", {
+            "User-Agent": "curl/8.0",
+            "Accept": "*/*",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+        }),
+    ]
 
-    for url in urls:
-        print(f"\nURL: {url}")
-        request = Request(url, method="GET")
-        request.add_header("User-Agent", "StudyAgent/2.0")
+    print("=== HTTP / HTTPS + 请求头对照诊断 ===")
 
-        try:
-            with urlopen(request, timeout=30) as response:
-                body = response.read(2048).decode("utf-8", errors="replace")
-                print(f"HTTP STATUS: {response.status} {response.reason}")
-                print(f"RESPONSE HEADERS: {dict(response.headers)}")
+    for test_name, headers in tests:
+        print(f"\n--- {test_name} ---")
+        print(f"REQUEST HEADERS: {headers}")
+
+        for url in urls:
+            print(f"\nURL: {url}")
+            request = Request(url, method="GET")
+            for key, value in headers.items():
+                request.add_header(key, value)
+
+            try:
+                with urlopen(request, timeout=30) as response:
+                    body = response.read(2048).decode("utf-8", errors="replace")
+                    print(f"HTTP STATUS: {response.status} {response.reason}")
+                    print(f"RESPONSE HEADERS: {dict(response.headers)}")
+                    print(f"RESPONSE BODY: {body[:1000]}")
+            except HTTPError as exc:
+                print(f"HTTP STATUS: {exc.code} {exc.reason}")
+                print(f"RESPONSE HEADERS: {dict(exc.headers)}")
+                body = exc.read(2048).decode("utf-8", errors="replace")
                 print(f"RESPONSE BODY: {body[:1000]}")
-        except HTTPError as exc:
-            print(f"HTTP STATUS: {exc.code} {exc.reason}")
-            print(f"RESPONSE HEADERS: {dict(exc.headers)}")
-            body = exc.read(2048).decode("utf-8", errors="replace")
-            print(f"RESPONSE BODY: {body[:1000]}")
-        except URLError as exc:
-            print(f"URL ERROR: {exc}")
-        except Exception as exc:
-            print(f"UNEXPECTED ERROR: {type(exc).__name__}: {exc}")
+            except URLError as exc:
+                print(f"URL ERROR: {exc}")
+            except Exception as exc:
+                print(f"UNEXPECTED ERROR: {type(exc).__name__}: {exc}")
 
 
 def main():
