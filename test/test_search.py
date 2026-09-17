@@ -1,3 +1,5 @@
+import urllib.error
+
 from tools.search import (
     ArxivSearchProvider,
     SearchQuery,
@@ -19,6 +21,7 @@ def test_arxiv_provider_structure():
     provider = ArxivSearchProvider()
 
     assert provider.name == "arxiv"
+    assert len(provider.API_URLS) == 2
 
 
 def test_wikipedia_provider_structure():
@@ -54,6 +57,7 @@ def test_search_result_structure():
 
 def test_arxiv_query_building(monkeypatch):
     provider = ArxivSearchProvider()
+    provider._last_request_time = 0
 
     captured = {}
 
@@ -80,6 +84,7 @@ def test_arxiv_query_building(monkeypatch):
     def fake_urlopen(request, timeout=30):
         captured["url"] = request.full_url
         captured["timeout"] = timeout
+        captured["headers"] = dict(request.headers)
         return FakeResponse()
 
     monkeypatch.setattr(
@@ -98,9 +103,108 @@ def test_arxiv_query_building(monkeypatch):
     assert len(results) == 1
     assert results[0].title == "Test Transformer Paper"
     assert results[0].identifier == "1234.5678"
-
+    assert captured["timeout"] == 30
+    assert "User-agent" in captured["headers"]
+    assert "Accept" in captured["headers"]
     assert "transformer" in captured["url"]
     assert "cat%3Acs.LG" in captured["url"]
+
+
+def test_arxiv_406_fallback(monkeypatch):
+    provider = ArxivSearchProvider()
+    provider._last_request_time = 0
+    calls = []
+
+    class FakeResponse:
+        def read(self):
+            return b"""<?xml version="1.0"?>
+            <feed xmlns="http://www.w3.org/2005/Atom"></feed>"""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    def fake_urlopen(request, timeout=30):
+        calls.append(request.full_url.split("?", 1)[0])
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                406,
+                "Not Acceptable",
+                hdrs=None,
+                fp=None,
+            )
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "tools.search.arxiv.urllib.request.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "tools.search.arxiv.time.sleep",
+        lambda _: None,
+    )
+
+    assert provider.search(SearchQuery(query="transformer")) == []
+    assert calls == list(provider.API_URLS)
+
+
+def test_arxiv_non_406_error(monkeypatch):
+    provider = ArxivSearchProvider()
+    provider._last_request_time = 0
+
+    def fake_urlopen(request, timeout=30):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            500,
+            "Server Error",
+            hdrs=None,
+            fp=None,
+        )
+
+    monkeypatch.setattr(
+        "tools.search.arxiv.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    try:
+        provider.search(SearchQuery(query="transformer"))
+    except RuntimeError as exc:
+        assert "HTTPError" in str(exc)
+        assert "500" in str(exc)
+        return
+
+    raise AssertionError("非 406 HTTP 错误应该抛出 RuntimeError")
+
+
+def test_arxiv_parse_error(monkeypatch):
+    provider = ArxivSearchProvider()
+    provider._last_request_time = 0
+
+    class FakeResponse:
+        def read(self):
+            return b"not xml"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    monkeypatch.setattr(
+        "tools.search.arxiv.urllib.request.urlopen",
+        lambda request, timeout=30: FakeResponse(),
+    )
+
+    try:
+        provider.search(SearchQuery(query="transformer"))
+    except RuntimeError as exc:
+        assert "XML 解析失败" in str(exc)
+        return
+
+    raise AssertionError("非法 XML 应该抛出 RuntimeError")
 
 
 def test_empty_query():
