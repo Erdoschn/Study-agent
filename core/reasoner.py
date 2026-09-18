@@ -91,7 +91,7 @@ SEARCH：
 证据：
 - 搜索 HTTP 成功不等于获得有效证据。
 - Harness 会为每条搜索结果提供 harness_relevance 和 harness_recency；它们是环境层判断，应优先于你的主观判断。
-- 定性标签：DIRECT / PARTIAL / TANGENTIAL / IRRELEVANT / UNCERTAIN；时效性：NEWER / OLDER / UNKNOWN。
+- 定性标签：DIRECT / PARTIAL / TANGENTIAL / IRRELEVANT / UNCERTAIN；时效性：DATED / UNDATED / UNKNOWN。
 - 搜索 observation 还可能包含 coverage：COVERED / PARTIAL / INSUFFICIENT。它用于判断是否需要继续搜索。
 - “最新”不等于“最相关”。
 - 只有当当前证据足以支持答案时才 ANSWER；存在关键未解决问题时继续行动。
@@ -99,7 +99,7 @@ SEARCH：
 
 VERIFY：
 - 只有确实需要核查时使用。
-- 当前 verify 工具是结构化验证入口，不要声称它自动证明事实。
+- Harness 只做结构化文本匹配：MATCHED 仅表示文本结构匹配，不等同于事实成立；NOT_MATCHED 表示没有匹配；UNCERTAIN 表示输入不足或无法判断。\n- 不把 VERIFY 结果转化为概率、置信度或事实证明。
 
 ANSWER：
 - 直接在 answer 字段给出最终回答。
@@ -193,7 +193,7 @@ ANSWER：
         if not isinstance(evidence_relevance, list):
             evidence_relevance = []
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
-        allowed_recency = {"NEWER", "OLDER", "UNKNOWN"}
+        allowed_recency = {"DATED", "UNDATED", "UNKNOWN"}
         normalized = []
         for item in evidence_relevance:
             if not isinstance(item, dict):
