@@ -147,6 +147,28 @@ class AgentToolLoop:
     def __init__(self, reasoner, executor: ToolExecutor):
         self.reasoner, self.executor = reasoner, executor
 
+    def _execute_tool(self, tool, arguments, state):
+        """Call both new and legacy executor interfaces safely."""
+        import inspect
+
+        execute = self.executor.execute
+        try:
+            signature = inspect.signature(execute)
+            parameters = signature.parameters
+            accepts_state = (
+                "state" in parameters
+                or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in parameters.values()
+                )
+            )
+        except (TypeError, ValueError):
+            accepts_state = False
+
+        if accepts_state:
+            return execute(tool, arguments, state=state)
+        return execute(tool, arguments)
+
     @staticmethod
     def _fingerprint(action, tool, arguments):
         import json
@@ -295,10 +317,10 @@ class AgentToolLoop:
 
                 debug.log("AgentToolLoop", f"ACT → tool={tool}")
                 try:
-                    observation = self.executor.execute(
+                    observation = self._execute_tool(
                         tool,
                         decision.arguments or {},
-                        state=state,
+                        state,
                     )
                     success = True
                     error = ""
