@@ -119,10 +119,8 @@ search_sources 和 search_sort_by 都是定性行动策略，
                     )
 
             raise RuntimeError(
-                "所有 Task Analyzer 候选模型均调用失败：
-"
-                + "
-".join(errors)
+                "所有 Task Analyzer 候选模型均调用失败：\n"
+                + "\n".join(errors)
             )
 
     @staticmethod
@@ -131,8 +129,7 @@ search_sources 和 search_sort_by 都是定性行动策略，
             data: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Task Analysis JSON 解析失败：{exc}
-原始输出：{raw}"
+                f"Task Analysis JSON 解析失败：{exc}\n原始输出：{raw}"
             ) from exc
 
         tools = data.get("required_tools", [])
