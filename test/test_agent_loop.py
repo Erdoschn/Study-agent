@@ -145,7 +145,8 @@ def test_verify_gate_blocks_answer_before_verify():
         action="ANSWER",
         reasoning_summary="answer",
     )
-    forced = AgentToolLoop._force_verify(AgentToolLoop, state, decision)
+    loop = AgentToolLoop(None, None)
+    forced = loop._force_verify(state, decision)
 
     assert forced.action == "VERIFY"
     assert forced.tool == "verify"
