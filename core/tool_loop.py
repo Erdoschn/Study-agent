@@ -5,6 +5,8 @@ from .reasoner import ReasoningDecision
 
 
 class ToolExecutor:
+    DEFAULT_SEARCH_RESULTS = 10
+
     def __init__(self, search_router=None):
         self.search_router = search_router
 
@@ -51,7 +53,9 @@ class ToolExecutor:
             source=source,
             source_preferences=preferences,
             categories=[str(x) for x in categories],
-            max_results=int(arguments.get("max_results", 5)),
+            max_results=int(
+                arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS)
+            ),
             sort_by=sort_by,
             sort_order=str(arguments.get("sort_order", "descending")),
         )
@@ -270,6 +274,12 @@ class AgentToolLoop:
                     state.domain = decision.domain
                 if decision.claims:
                     state.claims = decision.claims
+                if decision.evidence_relevance:
+                    state.evidence_relevance = decision.evidence_relevance
+                    debug.log(
+                        "AgentToolLoop",
+                        f"RELEVANCE → {len(decision.evidence_relevance)} qualitative assessments",
+                    )
 
                 step_id = state.step_count + 1
 
