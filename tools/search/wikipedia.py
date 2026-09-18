@@ -71,7 +71,8 @@ class WikipediaSearchProvider(SearchProvider):
                 metadata={
                     "language": self.language,
                     "title_count": len(title_results),
-            "search_engine": "mediawiki_fulltext",
+                    "search_engine": "mediawiki_fulltext",
+                    "summary_fetch": "batch",
                 },
             )
 
@@ -197,20 +198,17 @@ class WikipediaSearchProvider(SearchProvider):
         }
 
     def _to_result(self, title: str, url: str, summary: dict) -> SearchResult:
-        content_urls = summary.get("content_urls", {})
-        desktop = content_urls.get("desktop", {}) if isinstance(content_urls, dict) else {}
-        page_url = desktop.get("page", url) if isinstance(desktop, dict) else url
-
+        page_url = str(summary.get("fullurl", url))
         return SearchResult(
             source=self.name,
             source_type="encyclopedia",
             title=str(summary.get("title", title)),
-            url=str(page_url),
+            url=page_url,
             abstract=str(summary.get("extract", "")),
             authors=[],
             published="",
             updated=str(summary.get("timestamp", "")),
-            identifier=str(summary.get("wikibase_item", "")),
+            identifier=str(summary.get("pageid", "")),
             raw=summary,
         )
 
