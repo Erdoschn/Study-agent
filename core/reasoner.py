@@ -40,11 +40,13 @@ class OpenAICompatibleClient(ModelClient):
         api_key: str,
         model: str,
         timeout: int = 120,
+        headers: dict[str, str] | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.headers = dict(headers or {})
 
     def generate(
         self,
@@ -70,6 +72,7 @@ class OpenAICompatibleClient(ModelClient):
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
+                **self.headers,
             },
         )
         try:
