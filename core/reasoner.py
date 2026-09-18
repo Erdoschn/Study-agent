@@ -89,8 +89,9 @@ SEARCH：
 
 证据：
 - 搜索 HTTP 成功不等于获得有效证据。
-- 对搜索候选进行定性判断：DIRECT / PARTIAL / TANGENTIAL / IRRELEVANT / UNCERTAIN。
-- 时效性单独判断：NEWER / OLDER / UNKNOWN。
+- Harness 会为每条搜索结果提供 harness_relevance 和 harness_recency；它们是环境层判断，应优先于你的主观判断。
+- 定性标签：DIRECT / PARTIAL / TANGENTIAL / IRRELEVANT / UNCERTAIN；时效性：NEWER / OLDER / UNKNOWN。
+- 搜索 observation 还可能包含 coverage：COVERED / PARTIAL / INSUFFICIENT。它用于判断是否需要继续搜索。
 - “最新”不等于“最相关”。
 - 只有当当前证据足以支持答案时才 ANSWER；存在关键未解决问题时继续行动。
 - 不输出相关度分数、百分比或隐藏思维链，只输出简洁可审计的 reasoning_summary。
