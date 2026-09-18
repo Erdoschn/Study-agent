@@ -198,3 +198,64 @@ def test_task_analysis_rejects_unknown_search_values():
 
     assert analysis.search_sources == ["arxiv"]
     assert analysis.search_sort_by == "relevance"
+
+
+def test_reasoner_parses_qualitative_evidence_relevance():
+    from core.reasoner import AgentReasoner
+
+    decision = AgentReasoner._parse(
+        '{"action":"ANSWER","reasoning_summary":"use direct evidence",'
+        '"evidence_relevance":['
+        '{"step":1,"index":0,"relevance":"DIRECT","recency":"NEWER","use":true,"reason":"direct support"},'
+        '{"step":1,"index":1,"relevance":"irrelevant","recency":"bad","use":false,"reason":"off topic"}'
+        ']}'
+    )
+
+    assert decision.evidence_relevance[0]["relevance"] == "DIRECT"
+    assert decision.evidence_relevance[0]["recency"] == "NEWER"
+    assert decision.evidence_relevance[0]["use"] is True
+    assert decision.evidence_relevance[1]["relevance"] == "IRRELEVANT"
+    assert decision.evidence_relevance[1]["recency"] == "UNKNOWN"
+
+
+def test_qualitative_relevance_is_fed_into_state():
+    from core.tool_loop import AgentToolLoop
+
+    class Reasoner:
+        def __init__(self):
+            self.n = 0
+
+        def decide(self, state):
+            self.n += 1
+            if self.n == 1:
+                return ReasoningDecision(
+                    action="SEARCH",
+                    reasoning_summary="search",
+                    tool="search",
+                    arguments={"query": "attention"},
+                    evidence_relevance=[],
+                )
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="answer",
+                evidence_relevance=[
+                    {
+                        "step": 1,
+                        "index": 0,
+                        "relevance": "DIRECT",
+                        "recency": "NEWER",
+                        "use": True,
+                        "reason": "核心结果",
+                    }
+                ],
+            )
+
+    class Executor:
+        def execute(self, tool, arguments):
+            return [{"title": "Attention", "abstract": "attention mechanism"}]
+
+    state = AgentState(question="attention", max_steps=3)
+    state = AgentToolLoop(Reasoner(), Executor()).run(state)
+
+    assert state.evidence_relevance[0]["relevance"] == "DIRECT"
+    assert state.evidence_relevance[0]["use"] is True
