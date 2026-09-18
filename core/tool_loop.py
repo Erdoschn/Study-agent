@@ -148,9 +148,11 @@ class ToolExecutor:
             raise ValueError("calculate 缺少 expression。")
         return self._safe_calculate(expression)
 
-    def _verify(self, arguments):
+    def _verify(self, arguments, state=None):
         claim = str(arguments.get("claim", "")).strip()
-        evidence = arguments.get("evidence", [])
+        evidence = arguments.get("evidence")
+        if evidence is None and state is not None:
+            evidence = state.evidence
         if not isinstance(evidence, list):
             evidence = []
         return self.evidence_engine.verify(claim, evidence)
