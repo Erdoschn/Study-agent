@@ -212,7 +212,7 @@ ANSWER：
             data.get("student_model_update", {})
         )
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
-        allowed_recency = {"DATED", "UNDATED", "UNKNOWN"}
+        allowed_recency = {"DATED", "UNDATED", "UNKNOWN", "NEWER", "OLDER", "SAME"}
         normalized = []
         for item in evidence_relevance:
             if not isinstance(item, dict):
