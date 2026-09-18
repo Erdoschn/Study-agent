@@ -78,7 +78,7 @@ def build_agent(
     reasoner = AgentReasoner(
         model_router=model_router,
         model_factory=model_factory,
-        allow_paid=allow_paid,
+        allow_paid=False,  # 默认不允许付费模型
     )
 
     # -----------------------------
@@ -89,7 +89,7 @@ def build_agent(
     teacher = Teacher(
         model_router=model_router,
         model_factory=model_factory,
-        allow_paid=True,  # 允许付费模型，便于测试
+        allow_paid=False,  # 默认不允许付费模型
     )
 
     # -----------------------------
