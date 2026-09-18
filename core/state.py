@@ -31,6 +31,7 @@ class AgentState:
     domain: str = ""
     task_analysis: Any = None
     plan: Any = None
+    search_sources: list[str] = field(default_factory=list)
     current_plan_step: int = 0
     steps: list[AgentStep] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
