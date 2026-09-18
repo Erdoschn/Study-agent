@@ -1,4 +1,5 @@
 from .agent import StudyAgent
+from .evidence import EvidenceEngine
 
 from .reasoner import (
     AgentReasoner,
@@ -37,6 +38,7 @@ from .model_factory import (
 
 __all__ = [
     "StudyAgent",
+    "EvidenceEngine",
     "AgentReasoner",
     "ModelClient",
     "OpenAICompatibleClient",
