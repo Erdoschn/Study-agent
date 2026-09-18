@@ -114,6 +114,8 @@ class AgentState:
     action_counts: dict[str, int] = field(default_factory=dict)
     last_action: str = ""
     last_observation: Any = None
+    last_error_type: str = ""
+    recovery_count: int = 0
 
     @property
     def step_count(self) -> int:
