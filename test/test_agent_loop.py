@@ -172,3 +172,29 @@ def test_search_sorting_strategy_reaches_query():
 
     assert results[0]["title"] == "Recent paper"
     assert provider.calls[0].sort_by == "submittedDate"
+
+def test_task_analysis_parses_qualitative_search_strategy():
+    from core.task_analyzer import TaskAnalyzer
+
+    analysis = TaskAnalyzer._parse(
+        '{"task_type":"research","domain":"AI agents",'
+        '"required_tools":["search","verify"],'
+        '"external_facts_needed":true,'
+        '"search_sources":["wikipedia","arxiv"],'
+        '"search_sort_by":"submittedDate"}'
+    )
+
+    assert analysis.search_sources == ["wikipedia", "arxiv"]
+    assert analysis.search_sort_by == "submittedDate"
+
+
+def test_task_analysis_rejects_unknown_search_values():
+    from core.task_analyzer import TaskAnalyzer
+
+    analysis = TaskAnalyzer._parse(
+        '{"search_sources":["google","arxiv","arxiv"],'
+        '"search_sort_by":"not-a-valid-value"}'
+    )
+
+    assert analysis.search_sources == ["arxiv"]
+    assert analysis.search_sort_by == "relevance"
