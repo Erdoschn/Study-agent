@@ -128,6 +128,6 @@ class SearchRouter:
         )
         if combined:
             return combined
-        if last_error is not None and len(attempted) == 1:
+        if last_error is not None:
             raise last_error
         return combined
