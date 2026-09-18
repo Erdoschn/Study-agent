@@ -18,6 +18,7 @@ from .teacher import Teacher
 from .tool_loop import (
     AgentToolLoop,
     ToolExecutor,
+    ToolSpec,
 )
 
 from .model_registry import (
@@ -46,6 +47,7 @@ __all__ = [
     "Teacher",
     "AgentToolLoop",
     "ToolExecutor",
+    "ToolSpec",
     "ModelInfo",
     "ModelRegistry",
     "ModelRouter",
