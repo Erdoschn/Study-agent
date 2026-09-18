@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Callable
+
+import requests
 
 from core.__debug__ import debug
 
@@ -41,11 +41,7 @@ class HttpRequestError(RuntimeError):
 
 
 class HttpClient:
-    """Shared stdlib HTTP transport.
-
-    The opener is resolved dynamically by default so existing tests that
-    monkeypatch urllib.request.urlopen continue to exercise the real path.
-    """
+    """Shared HTTP transport based on requests."""
 
     RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
@@ -55,12 +51,22 @@ class HttpClient:
         timeout: float = 30.0,
         retries: int = 2,
         backoff_seconds: float = 2.0,
-        opener: Callable | None = None,
+        session: requests.Session | None = None,
+        session_factory: Callable[[], requests.Session] | None = None,
     ) -> None:
         self.timeout = timeout
         self.retries = max(0, retries)
         self.backoff_seconds = max(0.0, backoff_seconds)
-        self._opener = opener
+        if session is not None and session_factory is not None:
+            raise ValueError("session 和 session_factory 只能设置一个。")
+        self.session = (
+            session
+            or session_factory()
+            if session_factory is not None
+            else session
+        )
+        if self.session is None:
+            self.session = requests.Session()
 
     def get(
         self,
@@ -76,59 +82,69 @@ class HttpClient:
                 "HttpClient",
                 f"GET attempt={attempt}/{total_attempts} → {url}",
             )
-            request = urllib.request.Request(
-                url=url,
-                method="GET",
-                headers=headers or {},
-            )
 
             try:
-                opener = self._opener or urllib.request.urlopen
-                with opener(request, timeout=self.timeout) as response:
-                    body = response.read()
+                response = self.session.get(
+                    url,
+                    headers=headers or {},
+                    timeout=self.timeout,
+                )
+
+                status = response.status_code
+                reason = response.reason or ""
+                body = response.content or b""
+                response_headers = dict(response.headers)
+
+                if 200 <= status < 300:
                     return HttpResponse(
-                        status=response.status,
-                        reason=response.reason or "",
-                        headers=dict(response.headers.items()),
+                        status=status,
+                        reason=reason,
+                        headers=response_headers,
                         body=body,
                         attempts=attempt,
                         elapsed_seconds=time.monotonic() - started,
                     )
-            except urllib.error.HTTPError as exc:
-                body = self._read_error_body(exc)
-                retryable = exc.code in self.RETRYABLE_STATUS_CODES
+
+                retryable = status in self.RETRYABLE_STATUS_CODES
                 debug.log(
                     "HttpClient",
-                    f"HTTP ERROR attempt={attempt}: {exc.code} {exc.reason}; retryable={retryable}",
+                    f"HTTP ERROR attempt={attempt}: {status} {reason}; retryable={retryable}",
                 )
+
                 if not retryable or attempt >= total_attempts:
+                    error_body = body.decode("utf-8", errors="replace").strip()
                     raise HttpRequestError(
-                        f"HTTPError: HTTP Error {exc.code}: {exc.reason}",
-                        status_code=exc.code,
-                        reason=str(exc.reason or ""),
-                        response_body=body,
+                        f"HTTPError: HTTP Error {status}: {reason}",
+                        status_code=status,
+                        reason=reason,
+                        response_body=error_body,
                         retryable=retryable,
                         attempts=attempt,
-                    ) from exc
-            except urllib.error.URLError as exc:
-                reason = str(exc.reason)
+                    )
+
+            except HttpRequestError:
+                raise
+            except requests.Timeout as exc:
                 debug.log(
                     "HttpClient",
-                    f"NETWORK ERROR attempt={attempt}: {reason}",
+                    f"TIMEOUT attempt={attempt}: {exc}",
                 )
                 if attempt >= total_attempts:
                     raise HttpRequestError(
-                        f"网络请求失败：{reason}",
-                        reason=reason,
+                        f"网络请求超时：{exc}",
+                        reason="timeout",
                         retryable=True,
                         attempts=attempt,
                     ) from exc
-            except TimeoutError as exc:
-                debug.log("HttpClient", f"TIMEOUT attempt={attempt}")
+            except requests.RequestException as exc:
+                debug.log(
+                    "HttpClient",
+                    f"NETWORK ERROR attempt={attempt}: {type(exc).__name__}: {exc}",
+                )
                 if attempt >= total_attempts:
                     raise HttpRequestError(
-                        "网络请求超时",
-                        reason="timeout",
+                        f"网络请求失败：{exc}",
+                        reason=type(exc).__name__,
                         retryable=True,
                         attempts=attempt,
                     ) from exc
@@ -138,10 +154,3 @@ class HttpClient:
                 time.sleep(delay)
 
         raise AssertionError("unreachable")
-
-    @staticmethod
-    def _read_error_body(exc: urllib.error.HTTPError) -> str:
-        try:
-            return exc.read(4096).decode("utf-8", errors="replace").strip()
-        except Exception:
-            return ""
