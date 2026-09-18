@@ -15,6 +15,7 @@ class TaskAnalysis:
     required_tools: list[str] = field(default_factory=list)
     external_facts_needed: bool = False
     answer_strategy: str = ""
+    search_sources: list[str] = field(default_factory=list)
 
 
 class TaskAnalyzer:
@@ -33,6 +34,13 @@ class TaskAnalyzer:
 - required_tools：只填写真正需要的工具，可选 search / calculate / verify
 - external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
 - answer_strategy：给后续 Reasoner 的简短行动建议
+- search_sources：搜索来源的定性优先顺序，只能使用 wikipedia / arxiv。
+  基础概念、定义、术语解释优先 wikipedia；
+  专业研究、论文、研究进展优先 arxiv；
+  同时包含概念与研究的问题可以给出 [wikipedia, arxiv]；
+  不需要搜索时填 []。
+
+search_sources 是行动策略，不是相关度分数，也不要填写任何数值评分。
 
 不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
@@ -51,9 +59,15 @@ class TaskAnalyzer:
                 {
                     "question": question,
                     "student_state": {
-                        "known_topics": sorted(getattr(student_state, "known_topics", set())),
-                        "weak_topics": sorted(getattr(student_state, "weak_topics", set())),
-                        "misconceptions": list(getattr(student_state, "misconceptions", [])),
+                        "known_topics": sorted(
+                            getattr(student_state, "known_topics", set())
+                        ),
+                        "weak_topics": sorted(
+                            getattr(student_state, "weak_topics", set())
+                        ),
+                        "misconceptions": list(
+                            getattr(student_state, "misconceptions", [])
+                        ),
                     },
                 },
                 ensure_ascii=False,
@@ -71,29 +85,59 @@ class TaskAnalyzer:
                 try:
                     debug.log("TaskAnalyzer", f"TRY MODEL → {model.name}")
                     client = self.model_factory.create(model)
-                    raw = client.generate(self.SYSTEM_PROMPT, prompt, json_mode=True)
+                    raw = client.generate(
+                        self.SYSTEM_PROMPT,
+                        prompt,
+                        json_mode=True,
+                    )
                     analysis = self._parse(raw)
-                    self.model_router.registry.record_success(model.name, "reasoning")
-                    debug.log("TaskAnalyzer", f"SUCCESS → {model.name}")
+                    self.model_router.registry.record_success(
+                        model.name,
+                        "reasoning",
+                    )
+                    debug.log(
+                        "TaskAnalyzer",
+                        f"SUCCESS → {model.name}",
+                    )
                     return analysis
                 except Exception as exc:
-                    self.model_router.registry.record_failure(model.name, "reasoning")
-                    errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
-                    debug.log("TaskAnalyzer", f"MODEL FAILED → {model.name}")
+                    self.model_router.registry.record_failure(
+                        model.name,
+                        "reasoning",
+                    )
+                    errors.append(
+                        f"{model.name}: {type(exc).__name__}: {exc}"
+                    )
+                    debug.log(
+                        "TaskAnalyzer",
+                        f"MODEL FAILED → {model.name}",
+                    )
 
-            raise RuntimeError("所有 Task Analyzer 候选模型均调用失败：\n" + "\n".join(errors))
+            raise RuntimeError(
+                "所有 Task Analyzer 候选模型均调用失败：
+"
+                + "
+".join(errors)
+            )
 
     @staticmethod
     def _parse(raw: str) -> TaskAnalysis:
         try:
             data: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"Task Analysis JSON 解析失败：{exc}\n原始输出：{raw}") from exc
+            raise RuntimeError(
+                f"Task Analysis JSON 解析失败：{exc}
+原始输出：{raw}"
+            ) from exc
 
         tools = data.get("required_tools", [])
         if not isinstance(tools, list):
             tools = []
-        tools = [str(x).lower() for x in tools if str(x).lower() in {"search", "calculate", "verify"}]
+        tools = [
+            str(x).lower()
+            for x in tools
+            if str(x).lower() in {"search", "calculate", "verify"}
+        ]
 
         issues = data.get("issues", [])
         gaps = data.get("knowledge_gaps", [])
@@ -102,6 +146,16 @@ class TaskAnalyzer:
         if not isinstance(gaps, list):
             gaps = []
 
+        sources = data.get("search_sources", [])
+        if not isinstance(sources, list):
+            sources = []
+        sources = [
+            str(x).strip().lower()
+            for x in sources
+            if str(x).strip().lower() in {"wikipedia", "arxiv"}
+        ]
+        sources = list(dict.fromkeys(sources))
+
         return TaskAnalysis(
             task_type=str(data.get("task_type", "general")),
             domain=str(data.get("domain", "general")),
@@ -109,6 +163,9 @@ class TaskAnalyzer:
             issues=[str(x) for x in issues],
             knowledge_gaps=[str(x) for x in gaps],
             required_tools=tools,
-            external_facts_needed=bool(data.get("external_facts_needed", False)),
+            external_facts_needed=bool(
+                data.get("external_facts_needed", False)
+            ),
             answer_strategy=str(data.get("answer_strategy", "")),
+            search_sources=sources,
         )
