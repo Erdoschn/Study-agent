@@ -253,8 +253,7 @@ class AgentReasoner:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Reasoner JSON 解析失败：{exc}
-原始输出：{raw}"
+                f"Reasoner JSON 解析失败：{exc}\n原始输出：{raw}"
             ) from exc
 
         action = str(data.get("action", "")).upper()
