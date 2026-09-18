@@ -9,10 +9,11 @@ from .evidence import EvidenceEngine, EvidenceStore
 class ToolSpec:
     """Harness 中注册给 LLM 的工具定义。"""
 
-    def __init__(self, name: str, description: str, parameters: dict[str, Any]):
+    def __init__(self, name: str, description: str, parameters: dict[str, Any], handler: Callable[..., Any] | None = None):
         self.name = name
         self.description = description
         self.parameters = parameters
+        self.handler = handler
 
 
 class ToolExecutor:
@@ -72,10 +73,10 @@ class ToolExecutor:
         )
 
     def register(self, spec: ToolSpec, handler: Callable[..., Any] | None = None) -> None:
-        if handler is not None:
-            self._tools[spec.name] = (spec, handler)
-            return
-        raise ValueError("register 需要 handler。")
+        handler = handler or spec.handler
+        if handler is None:
+            raise ValueError("register 需要 handler。")
+        self._tools[spec.name] = (spec, handler)
 
     def tool_specs(self) -> list[dict[str, Any]]:
         return [
@@ -231,6 +232,13 @@ class AgentToolLoop:
         except (TypeError, ValueError):
             pass
         return execute(tool, arguments)
+
+    def _force_verify(self, state, decision):
+        """Compatibility gate for callers that still expose a pre-planned VERIFY step."""
+        if decision.action == "ANSWER" and state.plan and state.current_plan_step < len(state.plan.steps):
+            if any(step.action == "VERIFY" for step in state.plan.steps[state.current_plan_step:]):
+                return ReasoningDecision(action="VERIFY", reasoning_summary="在回答前完成计划要求的证据核查。", tool="verify", arguments={"claim": state.question, "evidence": state.evidence}, model=decision.model)
+        return decision
 
     def run(self, state):
         evidence_store = EvidenceStore(state.evidence)
