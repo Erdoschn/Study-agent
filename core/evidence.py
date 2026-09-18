@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 
@@ -47,14 +47,10 @@ class EvidenceStore:
 
 
 class EvidenceEngine:
-    """Harness-side evidence normalization, deduplication, and qualitative assessment.
-
-    This layer does not ask the LLM to score its own evidence. It derives labels
-    from the query/result content and records the basis for later decisions.
-    """
+    """Harness-side evidence normalization, deduplication, and qualitative assessment."""
 
     RELEVANCE = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
-    RECENCY = {"NEWER", "OLDER", "UNKNOWN"}
+    RECENCY = {"DATED", "UNDATED", "UNKNOWN"}
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
@@ -68,9 +64,7 @@ class EvidenceEngine:
     def assess(cls, query: str, result: dict[str, Any]) -> dict[str, str]:
         q = cls._tokens(query)
         title = cls._tokens(str(result.get("title", "")))
-        body = cls._tokens(
-            f"{result.get('abstract', '')} {result.get('notes', '')}"
-        )
+        body = cls._tokens(f"{result.get('abstract', '')} {result.get('notes', '')}")
         if not q or not (title or body):
             relevance = "UNCERTAIN"
         elif q.issubset(title | body):
@@ -83,17 +77,13 @@ class EvidenceEngine:
             relevance = "IRRELEVANT"
 
         published = str(result.get("published") or result.get("updated") or "").strip()
-        recency = "UNKNOWN"
+        recency = "UNDATED"
         if published:
             try:
-                value = datetime.fromisoformat(published.replace("Z", "+00:00"))
-                if value.tzinfo is None:
-                    value = value.replace(tzinfo=timezone.utc)
-                age_days = (datetime.now(timezone.utc) - value).days
-                recency = "NEWER" if age_days <= 365 else "OLDER"
+                datetime.fromisoformat(published.replace("Z", "+00:00"))
+                recency = "DATED"
             except ValueError:
                 recency = "UNKNOWN"
-
         return {"relevance": relevance, "recency": recency}
 
     @classmethod
@@ -119,11 +109,14 @@ class EvidenceEngine:
 
     @classmethod
     def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
-        """Conservative Harness-side claim/evidence matching, not fact proof."""
+        """Structural text matching only; this does not establish factual truth."""
         claim_tokens = cls._tokens(claim)
         if not claim_tokens or not evidence:
-            return {"claim": claim, "verification_status": "INSUFFICIENT", "matched_evidence": [],
-                    "verification_note": "缺少可用于结构化核查的主张或证据。"}
+            return {
+                "claim": claim, "verification_status": "UNCERTAIN",
+                "matched_evidence": [],
+                "verification_note": "缺少足够输入，Harness 无法进行结构化文本匹配。",
+            }
         matched = []
         for index, item in enumerate(evidence):
             if not isinstance(item, dict) or item.get("harness_relevance") not in {"DIRECT", "PARTIAL"}:
@@ -131,9 +124,12 @@ class EvidenceEngine:
             text = f"{item.get('title', '')} {item.get('abstract', '')} {item.get('notes', '')}"
             if claim_tokens.issubset(cls._tokens(text)):
                 matched.append(index)
-        status = "SUPPORTED" if matched else "INSUFFICIENT"
-        return {"claim": claim, "verification_status": status, "matched_evidence": matched,
-                "verification_note": "Harness 仅进行了结构化文本匹配；SUPPORTED 不等同于事实已被证明。"}
+        status = "MATCHED" if matched else "NOT_MATCHED"
+        return {
+            "claim": claim, "verification_status": status,
+            "matched_evidence": matched,
+            "verification_note": "Harness 仅进行了结构化文本匹配；MATCHED 不等同于事实成立，也不构成概率或置信度判断。",
+        }
 
     @classmethod
     def coverage(cls, query: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
@@ -143,9 +139,7 @@ class EvidenceEngine:
         for item in evidence:
             if item.get("harness_relevance") in {"DIRECT", "PARTIAL"}:
                 relevant.append(item)
-                covered |= q & cls._tokens(
-                    f"{item.get('title', '')} {item.get('abstract', '')}"
-                )
+                covered |= q & cls._tokens(f"{item.get('title', '')} {item.get('abstract', '')}")
         if not q:
             status = "UNKNOWN"
         elif not relevant:
@@ -154,8 +148,5 @@ class EvidenceEngine:
             status = "COVERED"
         else:
             status = "PARTIAL"
-        return {
-            "status": status,
-            "relevant_count": len(relevant),
-            "uncovered_terms": sorted(q - covered),
-        }
+        return {"status": status, "relevant_count": len(relevant), "uncovered_terms": sorted(q - covered)}
+}
