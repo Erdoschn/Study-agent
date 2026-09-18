@@ -37,6 +37,7 @@ class AgentState:
     steps: list[AgentStep] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     claims: list[dict[str, Any]] = field(default_factory=list)
+    evidence_relevance: list[dict[str, Any]] = field(default_factory=list)
     final_answer: str | None = None
     finished: bool = False
     error: str | None = None
