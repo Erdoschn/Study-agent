@@ -3,6 +3,7 @@ from typing import Any, Callable
 from .__debug__ import debug
 from .state import AgentStep
 from .reasoner import ReasoningDecision
+from .evidence import EvidenceEngine
 
 
 class ToolSpec:
@@ -19,8 +20,9 @@ class ToolExecutor:
 
     DEFAULT_SEARCH_RESULTS = 10
 
-    def __init__(self, search_router=None):
+    def __init__(self, search_router=None, evidence_engine=None):
         self.search_router = search_router
+        self.evidence_engine = evidence_engine or EvidenceEngine()
         self._tools: dict[str, tuple[ToolSpec, Callable[..., Any]]] = {}
         self.register(
             ToolSpec(
@@ -118,8 +120,7 @@ class ToolExecutor:
             sort_order=str(arguments.get("sort_order", "descending")),
         )
         results = self.search_router.search(query)
-        debug.log("ToolExecutor", f"SEARCH RESULT → source={source} count={len(results)}")
-        return [
+        raw = [
             {
                 "source": item.source,
                 "source_type": item.source_type,
@@ -133,6 +134,13 @@ class ToolExecutor:
             }
             for item in results
         ]
+        normalized = self.evidence_engine.normalize(query.query, raw)
+        coverage = self.evidence_engine.coverage(query.query, normalized)
+        debug.log(
+            "ToolExecutor",
+            f"SEARCH RESULT → source={source} raw={len(raw)} unique={len(normalized)} coverage={coverage['status']}",
+        )
+        return {"results": normalized, "coverage": coverage}
 
     def _calculate(self, arguments):
         expression = str(arguments.get("expression", ""))
@@ -248,7 +256,8 @@ class AgentToolLoop:
 
                 try:
                     observation = self.executor.execute(tool, decision.arguments or {}, state=state)
-                    success = not (decision.action == "SEARCH" and not observation)
+                    search_results = observation.get("results", []) if isinstance(observation, dict) else observation
+                    success = not (decision.action == "SEARCH" and not search_results)
                     error = "" if success else "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
                 except Exception as exc:
                     observation, success = None, False
@@ -262,7 +271,8 @@ class AgentToolLoop:
                 ))
 
                 if decision.action == "SEARCH" and success and observation:
-                    state.evidence.extend(observation)
+                    search_results = observation.get("results", []) if isinstance(observation, dict) else observation
+                    state.evidence.extend(search_results)
 
                 state.current_plan_step = self._next_plan_step(state, decision.action)
                 state.last_observation = observation
