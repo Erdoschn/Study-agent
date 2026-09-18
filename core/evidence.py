@@ -5,6 +5,47 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+class EvidenceStore:
+    """Persistent evidence collection used by the Harness."""
+
+    def __init__(self, items: list[dict[str, Any]] | None = None):
+        self.items: list[dict[str, Any]] = []
+        self.add_many(items or [])
+
+    @staticmethod
+    def _key(item: dict[str, Any]) -> tuple[str, str]:
+        return (str(item.get("source", "")), str(item.get("identifier") or item.get("url") or item.get("title") or ""))
+
+    def add_many(self, items: list[dict[str, Any]]) -> int:
+        seen = {self._key(item) for item in self.items}
+        added = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            key = self._key(item)
+            if key in seen:
+                continue
+            self.items.append(dict(item))
+            seen.add(key)
+            added += 1
+        return added
+
+    def prompt_view(self, max_items: int = 20) -> list[dict[str, Any]]:
+        view = []
+        start = max(0, len(self.items) - max_items)
+        for index in range(start, len(self.items)):
+            item = self.items[index]
+            view.append({
+                "index": index,
+                "source": item.get("source"), "title": item.get("title"),
+                "url": item.get("url"), "identifier": item.get("identifier"),
+                "abstract": item.get("abstract"), "published": item.get("published"),
+                "harness_relevance": item.get("harness_relevance", "UNCERTAIN"),
+                "harness_recency": item.get("harness_recency", "UNKNOWN"),
+            })
+        return view
+
+
 class EvidenceEngine:
     """Harness-side evidence normalization, deduplication, and qualitative assessment.
 
@@ -75,6 +116,24 @@ class EvidenceEngine:
             item["harness_recency"] = assessment["recency"]
             normalized.append(item)
         return normalized
+
+    @classmethod
+    def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
+        """Conservative Harness-side claim/evidence matching, not fact proof."""
+        claim_tokens = cls._tokens(claim)
+        if not claim_tokens or not evidence:
+            return {"claim": claim, "verification_status": "INSUFFICIENT", "matched_evidence": [],
+                    "verification_note": "缺少可用于结构化核查的主张或证据。"}
+        matched = []
+        for index, item in enumerate(evidence):
+            if not isinstance(item, dict) or item.get("harness_relevance") not in {"DIRECT", "PARTIAL"}:
+                continue
+            text = f"{item.get('title', '')} {item.get('abstract', '')} {item.get('notes', '')}"
+            if claim_tokens.issubset(cls._tokens(text)):
+                matched.append(index)
+        status = "SUPPORTED" if matched else "INSUFFICIENT"
+        return {"claim": claim, "verification_status": status, "matched_evidence": matched,
+                "verification_note": "Harness 仅进行了结构化文本匹配；SUPPORTED 不等同于事实已被证明。"}
 
     @classmethod
     def coverage(cls, query: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
