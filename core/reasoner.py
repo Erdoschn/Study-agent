@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from .__debug__ import debug
 from .evidence import EvidenceStore
+from .state import StudentMind
 
 
 @dataclass
@@ -22,6 +23,7 @@ class ReasoningDecision:
     evidence_relevance: list[dict[str, Any]] | None = None
     finish_reason: str = ""
     model: str | None = None
+    student_model_update: dict[str, Any] | None = None
 
 
 class ModelClient(ABC):
@@ -102,10 +104,22 @@ VERIFY：
 - Harness 只做结构化文本匹配：MATCHED 仅表示文本结构匹配，不等同于事实成立；NOT_MATCHED 表示没有匹配；UNCERTAIN 表示输入不足或无法判断。\n- 不把 VERIFY 结果转化为概率、置信度或事实证明。
 
 ANSWER：
-- 直接在 answer 字段给出最终回答。
-- 不要把最终回答放在 reasoning_summary 中。
+- 你是导师，不是百科检索器。最终回答的目标是让学生理解、能够自己推导并继续学习，而不是堆砌知识。
+- 先判断学生当前可能的理解层级、已有信念和卡点；不要把未经观察的心理状态当成事实。
+- 优先采用互动教学：必要时先追问一个能暴露学生思维的问题，再根据回答继续教学；如果当前问题明确且不需要诊断，可以直接解释，但应给出关键推理链、例子或反例，而不是百科式罗列。
+- 对学生的错误理解要具体指出“哪里错、为什么错、怎样修正”，不要只给正确答案。
+- 对数学/代码/概念问题，鼓励学生自己完成关键一步；不要替学生做完所有推导，除非用户明确要求完整答案。
+- 将“学生模型”视为工作假设，不是心理事实；只有用户明确表达或多轮行为支持时才形成长期记忆。
+- 如果证据不足，明确告诉学生不确定之处。
 - 如果外部证据支持答案，应引用 observation 中的来源信息。
 - 不要输出隐藏思维链。
+
+学生模型更新：
+- 你可以在 student_model_update 中提出对学生 BDI 的结构化更新。
+- BDI 中 D 是 Desires/Goals（学习目标或想达到的状态），I 是 Intentions/Plans（学生打算采取的行动）；“决定”可以作为 recent_decisions 记录，但不要把它误称为 D。
+- short_term 表示本轮/近期对话中的工作假设；long_term 只有在稳定、重复或用户明确表达时才更新。
+- 只记录与学习直接相关、可由对话支持的内容；不要猜测隐私、人格、情绪或其他心理事实。
+- 空数组表示不更新。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON。
 格式：
@@ -161,6 +175,7 @@ ANSWER：
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
                 "misconceptions": state.student.misconceptions,
+                "mind_bdi": state.student.mind.as_dict(),
             },
             "available_tools": tool_specs,
             "previous_steps": observations,
@@ -192,6 +207,10 @@ ANSWER：
         evidence_relevance = data.get("evidence_relevance", [])
         if not isinstance(evidence_relevance, list):
             evidence_relevance = []
+
+        student_model_update = AgentReasoner._normalize_student_model_update(
+            data.get("student_model_update", {})
+        )
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
         allowed_recency = {"DATED", "UNDATED", "UNKNOWN"}
         normalized = []
@@ -219,3 +238,33 @@ ANSWER：
             evidence_relevance=normalized,
             finish_reason=str(data.get("finish_reason", "")),
         )
+
+    @staticmethod
+    def _normalize_student_model_update(raw):
+        """Bound and sanitize ToM output; it remains a hypothesis, not a fact."""
+        if not isinstance(raw, dict):
+            return {}
+        normalized = {}
+        for horizon in ("short_term", "long_term"):
+            source = raw.get(horizon, {})
+            if not isinstance(source, dict):
+                continue
+            target = {}
+            for category in ("beliefs", "desires", "intentions"):
+                items = source.get(category, [])
+                if not isinstance(items, list):
+                    items = []
+                cleaned = []
+                for item in items:
+                    text = str(item).strip()
+                    if text and text not in cleaned:
+                        cleaned.append(text)
+                target[category] = cleaned[:8 if horizon == "short_term" else 12]
+            normalized[horizon] = target
+        decisions = raw.get("recent_decisions", [])
+        if not isinstance(decisions, list):
+            decisions = []
+        normalized["recent_decisions"] = [
+            str(x).strip() for x in decisions if str(x).strip()
+        ][:6]
+        return normalized
