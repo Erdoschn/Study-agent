@@ -48,18 +48,17 @@ class WikipediaSearchProvider(SearchProvider):
             self._validate_query(query)
             title_results = self._search_titles(query)
 
-            results: list[SearchResult] = []
-            for title, url in title_results:
-                try:
-                    summary = self._get_summary(title)
-                except HttpRequestError as exc:
-                    debug.log(
-                        "WikipediaSearchProvider",
-                        f"SUMMARY FAILED → {title}: {exc}",
-                    )
-                    summary = {}
-
-                results.append(self._to_result(title, url, summary))
+            summaries = self._get_summaries(
+                [title for title, _ in title_results]
+            )
+            results = [
+                self._to_result(
+                    title,
+                    url,
+                    summaries.get(title, {}),
+                )
+                for title, url in title_results
+            ]
 
             debug.log("WikipediaSearchProvider", f"RESULTS → {len(results)}")
             return SearchResponse(
@@ -149,9 +148,44 @@ class WikipediaSearchProvider(SearchProvider):
             results.append((title, url))
         return results
 
-    def _get_summary(self, title: str) -> dict:
-        encoded_title = urllib.parse.quote(title, safe="")
-        return self._request_json(self.SUMMARY_URL + encoded_title)
+    def _get_summaries(self, titles: list[str]) -> dict[str, dict]:
+        if not titles:
+            return {}
+
+        params = {
+            "action": "query",
+            "prop": "extracts|info",
+            "exintro": 1,
+            "explaintext": 1,
+            "inprop": "url",
+            "redirects": 1,
+            "titles": "|".join(titles),
+            "format": "json",
+        }
+        url = f"{self.API_URL}?{urllib.parse.urlencode(params)}"
+        data = self._request_json(url)
+
+        if not isinstance(data, dict):
+            raise RuntimeError("Wikipedia batch summary 返回格式异常。")
+
+        pages = (
+            data.get("query", {}).get("pages", {})
+            if isinstance(data.get("query"), dict)
+            else {}
+        )
+        if not isinstance(pages, dict):
+            raise RuntimeError("Wikipedia batch summary 缺少 pages。")
+
+        summaries: dict[str, dict] = {}
+        for page in pages.values():
+            if not isinstance(page, dict):
+                continue
+            title = str(page.get("title", ""))
+            if not title or "missing" in page:
+                continue
+            summaries[title] = page
+
+        return summaries
 
     @staticmethod
     def _headers() -> dict[str, str]:
