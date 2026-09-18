@@ -343,6 +343,17 @@ def main() -> None:
         )
 
         print(
+            "\n========== Student BDI =========="
+        )
+        mind = result.student.mind.as_dict()
+        for horizon, label in (("short_term", "短期"), ("long_term", "长期")):
+            data = mind[horizon]
+            print(f"[{label}] B: {data['beliefs']}")
+            print(f"[{label}] D: {data['desires']}")
+            print(f"[{label}] I: {data['intentions']}")
+        print(f"[决定] {mind['recent_decisions']}")
+
+        print(
             "\n=================================\n"
         )
 
