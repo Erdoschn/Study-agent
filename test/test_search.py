@@ -358,7 +358,7 @@ def test_wikipedia_fulltext_search_returns_multiple_ranked_candidates():
                     b'{"pageid":2,"title":"Attention mechanism","snippet":"...","timestamp":"2026-02-01T00:00:00Z"}'
                     b']}}'
                 )
-            elif "Attention_mechanism" in url:
+            elif "Attention%20mechanism" in url:
                 body = b'{"title":"Attention mechanism","extract":"Second result.","wikibase_item":"Q2"}'
             else:
                 body = b'{"title":"Attention","extract":"First result.","wikibase_item":"Q1"}'
