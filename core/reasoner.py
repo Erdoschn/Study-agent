@@ -17,6 +17,7 @@ class ReasoningDecision:
     task_type: str = ""
     domain: str = ""
     claims: list[dict[str, Any]] | None = None
+    evidence_relevance: list[dict[str, Any]] | None = None
     finish_reason: str = ""
     model: str | None = None
 
