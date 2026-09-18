@@ -78,7 +78,7 @@ def build_agent(
     reasoner = AgentReasoner(
         model_router=model_router,
         model_factory=model_factory,
-        allow_paid=False,  # 默认不允许付费模型
+        allow_paid=allow_paid,  # 仅显式 --allow-paid 时允许付费模型
     )
 
     # -----------------------------
@@ -113,7 +113,7 @@ def build_agent(
         reasoner=reasoner,
         teacher=teacher,
         tool_executor=executor,
-        max_steps=8,
+        max_steps=None,
     )
 
 
