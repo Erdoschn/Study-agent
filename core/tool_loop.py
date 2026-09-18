@@ -16,6 +16,21 @@ class ToolSpec:
         self.handler = handler
 
 
+class SearchObservation(list):
+    """List-compatible search observation with dict-style metadata for the Harness."""
+
+    def __init__(self, results, coverage):
+        super().__init__(results)
+        self.coverage = coverage
+
+    def get(self, key, default=None):
+        if key == "results":
+            return list(self)
+        if key == "coverage":
+            return self.coverage
+        return default
+
+
 class ToolExecutor:
     """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
 
@@ -141,7 +156,7 @@ class ToolExecutor:
             "ToolExecutor",
             f"SEARCH RESULT → source={source} raw={len(raw)} unique={len(normalized)} coverage={coverage['status']}",
         )
-        return {"results": normalized, "coverage": coverage}
+        return SearchObservation(normalized, coverage)
 
     def _calculate(self, arguments):
         expression = str(arguments.get("expression", ""))
