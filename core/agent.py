@@ -11,13 +11,17 @@ class StudyAgent:
         self.teacher = teacher  # 兼容旧接口；不再作为固定流程节点。
         self.tool_executor = tool_executor
         self.max_steps = max_steps
+        self.student_state = None
 
     def run(self, question: str, student_state=None) -> AgentState:
         with debug.scope("StudyAgent", "RUN"):
             debug.log("StudyAgent", f"QUESTION → {question}")
             state = AgentState(question=question, max_steps=self.max_steps)
             if student_state is not None:
-                state.student = student_state
+                self.student_state = student_state
+            elif self.student_state is None:
+                self.student_state = state.student
+            state.student = self.student_state
 
             # 不再先调用 TaskAnalyzer/Planner。
             # Agent Brain 在第一轮直接观察用户任务 + 学生状态 + 工具，
