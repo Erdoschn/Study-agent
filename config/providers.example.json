@@ -34,6 +34,9 @@
       "type": "openai_compatible",
       "base_url": "https://hkust.azure-api.net/hkust-genai/v1",
       "api_key": "************************",
+      "headers": {
+        "api-key": "************************"
+      },
       "enabled": true
     }
   },
