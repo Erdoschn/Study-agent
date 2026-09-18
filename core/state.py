@@ -3,6 +3,71 @@ from typing import Any
 
 
 @dataclass
+class BDIState:
+    """Student mental-state model. BDI means Beliefs, Desires, Intentions."""
+
+    beliefs: list[str] = field(default_factory=list)
+    desires: list[str] = field(default_factory=list)
+    intentions: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, list[str]]:
+        return {
+            "beliefs": list(self.beliefs),
+            "desires": list(self.desires),
+            "intentions": list(self.intentions),
+        }
+
+    def add(self, category: str, items: list[str], limit: int) -> None:
+        target = getattr(self, category)
+        for item in items:
+            text = str(item).strip()
+            if text and text not in target:
+                target.append(text)
+        del target[:-limit]
+
+
+@dataclass
+class StudentMind:
+    """Two-timescale student model: short-term and long-term BDI."""
+
+    short_term: BDIState = field(default_factory=BDIState)
+    long_term: BDIState = field(default_factory=BDIState)
+    recent_decisions: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "short_term": self.short_term.as_dict(),
+            "long_term": self.long_term.as_dict(),
+            "recent_decisions": list(self.recent_decisions),
+        }
+
+    def apply_update(self, update: dict[str, Any]) -> None:
+        """Apply an LLM hypothesis after Harness-side schema validation."""
+        if not isinstance(update, dict):
+            return
+
+        for horizon, target, limit in (
+            ("short_term", self.short_term, 8),
+            ("long_term", self.long_term, 30),
+        ):
+            data = update.get(horizon)
+            if not isinstance(data, dict):
+                continue
+            for category in ("beliefs", "desires", "intentions"):
+                items = data.get(category, [])
+                if isinstance(items, list):
+                    target.add(category, [str(x) for x in items], limit)
+
+        decisions = update.get("recent_decisions", [])
+        if isinstance(decisions, list):
+            for item in decisions:
+                text = str(item).strip()
+                if text and text not in self.recent_decisions:
+                    self.recent_decisions.append(text)
+        del self.recent_decisions[:-12]
+
+
+@dataclass
 class AgentStep:
     step_id: int
     action: str
@@ -20,6 +85,10 @@ class StudentState:
     known_topics: set[str] = field(default_factory=set)
     weak_topics: set[str] = field(default_factory=set)
     misconceptions: list[str] = field(default_factory=list)
+    mind: StudentMind = field(default_factory=StudentMind)
+
+    def apply_mind_update(self, update: dict[str, Any]) -> None:
+        self.mind.apply_update(update)
 
 
 @dataclass
