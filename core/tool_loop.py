@@ -58,14 +58,14 @@ class ToolExecutor:
         self.register(
             ToolSpec(
                 "verify",
-                "Review a claim against supplied evidence.",
+                "Review a claim against supplied evidence; if evidence is omitted, Harness uses current state evidence.",
                 {
                     "type": "object",
                     "properties": {
                         "claim": {"type": "string"},
                         "evidence": {"type": "array"},
                     },
-                    "required": ["claim", "evidence"],
+                    "required": ["claim"],
                 },
                 self._verify,
             )
