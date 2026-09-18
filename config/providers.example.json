@@ -1,5 +1,7 @@
 {
+  "debug": true,
   "default_role": "reasoner",
+
   "providers": {
     "local": {
       "type": "openai_compatible",
@@ -7,37 +9,111 @@
       "api_key": "ollama",
       "enabled": false
     },
+
     "deepseek": {
       "type": "openai_compatible",
-      "base_url": "https://api.deepseek.com/v1",
-      "api_key": "YOUR_DEEPSEEK_API_KEY",
-      "enabled": false
+      "base_url": "https://api.deepseek.com",
+      "api_key": "************************",
+      "enabled": true
     },
-    "custom": {
+
+    "AiHubMix": {
       "type": "openai_compatible",
-      "base_url": "https://YOUR_API_BASE_URL/v1",
-      "api_key": "YOUR_API_KEY",
-      "enabled": false
+      "base_url": "https://aihubmix.com/v1",
+      "api_key": "************************",
+      "enabled": true
+    },
+
+    "Google": {
+      "type": "openai_compatible",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key": "************************",
+      "enabled": true
+    },
+    "HKUST_GEN_AI": {
+      "type": "openai_compatible",
+      "base_url": "https://hkust.azure-api.net/hkust-genai/v1",
+      "api_key": "************************",
+      "enabled": true
     }
   },
+
   "models": {
-    "reasoner": {
-      "provider": "local",
-      "model": "YOUR_REASONING_MODEL",
+    "gpt-4o-free": {
+      "provider": "AiHubMix",
+      "model": "gpt-4o-free",
       "enabled": true,
-      "capabilities": {"reasoning": 0.9, "math": 0.8, "coding": 0.7}
+      "paid": false
     },
-    "teacher": {
-      "provider": "local",
-      "model": "YOUR_TEACHING_MODEL",
+
+    "gpt-5.5-free": {
+      "provider": "AiHubMix",
+      "model": "gpt-5.5-free",
       "enabled": true,
-      "capabilities": {"teaching": 0.9, "reasoning": 0.7}
+      "paid": false
     },
-    "verifier": {
-      "provider": "local",
-      "model": "YOUR_VERIFICATION_MODEL",
+
+    "gpt-4.1-free": {
+      "provider": "AiHubMix",
+      "model": "gpt-4.1-free",
       "enabled": true,
-      "capabilities": {"reasoning": 0.9, "research": 0.8}
+      "paid": false
+    },
+
+    "gemini-3.8-flash-free": {
+      "provider": "AiHubMix",
+      "model": "gemini-3.8-flash-free",
+      "enabled": true,
+      "paid": false
+    },
+
+    "gemini-3.7-flash-free": {
+      "provider": "AiHubMix",
+      "model": "gemini-3.7-flash-free",
+      "enabled": true,
+      "paid": false
+    },
+
+    "gemini-3.6-flash-free": {
+      "provider": "AiHubMix",
+      "model": "gemini-3.6-flash-free",
+      "enabled": true,
+      "paid": false
+    },
+    
+    "gemini-3.8-flash": {
+      "provider": "Google",
+      "model": "gemini-3.8-flash",
+      "enabled": true,
+      "paid": false
+    },
+
+    "gemini-3.7-flash": {
+      "provider": "Google",
+      "model": "gemini-3.7-flash",
+      "enabled": true,
+      "paid": false
+    },
+
+    "gemini-3.6-flash": {
+      "provider": "Google",
+      "model": "gemini-3.6-flash",
+      "enabled": true,
+      "paid": false
+    },
+
+    "deepseek-flash": {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "enabled": true,
+      "paid": true
+    },
+
+    "deepseek-v4-pro": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "enabled": true,
+      "paid": true
     }
   }
 }
