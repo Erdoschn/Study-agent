@@ -1,73 +1,124 @@
-from typing import Any
+from typing import Any, Callable
+
 from .__debug__ import debug
 from .state import AgentStep
 from .reasoner import ReasoningDecision
 
 
+class ToolSpec:
+    """Harness 中注册给 LLM 的工具定义。"""
+
+    def __init__(self, name: str, description: str, parameters: dict[str, Any]):
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+
+
 class ToolExecutor:
+    """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
+
     DEFAULT_SEARCH_RESULTS = 10
 
     def __init__(self, search_router=None):
         self.search_router = search_router
+        self._tools: dict[str, tuple[ToolSpec, Callable[..., Any]]] = {}
+        self.register(
+            ToolSpec(
+                "search",
+                "Search configured knowledge sources and return normalized evidence.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "source": {"type": "string", "description": "Optional explicit source."},
+                        "categories": {"type": "array", "items": {"type": "string"}},
+                        "max_results": {"type": "integer"},
+                        "sort_by": {"type": "string", "enum": ["relevance", "submittedDate"]},
+                        "sort_order": {"type": "string", "enum": ["ascending", "descending"]},
+                    },
+                    "required": ["query"],
+                },
+                self._search,
+            )
+        )
+        self.register(
+            ToolSpec(
+                "calculate",
+                "Safely evaluate an arithmetic expression.",
+                {
+                    "type": "object",
+                    "properties": {"expression": {"type": "string"}},
+                    "required": ["expression"],
+                },
+                self._calculate,
+            )
+        )
+        self.register(
+            ToolSpec(
+                "verify",
+                "Review a claim against supplied evidence.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "claim": {"type": "string"},
+                        "evidence": {"type": "array"},
+                    },
+                    "required": ["claim", "evidence"],
+                },
+                self._verify,
+            )
+        )
 
-    def execute(
-        self,
-        tool: str,
-        arguments: dict[str, Any],
-        state=None,
-    ) -> Any:
+    def register(self, spec: ToolSpec, handler: Callable[..., Any] | None = None) -> None:
+        if handler is not None:
+            self._tools[spec.name] = (spec, handler)
+            return
+        raise ValueError("register 需要 handler。")
+
+    def tool_specs(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.parameters,
+            }
+            for spec, _ in self._tools.values()
+        ]
+
+    def execute(self, tool: str, arguments: dict[str, Any], state=None) -> Any:
         debug.log("ToolExecutor", f"EXECUTE → {tool}")
         debug.log("ToolExecutor", f"ARGS → {arguments}")
+        entry = self._tools.get(tool)
+        if entry is None:
+            raise ValueError(f"未知工具：{tool}")
+        _, handler = entry
         if tool == "search":
-            return self._search(arguments, state)
-        if tool == "calculate":
-            return self._calculate(arguments)
-        if tool == "verify":
-            return self._verify(arguments)
-        raise ValueError(f"未知工具：{tool}")
+            return handler(arguments, state)
+        return handler(arguments)
 
     def _search(self, arguments, state=None):
         if self.search_router is None:
             raise RuntimeError("SearchRouter 尚未配置。")
-
         from tools.search import SearchQuery
 
         explicit_source = str(arguments.get("source", "")).strip().lower()
-        if explicit_source:
-            source = explicit_source
-            preferences = []
-        else:
-            source = "auto"
-            preferences = list(getattr(state, "search_sources", []) or [])
-
+        source = explicit_source or "auto"
+        preferences = [] if explicit_source else list(getattr(state, "search_sources", []) or [])
         categories = arguments.get("categories", [])
         if not isinstance(categories, list):
             categories = []
-
-        sort_by = str(arguments.get("sort_by", "")).strip()
-        if not sort_by:
-            sort_by = str(getattr(state, "search_sort_by", "relevance"))
-
+        sort_by = str(arguments.get("sort_by", "")).strip() or str(getattr(state, "search_sort_by", "relevance"))
         query = SearchQuery(
             query=str(arguments.get("query", "")),
             source=source,
             source_preferences=preferences,
             categories=[str(x) for x in categories],
-            max_results=int(
-                arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS)
-            ),
+            max_results=int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS)),
             sort_by=sort_by,
             sort_order=str(arguments.get("sort_order", "descending")),
         )
-
         results = self.search_router.search(query)
-        debug.log(
-            "ToolExecutor",
-            (
-                f"SEARCH RESULT → source={source} "
-                f"count={len(results)}"
-            ),
-        )
+        debug.log("ToolExecutor", f"SEARCH RESULT → source={source} count={len(results)}")
         return [
             {
                 "source": item.source,
@@ -94,37 +145,23 @@ class ToolExecutor:
         evidence = arguments.get("evidence", [])
         if not isinstance(evidence, list):
             evidence = []
-
         return {
             "claim": claim,
             "evidence": evidence,
-            "verification_status": (
-                "READY_FOR_REVIEW"
-                if claim or evidence
-                else "INSUFFICIENT_INPUT"
-            ),
-            "verification_note": (
-                "这是结构化验证入口；当前不对事实真伪给出自动量化结论。"
-            ),
+            "verification_status": "READY_FOR_REVIEW" if claim or evidence else "INSUFFICIENT_INPUT",
+            "verification_note": "这是结构化验证入口；当前不对事实真伪给出自动量化结论。",
         }
 
     @staticmethod
     def _safe_calculate(expression):
         import ast
         import operator
-
         operators = {
-            ast.Add: operator.add,
-            ast.Sub: operator.sub,
-            ast.Mult: operator.mul,
-            ast.Div: operator.truediv,
-            ast.FloorDiv: operator.floordiv,
-            ast.Mod: operator.mod,
-            ast.Pow: operator.pow,
-            ast.USub: operator.neg,
+            ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+            ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod, ast.Pow: operator.pow, ast.USub: operator.neg,
             ast.UAdd: operator.pos,
         }
-
         def evaluate(node):
             if isinstance(node, ast.Constant):
                 if isinstance(node.value, (int, float)):
@@ -141,130 +178,35 @@ class ToolExecutor:
                     raise ValueError("不支持的运算符。")
                 return fn(evaluate(node.left), evaluate(node.right))
             raise ValueError("表达式包含不允许的内容。")
-
         return evaluate(ast.parse(expression, mode="eval").body)
 
 
 class AgentToolLoop:
-    """Closed loop: decide → act → observe → feed observation into next decision."""
+    """真正的 LLM ↔ Harness 闭环：Decide → Act → Observe → Decide。"""
 
     def __init__(self, reasoner, executor: ToolExecutor):
         self.reasoner, self.executor = reasoner, executor
 
-    def _execute_tool(self, tool, arguments, state):
-        """Call both new and legacy executor interfaces safely."""
-        import inspect
-
-        execute = self.executor.execute
-        try:
-            signature = inspect.signature(execute)
-            parameters = signature.parameters
-            accepts_state = (
-                "state" in parameters
-                or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD
-                    for p in parameters.values()
-                )
-            )
-        except (TypeError, ValueError):
-            accepts_state = False
-
-        if accepts_state:
-            return execute(tool, arguments, state=state)
-        return execute(tool, arguments)
-
     @staticmethod
     def _fingerprint(action, tool, arguments):
         import json
-
-        return (
-            action,
-            tool,
-            json.dumps(
-                arguments or {},
-                ensure_ascii=False,
-                sort_keys=True,
-                default=str,
-            ),
-        )
+        return action, tool, json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True, default=str)
 
     def _repeated_tool(self, state, decision):
         if decision.action not in {"SEARCH", "CALCULATE", "VERIFY"}:
             return False
-        fp = self._fingerprint(
-            decision.action,
-            decision.tool or decision.action.lower(),
-            decision.arguments,
-        )
+        fp = self._fingerprint(decision.action, decision.tool or decision.action.lower(), decision.arguments)
         return any(
-            self._fingerprint(
-                s.action,
-                s.tool or s.action.lower(),
-                s.arguments,
-            )
-            == fp
+            self._fingerprint(s.action, s.tool or s.action.lower(), s.arguments) == fp
             for s in state.steps
-        )
-
-    def _verify_pending(self, state) -> bool:
-        if not state.plan or not state.evidence:
-            return False
-        verify_index = next(
-            (
-                i
-                for i, step in enumerate(state.plan.steps)
-                if step.action == "VERIFY"
-            ),
-            None,
-        )
-        if verify_index is None:
-            return False
-        return not any(
-            step.action == "VERIFY" and step.success
-            for step in state.steps
-        )
-
-    def _force_verify(self, state, decision):
-        if decision.action != "ANSWER" or not self._verify_pending(state):
-            return decision
-        debug.log(
-            "AgentToolLoop",
-            "VERIFY GATE → plan requires verification before ANSWER",
-        )
-        return ReasoningDecision(
-            action="VERIFY",
-            reasoning_summary=(
-                "计划包含未执行的 VERIFY，当前已有外部证据；"
-                "先执行验证入口，再决定是否回答。"
-            ),
-            tool="verify",
-            arguments={
-                "claim": state.goal or state.question,
-                "evidence": list(state.evidence),
-            },
-            goal=decision.goal,
-            task_type=decision.task_type,
-            domain=decision.domain,
-            claims=state.claims,
-            model=decision.model,
         )
 
     def run(self, state):
         with debug.scope("AgentToolLoop", "RUN"):
-            while (
-                not state.finished
-                and state.step_count < state.max_steps
-            ):
-                debug.log(
-                    "AgentToolLoop",
-                    f"REASON → step={state.step_count + 1}",
-                )
-                decision = self.reasoner.decide(state)
-                decision = self._force_verify(state, decision)
-                debug.log(
-                    "AgentToolLoop",
-                    f"DECISION → {decision.action}",
-                )
+            while not state.finished:
+                debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
+                decision = self.reasoner.decide(state, self.executor.tool_specs())
+                debug.log("AgentToolLoop", f"DECISION → {decision.action}")
 
                 if decision.goal:
                     state.goal = decision.goal
@@ -276,129 +218,63 @@ class AgentToolLoop:
                     state.claims = decision.claims
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
-                    debug.log(
-                        "AgentToolLoop",
-                        f"RELEVANCE → {len(decision.evidence_relevance)} qualitative assessments",
-                    )
 
                 step_id = state.step_count + 1
-
                 if decision.action in {"ANSWER", "STOP"}:
-                    if decision.action == "STOP":
-                        state.error = (
-                            decision.finish_reason
-                            or decision.reasoning_summary
-                        )
-                    state.add_step(
-                        AgentStep(
-                            step_id=step_id,
-                            action=decision.action,
-                            model=decision.model,
-                            reasoning_summary=decision.reasoning_summary,
-                            success=decision.action != "STOP",
-                            error=state.error or "",
-                        )
-                    )
+                    if decision.action == "ANSWER":
+                        state.final_answer = decision.answer
+                    else:
+                        state.error = decision.finish_reason or decision.reasoning_summary
+                    state.add_step(AgentStep(
+                        step_id=step_id, action=decision.action, model=decision.model,
+                        reasoning_summary=decision.reasoning_summary,
+                        success=decision.action == "ANSWER",
+                        error=state.error or "",
+                    ))
                     state.finished = True
                     break
 
                 tool = decision.tool or decision.action.lower()
                 if self._repeated_tool(state, decision):
-                    state.add_step(
-                        AgentStep(
-                            step_id=step_id,
-                            action="STOP",
-                            model=decision.model,
-                            tool=tool,
-                            arguments=decision.arguments or {},
-                            reasoning_summary=(
-                                "检测到完全相同的工具调用，"
-                                "停止以避免无意义循环。"
-                            ),
-                            success=False,
-                            error="重复工具调用",
-                        )
-                    )
-                    state.error = (
-                        "Agent 检测到重复工具调用，已停止。"
-                    )
+                    state.error = "Agent 检测到重复工具调用，已停止。"
+                    state.add_step(AgentStep(
+                        step_id=step_id, action="STOP", model=decision.model, tool=tool,
+                        arguments=decision.arguments or {},
+                        reasoning_summary="检测到完全相同的工具调用，停止以避免无意义循环。",
+                        success=False, error=state.error,
+                    ))
                     state.finished = True
                     break
 
-                debug.log("AgentToolLoop", f"ACT → tool={tool}")
                 try:
-                    observation = self._execute_tool(
-                        tool,
-                        decision.arguments or {},
-                        state,
-                    )
-                    success = True
-                    error = ""
-
-                    if decision.action == "SEARCH" and not observation:
-                        success = False
-                        error = "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
-                        debug.log(
-                            "AgentToolLoop",
-                            "OBSERVE → SEARCH_EMPTY",
-                        )
-                    else:
-                        debug.log(
-                            "AgentToolLoop",
-                            "OBSERVE → success",
-                        )
+                    observation = self.executor.execute(tool, decision.arguments or {}, state=state)
+                    success = not (decision.action == "SEARCH" and not observation)
+                    error = "" if success else "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
                 except Exception as exc:
                     observation, success = None, False
                     error = f"{type(exc).__name__}: {exc}"
-                    debug.log(
-                        "AgentToolLoop",
-                        f"OBSERVE → ERROR: {error}",
-                    )
 
-                state.add_step(
-                    AgentStep(
-                        step_id=step_id,
-                        action=decision.action,
-                        model=decision.model,
-                        tool=decision.tool,
-                        arguments=decision.arguments or {},
-                        reasoning_summary=decision.reasoning_summary,
-                        observation=observation,
-                        success=success,
-                        error=error,
-                    )
-                )
+                state.add_step(AgentStep(
+                    step_id=step_id, action=decision.action, model=decision.model,
+                    tool=tool, arguments=decision.arguments or {},
+                    reasoning_summary=decision.reasoning_summary,
+                    observation=observation, success=success, error=error,
+                ))
 
-                if (
-                    decision.action == "SEARCH"
-                    and success
-                    and observation
-                ):
+                if decision.action == "SEARCH" and success and observation:
                     state.evidence.extend(observation)
 
-                state.current_plan_step = self._next_plan_step(
-                    state,
-                    decision.action,
-                )
-                debug.log(
-                    "AgentToolLoop",
-                    (
-                        "OBSERVE → fed back; "
-                        f"next_plan_step={state.current_plan_step}"
-                    ),
-                )
+                state.current_plan_step = self._next_plan_step(state, decision.action)
+                state.last_observation = observation
+                debug.log("AgentToolLoop", "OBSERVE → fed back to LLM")
+
             return state
 
     @staticmethod
     def _next_plan_step(state, action):
         if not state.plan:
             return state.current_plan_step
-
-        for i in range(
-            max(0, state.current_plan_step),
-            len(state.plan.steps),
-        ):
+        for i in range(max(0, state.current_plan_step), len(state.plan.steps)):
             if state.plan.steps[i].action == action:
                 return min(i + 1, len(state.plan.steps))
-
         return state.current_plan_step
