@@ -260,7 +260,7 @@ def test_wikipedia_search_uses_shared_http_client():
                     self.body = body
 
             if "w/api.php" in url:
-                body = b'["transformer",["Transformer"],[""],["https://en.wikipedia.org/wiki/Transformer"]]'
+                body = b'{"query":{"search":[{"pageid":123,"title":"Transformer","snippet":"Attention is a mechanism.","timestamp":"2026-01-01T00:00:00Z"}]}}'
             else:
                 body = b'{"title":"Transformer","extract":"Attention is a mechanism.","wikibase_item":"Q123","timestamp":"2026-01-01T00:00:00Z","content_urls":{"desktop":{"page":"https://en.wikipedia.org/wiki/Transformer"}}}'
             return Response(body)
@@ -275,6 +275,9 @@ def test_wikipedia_search_uses_shared_http_client():
     assert results[0].title == "Transformer"
     assert results[0].identifier == "Q123"
     assert len(client.calls) == 2
+    assert "list=search" in client.calls[0][0]
+    assert "srsearch=transformer" in client.calls[0][0]
+    assert "srlimit=1" in client.calls[0][0]
     assert all(call[1]["Accept"] == "application/json" for call in client.calls)
 
 
@@ -329,3 +332,45 @@ def test_empty_query():
     except ValueError:
         return
     raise AssertionError("空查询应该被拒绝")
+
+
+def test_wikipedia_fulltext_search_returns_multiple_ranked_candidates():
+    class FakeWikipediaHttpClient:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, *, headers=None):
+            self.calls.append((url, headers))
+
+            class Response:
+                status = 200
+                reason = "OK"
+                headers = {"Content-Type": "application/json"}
+                attempts = 1
+
+                def __init__(self, body):
+                    self.body = body
+
+            if "w/api.php" in url:
+                body = (
+                    b'{"query":{"search":['
+                    b'{"pageid":1,"title":"Attention","snippet":"...","timestamp":"2026-01-01T00:00:00Z"},'
+                    b'{"pageid":2,"title":"Attention mechanism","snippet":"...","timestamp":"2026-02-01T00:00:00Z"}'
+                    b']}}'
+                )
+            elif "Attention%20mechanism" in url:
+                body = b'{"title":"Attention mechanism","extract":"Second result.","wikibase_item":"Q2"}'
+            else:
+                body = b'{"title":"Attention","extract":"First result.","wikibase_item":"Q1"}'
+            return Response(body)
+
+    client = FakeWikipediaHttpClient()
+    provider = WikipediaSearchProvider(http_client=client)
+    provider._last_request_time = 0
+    provider.MIN_REQUEST_INTERVAL = 0
+
+    results = provider.search(SearchQuery(query="attention", max_results=2))
+
+    assert [r.title for r in results] == ["Attention", "Attention mechanism"]
+    assert len(client.calls) == 3
+    assert "srlimit=2" in client.calls[0][0]
