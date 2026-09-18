@@ -4,6 +4,8 @@ import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 
+import requests
+
 from core.__debug__ import debug
 from .base import SearchProvider
 from .http import HttpClient, HttpRequestError
@@ -25,7 +27,6 @@ class ArxivSearchProvider(SearchProvider):
         "http://arxiv.org/api/query",
     )
 
-    # Try the documented HTTP export endpoint first, then HTTPS/host variants.
     TRANSPORT_ENDPOINTS = (
         "http://export.arxiv.org/api/query",
         "https://export.arxiv.org/api/query",
@@ -67,6 +68,7 @@ class ArxivSearchProvider(SearchProvider):
 
     def search_detailed(self, query: SearchQuery) -> SearchResponse:
         started = time.monotonic()
+        total_attempts = 0
 
         try:
             self._validate_query(query)
@@ -74,9 +76,8 @@ class ArxivSearchProvider(SearchProvider):
                 query.query.strip(),
                 query.categories,
             )
-            total_attempts = 0
-            last_error: HttpRequestError | None = None
 
+            last_error: HttpRequestError | None = None
             for index, endpoint in enumerate(self.endpoints):
                 self._wait_for_rate_limit()
                 url = self._build_url(search_query, query, endpoint)
@@ -126,6 +127,19 @@ class ArxivSearchProvider(SearchProvider):
                     )
                     if not can_fallback or index >= len(self.endpoints) - 1:
                         raise
+
+                except requests.RequestException as exc:
+                    total_attempts += 1
+                    debug.log(
+                        "ArxivSearchProvider",
+                        f"NETWORK FAILED → {endpoint} · {type(exc).__name__}: {exc}",
+                    )
+                    if index >= len(self.endpoints) - 1:
+                        raise RuntimeError(
+                            f"arXiv 网络请求失败：{type(exc).__name__}: {exc}"
+                        ) from exc
+
+                if index < len(self.endpoints) - 1:
                     debug.log(
                         "ArxivSearchProvider",
                         f"FALLBACK → {endpoint} → {self.endpoints[index + 1]}",
@@ -147,13 +161,23 @@ class ArxivSearchProvider(SearchProvider):
                 reason=exc.reason,
                 response_body=exc.response_body,
                 retryable=exc.retryable,
-                attempts=total_attempts or exc.attempts,
+                attempts=max(1, total_attempts),
+            )
+        except requests.RequestException as exc:
+            return self._failure(
+                query,
+                started,
+                "network",
+                str(exc),
+                reason=type(exc).__name__,
+                retryable=True,
+                attempts=max(1, total_attempts),
             )
         except RuntimeError as exc:
             return self._failure(
                 query,
                 started,
-                "parse",
+                "parse" if "XML 解析失败" in str(exc) else "network",
                 str(exc),
                 attempts=max(1, total_attempts),
             )
@@ -225,7 +249,9 @@ class ArxivSearchProvider(SearchProvider):
                 SearchResult(
                     source=self.name,
                     source_type="paper",
-                    title=self._normalize(self._text(entry.find("atom:title", self.NS))),
+                    title=self._normalize(
+                        self._text(entry.find("atom:title", self.NS))
+                    ),
                     url=self._find_html_url(entry) or identifier,
                     abstract=self._normalize(
                         self._text(entry.find("atom:summary", self.NS))
@@ -246,8 +272,10 @@ class ArxivSearchProvider(SearchProvider):
 
     @staticmethod
     def _find_html_url(entry) -> str:
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-        for link in entry.findall("atom:link", ns):
+        for link in entry.findall(
+            "atom:link",
+            {"atom": "http://www.w3.org/2005/Atom"},
+        ):
             if link.attrib.get("type") == "text/html" and link.attrib.get("href"):
                 return link.attrib["href"]
         return ""
@@ -262,7 +290,11 @@ class ArxivSearchProvider(SearchProvider):
 
     @staticmethod
     def _extract_id(identifier: str) -> str:
-        return identifier.rsplit("/abs/", 1)[-1] if "/abs/" in identifier else identifier
+        return (
+            identifier.rsplit("/abs/", 1)[-1]
+            if "/abs/" in identifier
+            else identifier
+        )
 
     def _failure(
         self,
@@ -275,7 +307,11 @@ class ArxivSearchProvider(SearchProvider):
         error = SearchError(
             provider=self.name,
             stage=stage,
-            message=message if stage == "validation" else f"arXiv 搜索失败：{message}",
+            message=(
+                message
+                if stage == "validation"
+                else f"arXiv 搜索失败：{message}"
+            ),
             **kwargs,
         )
         debug.log("ArxivSearchProvider", f"FAILED → {error.message}")
