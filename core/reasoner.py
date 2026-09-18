@@ -119,13 +119,26 @@ class AgentReasoner:
 
 工具结果是新的环境观察：先理解观察，再决定下一步。
 搜索 HTTP 成功不等于获得有效证据；空结果要继续调整策略。
+搜索返回多个候选结果时，必须做定性相关度判断：
+- DIRECT：直接回答当前问题，可作为核心证据
+- PARTIAL：只能支持问题的一部分
+- TANGENTIAL：主题相关，但不是当前问题的核心证据
+- IRRELEVANT：与当前问题无实质帮助
+- UNCERTAIN：信息不足，无法可靠判断
+不得输出任何相关度分数、百分比或加权总分。
+同时单独判断候选的时效性：
+- NEWER：在本次候选集中相对较新
+- OLDER：在本次候选集中相对较旧
+- UNKNOWN：缺少可比较的日期
+“最新”不等于“最相关”；选择证据时应分别考虑相关度与时效性。
+对搜索观察完成判断后，在 reasoning_summary 中简洁说明哪些结果值得保留；必要时在 JSON 中返回 evidence_relevance。
 不要重复完全相同的工具调用，除非最新观察明确改变了调用依据。
 不确定时不要编造。
 不输出隐藏思维链，只输出简洁、可审计的 reasoning_summary。
 必须只输出 JSON，并且 JSON 中包含单词 JSON。
 
 格式：
-{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"goal":"...","task_type":"...","domain":"...","claims":[],"finish_reason":"..."}
+{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"goal":"...","task_type":"...","domain":"...","claims":[],"evidence_relevance":[],"finish_reason":"..."}
 """
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
@@ -236,6 +249,7 @@ class AgentReasoner:
             "previous_steps": observations,
             "evidence": state.evidence,
             "claims": state.claims,
+            "evidence_relevance": state.evidence_relevance,
             "action_counts": state.action_counts,
             "last_action": state.last_action,
             "last_observation": state.last_observation,
@@ -275,6 +289,33 @@ class AgentReasoner:
         if not isinstance(claims, list):
             claims = []
 
+        evidence_relevance = data.get("evidence_relevance", [])
+        if not isinstance(evidence_relevance, list):
+            evidence_relevance = []
+
+        allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
+        allowed_recency = {"NEWER", "OLDER", "UNKNOWN"}
+        normalized_relevance = []
+        for item in evidence_relevance:
+            if not isinstance(item, dict):
+                continue
+            relevance = str(item.get("relevance", "UNCERTAIN")).upper()
+            recency = str(item.get("recency", "UNKNOWN")).upper()
+            if relevance not in allowed_relevance:
+                relevance = "UNCERTAIN"
+            if recency not in allowed_recency:
+                recency = "UNKNOWN"
+            normalized_relevance.append(
+                {
+                    "step": item.get("step"),
+                    "index": item.get("index"),
+                    "relevance": relevance,
+                    "recency": recency,
+                    "use": bool(item.get("use", False)),
+                    "reason": str(item.get("reason", "")),
+                }
+            )
+
         return ReasoningDecision(
             action=action,
             reasoning_summary=str(
@@ -290,5 +331,6 @@ class AgentReasoner:
             task_type=str(data.get("task_type", "")),
             domain=str(data.get("domain", "")),
             claims=claims,
+            evidence_relevance=normalized_relevance,
             finish_reason=str(data.get("finish_reason", "")),
         )
