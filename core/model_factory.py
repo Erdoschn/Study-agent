@@ -59,4 +59,5 @@ class ModelClientFactory:
                 base_url=provider["base_url"],
                 api_key=provider["api_key"],
                 model=model.model,
+                headers=provider.get("headers", {}),
             )
