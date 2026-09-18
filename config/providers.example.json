@@ -105,6 +105,27 @@
       "paid": false
     },
 
+    "hkust-deepseek-r1-distill": {
+      "provider": "HKUST_GEN_AI",
+      "model": "deepseek-r1-distill",
+      "enabled": true,
+      "paid": false
+    },
+
+    "hkust-llama33-70b": {
+      "provider": "HKUST_GEN_AI",
+      "model": "llama33-70b",
+      "enabled": true,
+      "paid": false
+    },
+
+    "hkust-qwen3-32b": {
+      "provider": "HKUST_GEN_AI",
+      "model": "qwen3-32b",
+      "enabled": true,
+      "paid": false
+    },
+
     "deepseek-flash": {
       "provider": "deepseek",
       "model": "deepseek-flash",
