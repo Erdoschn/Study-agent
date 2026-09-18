@@ -4,24 +4,20 @@ from tools.search import ArxivSearchProvider, SearchQuery
 
 
 def main() -> None:
-    print("=== arXiv provider 实际测试（arxiv.py + requests） ===")
+    print("=== arXiv provider smoke test（arxiv.py + requests） ===")
 
     provider = ArxivSearchProvider()
     query = SearchQuery(
-        query='"multi-head attention"',
+        query="electron",
         source="arxiv",
-        categories=["cs.LG", "cs.CL"],
-        max_results=5,
+        max_results=1,
         sort_by="relevance",
         sort_order="descending",
     )
 
     print(f"查询：{query.query}")
-    print(f"分类：{query.categories}")
     print("transport：arxiv.py + requests")
-    print(f"候选 endpoint：{len(provider.endpoints)}")
-    for index, endpoint in enumerate(provider.endpoints, 1):
-        print(f"  {index}. {endpoint}")
+    print(f"endpoint 数量：{len(provider.endpoints)}")
 
     response = provider.search_detailed(query)
 
