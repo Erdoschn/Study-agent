@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
-from typing import Callable
-
-import arxiv as arxiv_api
-import requests
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 from core.__debug__ import debug
 from .base import SearchProvider
+from .http import HttpClient, HttpRequestError
 from .models import SearchError, SearchQuery, SearchResponse, SearchResult
 
 
 class ArxivSearchProvider(SearchProvider):
-    """arXiv provider backed by the maintained arxiv Python client.
-
-    The official client uses requests for HTTP and lxml for Atom parsing.
-    Endpoint selection remains in this provider so the Study Agent can
-    survive a single endpoint or network path failing.
-    """
+    """arXiv Atom API provider using the requests-backed shared transport."""
 
     name = "arxiv"
 
@@ -32,8 +25,7 @@ class ArxivSearchProvider(SearchProvider):
         "http://arxiv.org/api/query",
     )
 
-    # arXiv documents the HTTP export endpoint; it is first so a broken
-    # HTTPS path does not prevent the provider from working.
+    # Try the documented HTTP export endpoint first, then HTTPS/host variants.
     TRANSPORT_ENDPOINTS = (
         "http://export.arxiv.org/api/query",
         "https://export.arxiv.org/api/query",
@@ -47,24 +39,17 @@ class ArxivSearchProvider(SearchProvider):
 
     FALLBACK_HTTP_STATUSES = {403, 406, 408, 429, 500, 502, 503, 504}
 
-    _SORT_BY = {
-        "relevance": arxiv_api.SortCriterion.Relevance,
-        "lastupdateddate": arxiv_api.SortCriterion.LastUpdatedDate,
-        "submitteddate": arxiv_api.SortCriterion.SubmittedDate,
-    }
-    _SORT_ORDER = {
-        "ascending": arxiv_api.SortOrder.Ascending,
-        "descending": arxiv_api.SortOrder.Descending,
+    NS = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "arxiv": "http://arxiv.org/schemas/atom",
     }
 
-    def __init__(
-        self,
-        *,
-        client_factory: Callable[[str, int], arxiv_api.Client] | None = None,
-        search_factory: Callable[..., arxiv_api.Search] | None = None,
-    ) -> None:
-        self._client_factory = client_factory or self._make_client
-        self._search_factory = search_factory or arxiv_api.Search
+    def __init__(self, *, http_client: HttpClient | None = None) -> None:
+        self.http = http_client or HttpClient(
+            timeout=self.REQUEST_TIMEOUT,
+            retries=1,
+            backoff_seconds=1.0,
+        )
         self._last_request_time = 0.0
 
     @property
@@ -75,6 +60,8 @@ class ArxivSearchProvider(SearchProvider):
         response = self.search_detailed(query)
         if not response.success:
             assert response.error is not None
+            if response.error.stage == "validation":
+                raise ValueError(response.error.message)
             raise RuntimeError(response.error.message)
         return response.results
 
@@ -87,91 +74,58 @@ class ArxivSearchProvider(SearchProvider):
                 query.query.strip(),
                 query.categories,
             )
-            api_search = self._build_api_search(search_query, query)
-
-            last_error: Exception | None = None
-            attempts = 0
+            total_attempts = 0
+            last_error: HttpRequestError | None = None
 
             for index, endpoint in enumerate(self.endpoints):
                 self._wait_for_rate_limit()
+                url = self._build_url(search_query, query, endpoint)
                 debug.log(
                     "ArxivSearchProvider",
-                    f"SEARCH → endpoint={endpoint} query={search_query}",
-                )
-
-                client = self._client_factory(
-                    endpoint,
-                    max(1, min(query.max_results, self.MAX_RESULTS)),
+                    f"REQUEST → endpoint={endpoint} url={url}",
                 )
 
                 try:
-                    api_results = list(client.results(api_search))
-                    results = [self._to_search_result(item) for item in api_results]
+                    response = self.http.get(url, headers=self._headers())
+                    total_attempts += response.attempts
+                    results = self._parse_atom(response.body)
 
                     debug.log(
                         "ArxivSearchProvider",
                         f"RESULTS → {len(results)} via {endpoint}",
                     )
-
                     return SearchResponse(
                         query=query,
                         provider=self.name,
                         results=results,
                         success=True,
                         elapsed_seconds=time.monotonic() - started,
-                        attempts=max(1, attempts + 1),
+                        attempts=max(1, total_attempts),
                         metadata={
-                            "transport": "arxiv.py + requests",
+                            "transport": "requests",
                             "endpoint": endpoint,
                             "endpoint_index": index,
                             "endpoint_count": len(self.endpoints),
+                            "status_code": response.status,
                         },
                     )
 
-                except arxiv_api.HTTPError as exc:
-                    attempts += max(1, exc.retry + 1)
+                except HttpRequestError as exc:
+                    total_attempts += exc.attempts
                     last_error = exc
                     debug.log(
                         "ArxivSearchProvider",
-                        f"HTTP ERROR → {exc.status} on {endpoint}",
+                        (
+                            f"ENDPOINT FAILED → {endpoint} · "
+                            f"status={exc.status_code} · reason={exc.reason}"
+                        ),
                     )
-                    if (
-                        exc.status not in self.FALLBACK_HTTP_STATUSES
-                        or index >= len(self.endpoints) - 1
-                    ):
+                    can_fallback = (
+                        exc.status_code in self.FALLBACK_HTTP_STATUSES
+                        or exc.status_code is None
+                    )
+                    if not can_fallback or index >= len(self.endpoints) - 1:
                         raise
-
-                except requests.RequestException as exc:
-                    attempts += 1
-                    last_error = exc
-                    debug.log(
-                        "ArxivSearchProvider",
-                        f"NETWORK ERROR → {type(exc).__name__}: {exc}",
-                    )
-                    if index >= len(self.endpoints) - 1:
-                        raise
-
-                except arxiv_api.UnexpectedEmptyPageError as exc:
-                    attempts += max(1, exc.retry + 1)
-                    last_error = exc
-                    debug.log(
-                        "ArxivSearchProvider",
-                        f"EMPTY PAGE → fallback from {endpoint}",
-                    )
-                    if index >= len(self.endpoints) - 1:
-                        raise
-
-                except Exception as exc:
-                    last_error = exc
-                    debug.log(
-                        "ArxivSearchProvider",
-                        f"UNEXPECTED ERROR → {type(exc).__name__}: {exc}",
-                    )
-                    raise RuntimeError(
-                        f"arXiv 客户端失败：{type(exc).__name__}: {exc}"
-                    ) from exc
-
-                if index < len(self.endpoints) - 1:
                     debug.log(
                         "ArxivSearchProvider",
                         f"FALLBACK → {endpoint} → {self.endpoints[index + 1]}",
@@ -183,78 +137,51 @@ class ArxivSearchProvider(SearchProvider):
 
         except ValueError as exc:
             return self._failure(query, started, "validation", str(exc))
-
-        except arxiv_api.HTTPError as exc:
+        except HttpRequestError as exc:
             return self._failure(
                 query,
                 started,
                 "http",
                 str(exc),
-                status_code=exc.status,
-                reason=f"HTTP {exc.status}",
-                retryable=exc.status in self.FALLBACK_HTTP_STATUSES,
+                status_code=exc.status_code,
+                reason=exc.reason,
+                response_body=exc.response_body,
+                retryable=exc.retryable,
+                attempts=total_attempts or exc.attempts,
             )
-
-        except requests.RequestException as exc:
-            return self._failure(
-                query,
-                started,
-                "network",
-                str(exc),
-                reason=type(exc).__name__,
-                retryable=True,
-            )
-
-        except arxiv_api.UnexpectedEmptyPageError as exc:
-            return self._failure(
-                query,
-                started,
-                "api",
-                str(exc),
-                reason="unexpected_empty_page",
-                retryable=True,
-            )
-
         except RuntimeError as exc:
-            return self._failure(query, started, "client", str(exc))
+            return self._failure(
+                query,
+                started,
+                "parse",
+                str(exc),
+                attempts=max(1, total_attempts),
+            )
+
+    @staticmethod
+    def _headers() -> dict[str, str]:
+        return {
+            "User-Agent": "StudyAgent/2.0 (educational research client; arXiv API search)",
+            "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.1",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+        }
 
     @classmethod
-    def _make_client(cls, endpoint: str, max_results: int) -> arxiv_api.Client:
-        client = arxiv_api.Client(
-            page_size=max_results,
-            delay_seconds=0.0,
-            num_retries=0,
-        )
-        client.query_url_format = f"{endpoint}?{{}}"
-        return client
-
-    def _build_api_search(
-        self,
+    def _build_url(
+        cls,
         search_query: str,
         query: SearchQuery,
-    ) -> arxiv_api.Search:
-        sort_by = self._SORT_BY.get(
-            (query.sort_by or "relevance").strip().lower(),
-        )
-        if sort_by is None:
-            raise ValueError(
-                "arXiv sort_by 必须是 relevance、lastUpdatedDate 或 submittedDate。"
-            )
-
-        sort_order = self._SORT_ORDER.get(
-            (query.sort_order or "descending").strip().lower(),
-        )
-        if sort_order is None:
-            raise ValueError(
-                "arXiv sort_order 必须是 ascending 或 descending。"
-            )
-
-        return self._search_factory(
-            query=search_query,
-            max_results=max(1, min(query.max_results, self.MAX_RESULTS)),
-            sort_by=sort_by,
-            sort_order=sort_order,
-        )
+        endpoint: str | None = None,
+    ) -> str:
+        params = {
+            "search_query": search_query,
+            "start": "0",
+            "max_results": str(max(1, min(query.max_results, cls.MAX_RESULTS))),
+            "sortBy": query.sort_by or "relevance",
+            "sortOrder": query.sort_order or "descending",
+        }
+        return f"{endpoint or cls.API_URL}?{urllib.parse.urlencode(params)}"
 
     @classmethod
     def _validate_query(cls, query: SearchQuery) -> None:
@@ -285,30 +212,60 @@ class ArxivSearchProvider(SearchProvider):
             time.sleep(delay)
         self._last_request_time = time.monotonic()
 
-    @staticmethod
-    def _to_search_result(item: arxiv_api.Result) -> SearchResult:
-        identifier = item.get_short_id()
-        return SearchResult(
-            source="arxiv",
-            source_type="paper",
-            title=" ".join(item.title.split()),
-            url=item.entry_id or f"https://arxiv.org/abs/{identifier}",
-            abstract=" ".join(item.summary.split()),
-            authors=[author.name for author in item.authors if author.name],
-            published=ArxivSearchProvider._iso_datetime(item.published),
-            updated=ArxivSearchProvider._iso_datetime(item.updated),
-            identifier=identifier,
-            raw=item,
-        )
+    def _parse_atom(self, data: bytes) -> list[SearchResult]:
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError as exc:
+            raise RuntimeError(f"arXiv XML 解析失败：{exc}") from exc
+
+        results: list[SearchResult] = []
+        for entry in root.findall("atom:entry", self.NS):
+            identifier = self._text(entry.find("atom:id", self.NS))
+            results.append(
+                SearchResult(
+                    source=self.name,
+                    source_type="paper",
+                    title=self._normalize(self._text(entry.find("atom:title", self.NS))),
+                    url=self._find_html_url(entry) or identifier,
+                    abstract=self._normalize(
+                        self._text(entry.find("atom:summary", self.NS))
+                    ),
+                    authors=[
+                        self._text(author.find("atom:name", self.NS))
+                        for author in entry.findall("atom:author", self.NS)
+                        if self._text(author.find("atom:name", self.NS))
+                    ],
+                    published=self._text(entry.find("atom:published", self.NS)),
+                    updated=self._text(entry.find("atom:updated", self.NS)),
+                    identifier=self._extract_id(identifier),
+                    raw=entry,
+                )
+            )
+
+        return results
 
     @staticmethod
-    def _iso_datetime(value: datetime | None) -> str:
-        if value is None:
-            return ""
-        return value.isoformat().replace("+00:00", "Z")
+    def _find_html_url(entry) -> str:
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        for link in entry.findall("atom:link", ns):
+            if link.attrib.get("type") == "text/html" and link.attrib.get("href"):
+                return link.attrib["href"]
+        return ""
 
     @staticmethod
+    def _text(node) -> str:
+        return "" if node is None else "".join(node.itertext()).strip()
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return " ".join(text.split())
+
+    @staticmethod
+    def _extract_id(identifier: str) -> str:
+        return identifier.rsplit("/abs/", 1)[-1] if "/abs/" in identifier else identifier
+
     def _failure(
+        self,
         query: SearchQuery,
         started: float,
         stage: str,
@@ -316,19 +273,15 @@ class ArxivSearchProvider(SearchProvider):
         **kwargs,
     ) -> SearchResponse:
         error = SearchError(
-            provider="arxiv",
+            provider=self.name,
             stage=stage,
-            message=(
-                message
-                if stage == "validation"
-                else f"arXiv 搜索失败：{message}"
-            ),
+            message=message if stage == "validation" else f"arXiv 搜索失败：{message}",
             **kwargs,
         )
         debug.log("ArxivSearchProvider", f"FAILED → {error.message}")
         return SearchResponse(
             query=query,
-            provider="arxiv",
+            provider=self.name,
             success=False,
             elapsed_seconds=time.monotonic() - started,
             attempts=error.attempts,
