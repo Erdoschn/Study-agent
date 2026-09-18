@@ -57,15 +57,15 @@ class HttpClient:
         self.timeout = timeout
         self.retries = max(0, retries)
         self.backoff_seconds = max(0.0, backoff_seconds)
+
         if session is not None and session_factory is not None:
             raise ValueError("session 和 session_factory 只能设置一个。")
-        self.session = (
-            session
-            or session_factory()
-            if session_factory is not None
-            else session
-        )
-        if self.session is None:
+
+        if session is not None:
+            self.session = session
+        elif session_factory is not None:
+            self.session = session_factory()
+        else:
             self.session = requests.Session()
 
     def get(
@@ -108,11 +108,17 @@ class HttpClient:
                 retryable = status in self.RETRYABLE_STATUS_CODES
                 debug.log(
                     "HttpClient",
-                    f"HTTP ERROR attempt={attempt}: {status} {reason}; retryable={retryable}",
+                    (
+                        f"HTTP ERROR attempt={attempt}: "
+                        f"{status} {reason}; retryable={retryable}"
+                    ),
                 )
 
                 if not retryable or attempt >= total_attempts:
-                    error_body = body.decode("utf-8", errors="replace").strip()
+                    error_body = body.decode(
+                        "utf-8",
+                        errors="replace",
+                    ).strip()
                     raise HttpRequestError(
                         f"HTTPError: HTTP Error {status}: {reason}",
                         status_code=status,
@@ -139,7 +145,10 @@ class HttpClient:
             except requests.RequestException as exc:
                 debug.log(
                     "HttpClient",
-                    f"NETWORK ERROR attempt={attempt}: {type(exc).__name__}: {exc}",
+                    (
+                        f"NETWORK ERROR attempt={attempt}: "
+                        f"{type(exc).__name__}: {exc}"
+                    ),
                 )
                 if attempt >= total_attempts:
                     raise HttpRequestError(
