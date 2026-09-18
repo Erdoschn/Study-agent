@@ -78,9 +78,7 @@ class StudyAgent:
             if state.final_answer is None:
                 if state.error:
                     state.final_answer = (
-                        f"Agent 未能完成任务。
-
-原因：{state.error}"
+                        f"Agent 未能完成任务。\n\n原因：{state.error}"
                     )
                 else:
                     debug.log("StudyAgent", "TEACHER → generate")
