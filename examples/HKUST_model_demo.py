@@ -166,6 +166,9 @@ def main() -> None:
     config = load_config()
     setup_debug(config)
 
+    # 普通模式也查询余额；--test 只额外执行模型连通性测试。
+    print_hkust_balance(config)
+
     print("\n========== HKUST Model Discovery ==========\n")
     print("正在查询 HKUST /models ...")
 
