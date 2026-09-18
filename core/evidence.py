@@ -54,11 +54,19 @@ class EvidenceEngine:
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
-        return {
-            token.lower()
-            for token in re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+", text or "")
-            if len(token) > 1
-        }
+        stopwords = {"a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or", "in", "on", "for", "with", "uses", "use", "used", "by"}
+        tokens = set()
+        for token in re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+", text or ""):
+            token = token.lower()
+            if len(token) <= 1 or token in stopwords:
+                continue
+            # Small normalization for ordinary English inflections; this is not semantic inference.
+            if token.endswith("ies") and len(token) > 4:
+                token = token[:-3] + "y"
+            elif token.endswith("s") and len(token) > 3:
+                token = token[:-1]
+            tokens.add(token)
+        return tokens
 
     @classmethod
     def assess(cls, query: str, result: dict[str, Any]) -> dict[str, str]:
