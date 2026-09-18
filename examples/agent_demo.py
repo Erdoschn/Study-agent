@@ -1,3 +1,5 @@
+import argparse
+
 from config.loader import (
     load_config,
     setup_debug,
@@ -40,6 +42,8 @@ def build_search_router() -> SearchRouter:
 
 def build_agent(
     config: dict,
+    *,
+    allow_paid: bool = False,
 ) -> StudyAgent:
     """
     根据配置创建完整 Study Agent。
@@ -74,7 +78,7 @@ def build_agent(
     reasoner = AgentReasoner(
         model_router=model_router,
         model_factory=model_factory,
-        allow_paid=True,  # 允许付费模型，便于测试
+        allow_paid=allow_paid,
     )
 
     # -----------------------------
@@ -185,6 +189,16 @@ def print_trace(
 
 def main() -> None:
 
+    parser = argparse.ArgumentParser(
+        description="Study Agent demo"
+    )
+    parser.add_argument(
+        "--allow-paid",
+        action="store_true",
+        help="显式允许付费模型。本开关默认关闭。",
+    )
+    args = parser.parse_args()
+
     # -----------------------------
     # 读取配置
     # -----------------------------
@@ -213,7 +227,8 @@ def main() -> None:
     # -----------------------------
     try:
         agent = build_agent(
-            config
+            config,
+            allow_paid=args.allow_paid,
         )
 
     except Exception as exc:
@@ -243,7 +258,7 @@ def main() -> None:
 
     print(
         "付费模型："
-        "默认禁止"
+        + ("允许（--allow-paid）" if args.allow_paid else "禁止")
     )
 
     print(
