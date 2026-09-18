@@ -1,35 +1,49 @@
-import urllib.error
-
 import pytest
+import requests
 
 from tools.search import HttpClient, HttpRequestError
 
 
-def test_http_client_success(monkeypatch):
-    class FakeResponse:
-        status = 200
-        reason = "OK"
-        headers = {"Content-Type": "text/plain"}
+class FakeResponse:
+    def __init__(self, status_code=200, reason="OK", content=b"ok", headers=None):
+        self.status_code = status_code
+        self.reason = reason
+        self.content = content
+        self.headers = headers or {}
 
-        def read(self):
-            return b"ok"
 
-        def __enter__(self):
-            return self
+class FakeSession:
+    def __init__(self, responses=None, exceptions=None):
+        self.responses = list(responses or [])
+        self.exceptions = list(exceptions or [])
+        self.calls = []
 
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
-    captured = {}
-
-    def fake_urlopen(request, timeout=30):
-        captured["url"] = request.full_url
-        captured["timeout"] = timeout
+    def get(self, url, *, headers=None, timeout=None):
+        self.calls.append((url, headers, timeout))
+        if self.exceptions:
+            raise self.exceptions.pop(0)
+        if self.responses:
+            return self.responses.pop(0)
         return FakeResponse()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    response = HttpClient(timeout=7, retries=0).get(
+def test_http_client_success():
+    session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=200,
+                reason="OK",
+                content=b"ok",
+                headers={"Content-Type": "text/plain"},
+            )
+        ]
+    )
+
+    response = HttpClient(
+        timeout=7,
+        retries=0,
+        session=session,
+    ).get(
         "https://example.com/test",
         headers={"User-Agent": "StudyAgent-Test"},
     )
@@ -38,84 +52,77 @@ def test_http_client_success(monkeypatch):
     assert response.reason == "OK"
     assert response.body == b"ok"
     assert response.attempts == 1
-    assert captured["url"] == "https://example.com/test"
-    assert captured["timeout"] == 7
+    assert session.calls[0][0] == "https://example.com/test"
+    assert session.calls[0][2] == 7
+    assert session.calls[0][1]["User-Agent"] == "StudyAgent-Test"
 
 
 def test_http_client_retryable_http_error(monkeypatch):
-    calls = []
-
-    def fake_urlopen(request, timeout=30):
-        calls.append(1)
-        raise urllib.error.HTTPError(
-            request.full_url,
-            500,
-            "Server Error",
-            hdrs=None,
-            fp=None,
-        )
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    session = FakeSession(
+        responses=[
+            FakeResponse(status_code=500, reason="Server Error", content=b"error"),
+            FakeResponse(status_code=500, reason="Server Error", content=b"error"),
+            FakeResponse(status_code=500, reason="Server Error", content=b"error"),
+        ]
+    )
     monkeypatch.setattr("tools.search.http.time.sleep", lambda _: None)
 
     with pytest.raises(HttpRequestError) as exc_info:
-        HttpClient(timeout=7, retries=2, backoff_seconds=0).get(
-            "https://example.com/test"
-        )
+        HttpClient(
+            timeout=7,
+            retries=2,
+            backoff_seconds=0,
+            session=session,
+        ).get("https://example.com/test")
 
     exc = exc_info.value
     assert exc.status_code == 500
     assert exc.retryable is True
     assert exc.attempts == 3
-    assert len(calls) == 3
+    assert len(session.calls) == 3
     assert "HTTPError" in str(exc)
 
 
-def test_http_client_non_retryable_http_error(monkeypatch):
-    calls = []
-
-    def fake_urlopen(request, timeout=30):
-        calls.append(1)
-        raise urllib.error.HTTPError(
-            request.full_url,
-            404,
-            "Not Found",
-            hdrs=None,
-            fp=None,
-        )
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+def test_http_client_non_retryable_http_error():
+    session = FakeSession(
+        responses=[FakeResponse(status_code=404, reason="Not Found", content=b"missing")]
+    )
 
     with pytest.raises(HttpRequestError) as exc_info:
-        HttpClient(timeout=7, retries=2, backoff_seconds=0).get(
-            "https://example.com/test"
-        )
+        HttpClient(
+            timeout=7,
+            retries=2,
+            backoff_seconds=0,
+            session=session,
+        ).get("https://example.com/test")
 
     exc = exc_info.value
     assert exc.status_code == 404
     assert exc.retryable is False
     assert exc.attempts == 1
-    assert len(calls) == 1
+    assert len(session.calls) == 1
 
 
 def test_http_client_network_error_retries(monkeypatch):
-    calls = []
-
-    def fake_urlopen(request, timeout=30):
-        calls.append(1)
-        raise urllib.error.URLError("connection reset")
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    session = FakeSession(
+        exceptions=[
+            requests.exceptions.ConnectionError("connection reset"),
+            requests.exceptions.ConnectionError("connection reset"),
+        ]
+    )
     monkeypatch.setattr("tools.search.http.time.sleep", lambda _: None)
 
     with pytest.raises(HttpRequestError) as exc_info:
-        HttpClient(timeout=7, retries=1, backoff_seconds=0).get(
-            "https://example.com/test"
-        )
+        HttpClient(
+            timeout=7,
+            retries=1,
+            backoff_seconds=0,
+            session=session,
+        ).get("https://example.com/test")
 
     exc = exc_info.value
     assert exc.status_code is None
     assert exc.retryable is True
     assert exc.attempts == 2
-    assert len(calls) == 2
+    assert len(session.calls) == 2
     assert "connection reset" in str(exc)
