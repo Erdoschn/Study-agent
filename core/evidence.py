@@ -149,4 +149,3 @@ class EvidenceEngine:
         else:
             status = "PARTIAL"
         return {"status": status, "relevant_count": len(relevant), "uncovered_terms": sorted(q - covered)}
-}
