@@ -72,6 +72,7 @@ class WikipediaSearchProvider(SearchProvider):
                 metadata={
                     "language": self.language,
                     "title_count": len(title_results),
+            "search_engine": "mediawiki_fulltext",
                 },
             )
 
@@ -119,21 +120,34 @@ class WikipediaSearchProvider(SearchProvider):
 
     def _search_titles(self, query: SearchQuery) -> list[tuple[str, str]]:
         params = {
-            "action": "opensearch",
-            "namespace": 0,
-            "search": query.query.strip(),
-            "limit": max(1, min(query.max_results, self.MAX_RESULTS)),
+            "action": "query",
+            "list": "search",
+            "srsearch": query.query.strip(),
+            "srnamespace": 0,
+            "srlimit": max(1, min(query.max_results, self.MAX_RESULTS)),
+            "srprop": "snippet|timestamp",
             "format": "json",
         }
         url = f"{self.API_URL}?{urllib.parse.urlencode(params)}"
         data = self._request_json(url)
 
-        if not isinstance(data, list) or len(data) < 4:
-            raise RuntimeError("Wikipedia OpenSearch 返回格式异常。")
+        if not isinstance(data, dict):
+            raise RuntimeError("Wikipedia search 返回格式异常。")
+        query_data = data.get("query", {})
+        if not isinstance(query_data, dict):
+            raise RuntimeError("Wikipedia search 缺少 query。")
+        search_results = query_data.get("search", [])
+        if not isinstance(search_results, list):
+            raise RuntimeError("Wikipedia search 结果格式异常。")
 
-        titles = data[1] if isinstance(data[1], list) else []
-        urls = data[3] if isinstance(data[3], list) else []
-        return [(str(title), str(url)) for title, url in zip(titles, urls)]
+        results: list[tuple[str, str]] = []
+        for item in search_results:
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+            title = str(item["title"])
+            url = f"https://{self.language}.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'), safe='()/,:;-')}"
+            results.append((title, url))
+        return results
 
     def _get_summary(self, title: str) -> dict:
         encoded_title = urllib.parse.quote(title, safe="")
