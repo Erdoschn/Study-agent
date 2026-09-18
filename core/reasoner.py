@@ -132,7 +132,7 @@ class AgentReasoner:
 - OLDER：在本次候选集中相对较旧
 - UNKNOWN：缺少可比较的日期
 “最新”不等于“最相关”；选择证据时应分别考虑相关度与时效性。
-对搜索观察完成判断后，在 reasoning_summary 中简洁说明哪些结果值得保留；必要时在 JSON 中返回 evidence_relevance。
+只要上一轮 SEARCH 返回了候选结果，就必须在 JSON 中返回 evidence_relevance；尽量为每个候选给出 step/index、relevance、recency、use 和简短 reason。
 不要重复完全相同的工具调用，除非最新观察明确改变了调用依据。
 不确定时不要编造。
 不输出隐藏思维链，只输出简洁、可审计的 reasoning_summary。
