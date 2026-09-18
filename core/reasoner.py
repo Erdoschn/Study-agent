@@ -123,7 +123,7 @@ ANSWER：
 
 必须只输出 JSON，且 JSON 中包含单词 JSON。
 格式：
-{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"answer":null,"goal":"...","task_type":"...","domain":"...","claims":[],"evidence_relevance":[],"finish_reason":"..."}
+{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"answer":null,"goal":"...","task_type":"...","domain":"...","claims":[],"evidence_relevance":[],"finish_reason":"...","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]}}
 """
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
@@ -237,6 +237,7 @@ ANSWER：
             claims=claims,
             evidence_relevance=normalized,
             finish_reason=str(data.get("finish_reason", "")),
+            student_model_update=student_model_update,
         )
 
     @staticmethod
