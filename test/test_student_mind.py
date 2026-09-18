@@ -56,3 +56,10 @@ def test_reasoner_sanitizes_invalid_student_model_update():
     assert normalized["short_term"]["intentions"] == ["plan"]
     assert normalized["long_term"]["beliefs"] == ["stable"]
     assert normalized["recent_decisions"] == []
+
+
+def test_reasoner_strips_think_block_before_json_parse():
+    raw = '<think>private reasoning should not leak</think>\\n{"action":"ANSWER","reasoning_summary":"ok","answer":"done"}'
+    decision = AgentReasoner._parse(raw)
+    assert decision.action == "ANSWER"
+    assert decision.answer == "done"
