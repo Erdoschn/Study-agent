@@ -34,14 +34,24 @@ class StudyAgent:
                 state.search_sources = list(
                     getattr(state.task_analysis, "search_sources", [])
                 )
+                state.search_sort_by = getattr(
+                    state.task_analysis,
+                    "search_sort_by",
+                    "relevance",
+                )
                 state.plan = self.planner.create(state.task_analysis)
+
                 debug.log(
                     "StudyAgent",
                     f"ANALYSIS → {state.task_type} / {state.domain}",
                 )
                 debug.log(
                     "StudyAgent",
-                    f"SEARCH SOURCES → {state.search_sources or ['router default']}",
+                    (
+                        "SEARCH STRATEGY → "
+                        f"sources={state.search_sources or ['router default']} "
+                        f"sort={state.search_sort_by}"
+                    ),
                 )
                 debug.log(
                     "StudyAgent",
