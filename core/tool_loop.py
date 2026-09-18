@@ -224,6 +224,8 @@ class AgentToolLoop:
                     state.claims = decision.claims
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
+                if decision.student_model_update:
+                    state.student.apply_mind_update(decision.student_model_update)
 
                 step_id = state.step_count + 1
                 if decision.action in {"ANSWER", "STOP"}:
