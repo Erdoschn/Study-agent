@@ -42,13 +42,17 @@ class ToolExecutor:
         if not isinstance(categories, list):
             categories = []
 
+        sort_by = str(arguments.get("sort_by", "")).strip()
+        if not sort_by:
+            sort_by = str(getattr(state, "search_sort_by", "relevance"))
+
         query = SearchQuery(
             query=str(arguments.get("query", "")),
             source=source,
             source_preferences=preferences,
             categories=[str(x) for x in categories],
             max_results=int(arguments.get("max_results", 5)),
-            sort_by=str(arguments.get("sort_by", "relevance")),
+            sort_by=sort_by,
             sort_order=str(arguments.get("sort_order", "descending")),
         )
 
