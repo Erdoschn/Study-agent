@@ -186,10 +186,8 @@ class AgentReasoner:
                     )
 
             raise RuntimeError(
-                "所有 Reasoner 候选模型均调用失败：
-"
-                + "
-".join(errors)
+                "所有 Reasoner 候选模型均调用失败：\n"
+                + "\n".join(errors)
             )
 
     def _build_prompt(self, state):
