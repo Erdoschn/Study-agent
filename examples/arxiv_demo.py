@@ -4,7 +4,7 @@ from tools.search import ArxivSearchProvider, SearchQuery
 
 
 def main() -> None:
-    print("=== ArxivSearchProvider 实际测试 ===")
+    print("=== arXiv provider 实际测试（arxiv.py + requests） ===")
 
     provider = ArxivSearchProvider()
     query = SearchQuery(
@@ -18,6 +18,7 @@ def main() -> None:
 
     print(f"查询：{query.query}")
     print(f"分类：{query.categories}")
+    print("transport：arxiv.py + requests")
     print(f"候选 endpoint：{len(provider.endpoints)}")
     for index, endpoint in enumerate(provider.endpoints, 1):
         print(f"  {index}. {endpoint}")
@@ -31,13 +32,9 @@ def main() -> None:
     print(f"elapsed: {response.elapsed_seconds:.2f}s")
 
     if response.metadata:
-        print(f"endpoint: {response.metadata.get('endpoint')}")
-        print(f"status: {response.metadata.get('status_code')}")
-        print(
-            "endpoint index: "
-            f"{response.metadata.get('endpoint_index')} / "
-            f"{response.metadata.get('endpoint_count')}"
-        )
+        for key in ("transport", "endpoint", "endpoint_index", "endpoint_count"):
+            if key in response.metadata:
+                print(f"{key}: {response.metadata[key]}")
 
     if not response.success:
         print("\n=== 搜索失败 ===")
@@ -48,8 +45,6 @@ def main() -> None:
             print(f"reason: {response.error.reason}")
             print(f"retryable: {response.error.retryable}")
             print(f"attempts: {response.error.attempts}")
-            if response.error.response_body:
-                print(f"response_body: {response.error.response_body[:500]}")
         return
 
     print(f"\n找到 {len(response.results)} 篇论文：\n")
