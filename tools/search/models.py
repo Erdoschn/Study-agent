@@ -12,6 +12,7 @@ class SearchQuery:
     max_results: int = 10
     sort_by: str = "relevance"
     sort_order: str = "descending"
+    source_preferences: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -32,11 +33,7 @@ class SearchResult:
 
 @dataclass
 class SearchError:
-    """Structured search failure information.
-
-    Keeping the failure data separate from the provider makes it possible for
-    the Study Agent to distinguish HTTP, network, validation and parse errors.
-    """
+    """Structured search failure information."""
 
     provider: str
     stage: str
