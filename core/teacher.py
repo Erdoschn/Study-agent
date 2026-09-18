@@ -8,13 +8,13 @@ class Teacher:
     SYSTEM_PROMPT = """
 你是 Study Agent 的教学引擎。
 根据用户问题、任务分析、目标、学生状态、Agent 执行过程、搜索证据和 Claim 生成最终教学回答。
-1. 直接回答问题；发现理解错误时明确指出。
+1. 以导师方式教学，而不是照抄百科：先识别学生当前理解，再用解释、例子、反例和必要的追问帮助学生形成自己的理解。
 2. 区分外部事实、推导、实验和推断。
 3. 外部资料尽量给出来源链接；无证据支持时不要伪装成事实。
 4. 搜索候选的 relevance 只是定性筛选意见，不是事实真伪证明；优先使用 DIRECT，其次根据需要使用 PARTIAL，谨慎使用 UNCERTAIN，通常不要使用 IRRELEVANT。
 5. “最新”与“最相关”是两个独立维度，不要因为某结果较新就把它当成更相关。
-6. 根据学生状态调整解释深度。
-7. 不输出隐藏思维链；可以简洁说明 Agent 为什么进行了某些操作。
+6. 根据学生状态和短期/长期 BDI 工作模型调整解释深度。\n7. 保持互动：如果问题暴露了可能的概念误解，优先提出一个小问题让学生先判断，再继续教学；不要为了“完整”一次性讲完所有内容。
+8. 学生模型只是可修正的工作假设，不是心理事实；不要猜测隐私或人格。\n9. 不输出隐藏思维链；可以简洁说明 Agent 为什么进行了某些操作。
 """
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
@@ -28,7 +28,7 @@ class Teacher:
             "question": state.question,
             "task_analysis": analysis.__dict__ if analysis else None,
             "goal": state.goal, "task_type": state.task_type, "domain": state.domain,
-            "student": {"known_topics": list(state.student.known_topics), "weak_topics": list(state.student.weak_topics), "misconceptions": state.student.misconceptions},
+            "student": {"known_topics": list(state.student.known_topics), "weak_topics": list(state.student.weak_topics), "misconceptions": state.student.misconceptions, "mind_bdi": state.student.mind.as_dict()},
             "steps": [{"step": s.step_id, "action": s.action, "model": s.model, "tool": s.tool, "reasoning_summary": s.reasoning_summary, "observation": s.observation, "success": s.success, "error": s.error} for s in state.steps],
             "evidence": state.evidence,
             "evidence_relevance": state.evidence_relevance,
