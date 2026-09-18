@@ -1,8 +1,9 @@
-import arxiv as arxiv_api
 import requests
 
 from tools.search import (
     ArxivSearchProvider,
+    HttpClient,
+    HttpRequestError,
     SearchQuery,
     SearchResult,
     SearchRouter,
@@ -10,38 +11,40 @@ from tools.search import (
 )
 
 
-class FakeAuthor:
-    def __init__(self, name: str):
-        self.name = name
+ATOM = b'''<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <entry>
+        <id>https://arxiv.org/abs/1234.5678</id>
+        <title>Test Transformer Paper</title>
+        <summary>Test abstract.</summary>
+        <published>2026-01-01T00:00:00Z</published>
+        <updated>2026-01-02T00:00:00Z</updated>
+        <author><name>Test Author</name></author>
+        <link href="https://arxiv.org/html/1234.5678" rel="alternate" type="text/html" />
+    </entry>
+</feed>'''
 
 
-class FakeResult:
-    entry_id = "https://arxiv.org/abs/1234.5678"
-    title = "Test Transformer Paper"
-    summary = "Test abstract."
-    authors = [FakeAuthor("Test Author")]
-    published = None
-    updated = None
+class FakeHttpClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
 
-    def get_short_id(self):
-        return "1234.5678"
-
-
-class FakeSearch:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
+    def get(self, url, *, headers=None):
+        self.calls.append((url, headers))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
-class FakeClient:
-    def __init__(self, endpoint, results=None, error=None):
-        self.endpoint = endpoint
-        self._results = results or []
-        self._error = error
-
-    def results(self, search):
-        if self._error is not None:
-            raise self._error
-        yield from self._results
+class FakeResponse:
+    def __init__(self, status=200, reason="OK", body=ATOM, attempts=1):
+        self.status = status
+        self.reason = reason
+        self.body = body
+        self.attempts = attempts
+        self.headers = {"Content-Type": "application/atom+xml"}
 
 
 def test_search_query():
@@ -56,7 +59,7 @@ def test_arxiv_provider_structure():
     assert provider.name == "arxiv"
     assert len(provider.API_URLS) == 2
     assert len(provider.endpoints) == 4
-    assert provider.endpoints[0] == provider.FALLBACK_API_URLS[0]
+    assert provider.endpoints[0] == "http://export.arxiv.org/api/query"
 
 
 def test_wikipedia_provider_structure():
@@ -102,118 +105,85 @@ def test_arxiv_query_building():
     )
 
 
-def test_arxiv_api_search_building():
-    provider = ArxivSearchProvider()
-    search = provider._build_api_search(
-        'all:"transformer"',
-        SearchQuery(query="transformer", max_results=2),
-    )
-    assert search.query == 'all:"transformer"'
-    assert search.max_results == 2
-    assert search.sort_by == arxiv_api.SortCriterion.Relevance
-    assert search.sort_order == arxiv_api.SortOrder.Descending
-
-
-def test_arxiv_search_uses_arxiv_client():
-    calls = []
-
-    def factory(endpoint, max_results):
-        calls.append((endpoint, max_results))
-        return FakeClient(endpoint, results=[FakeResult()])
-
-    provider = ArxivSearchProvider(
-        client_factory=factory,
-        search_factory=FakeSearch,
-    )
+def test_arxiv_request_and_parse():
+    client = FakeHttpClient([FakeResponse()])
+    provider = ArxivSearchProvider(http_client=client)
     provider._last_request_time = 0
     provider.MIN_REQUEST_INTERVAL = 0
 
     response = provider.search_detailed(
-        SearchQuery(query="transformer", max_results=2)
+        SearchQuery(query="transformer", categories=["cs.LG"], max_results=2)
     )
 
     assert response.success is True
     assert len(response.results) == 1
     assert response.results[0].title == "Test Transformer Paper"
     assert response.results[0].identifier == "1234.5678"
-    assert response.metadata["transport"] == "arxiv.py + requests"
+    assert response.results[0].authors == ["Test Author"]
+    assert response.results[0].url == "https://arxiv.org/html/1234.5678"
+    assert response.metadata["transport"] == "requests"
     assert response.metadata["endpoint"] == provider.endpoints[0]
-    assert calls == [(provider.endpoints[0], 2)]
+    assert "all%3Atransformer" in client.calls[0][0]
+    assert "cat%3Acs.LG" in client.calls[0][0]
+    assert client.calls[0][1]["Accept"].startswith("application/atom+xml")
 
 
 def test_arxiv_406_fallback():
-    calls = []
-
-    def factory(endpoint, max_results):
-        calls.append(endpoint)
-        if len(calls) == 1:
-            return FakeClient(
-                endpoint,
-                error=arxiv_api.HTTPError(
-                    f"{endpoint}?q=test",
-                    0,
-                    406,
-                ),
-            )
-        return FakeClient(endpoint, results=[FakeResult()])
-
-    provider = ArxivSearchProvider(
-        client_factory=factory,
-        search_factory=FakeSearch,
+    client = FakeHttpClient(
+        [
+            HttpRequestError(
+                "HTTPError: HTTP Error 406: Not Acceptable",
+                status_code=406,
+                reason="Not Acceptable",
+                response_body="",
+                retryable=False,
+                attempts=1,
+            ),
+            FakeResponse(),
+        ]
     )
+    provider = ArxivSearchProvider(http_client=client)
     provider._last_request_time = 0
     provider.MIN_REQUEST_INTERVAL = 0
 
     response = provider.search_detailed(SearchQuery(query="transformer"))
 
     assert response.success is True
-    assert len(response.results) == 1
-    assert calls == list(provider.endpoints[:2])
+    assert len(client.calls) == 2
+    assert client.calls[0][0].startswith(provider.endpoints[0])
+    assert client.calls[1][0].startswith(provider.endpoints[1])
 
 
 def test_arxiv_network_fallback():
-    calls = []
-
-    def factory(endpoint, max_results):
-        calls.append(endpoint)
-        if len(calls) == 1:
-            return FakeClient(
-                endpoint,
-                error=requests.exceptions.ConnectionError("connection reset"),
-            )
-        return FakeClient(endpoint, results=[FakeResult()])
-
-    provider = ArxivSearchProvider(
-        client_factory=factory,
-        search_factory=FakeSearch,
+    client = FakeHttpClient(
+        [
+            requests.exceptions.ConnectionError("connection reset"),
+            FakeResponse(),
+        ]
     )
+    provider = ArxivSearchProvider(http_client=client)
     provider._last_request_time = 0
     provider.MIN_REQUEST_INTERVAL = 0
 
     response = provider.search_detailed(SearchQuery(query="transformer"))
 
     assert response.success is True
-    assert calls == list(provider.endpoints[:2])
+    assert len(client.calls) == 2
 
 
 def test_arxiv_all_endpoints_fail_structured():
-    calls = []
-
-    def factory(endpoint, max_results):
-        calls.append(endpoint)
-        return FakeClient(
-            endpoint,
-            error=arxiv_api.HTTPError(
-                f"{endpoint}?q=test",
-                0,
-                406,
-            ),
-        )
-
-    provider = ArxivSearchProvider(
-        client_factory=factory,
-        search_factory=FakeSearch,
+    client = FakeHttpClient(
+        [
+            HttpRequestError(
+                "HTTPError: HTTP Error 406: Not Acceptable",
+                status_code=406,
+                reason="Not Acceptable",
+                attempts=1,
+            )
+            for _ in range(4)
+        ]
     )
+    provider = ArxivSearchProvider(http_client=client)
     provider._last_request_time = 0
     provider.MIN_REQUEST_INTERVAL = 0
 
@@ -223,24 +193,21 @@ def test_arxiv_all_endpoints_fail_structured():
     assert response.error is not None
     assert response.error.stage == "http"
     assert response.error.status_code == 406
-    assert calls == list(provider.endpoints)
+    assert len(client.calls) == 4
 
 
 def test_arxiv_non_fallback_http_error():
-    def factory(endpoint, max_results):
-        return FakeClient(
-            endpoint,
-            error=arxiv_api.HTTPError(
-                f"{endpoint}?q=test",
-                0,
-                400,
-            ),
-        )
-
-    provider = ArxivSearchProvider(
-        client_factory=factory,
-        search_factory=FakeSearch,
+    client = FakeHttpClient(
+        [
+            HttpRequestError(
+                "HTTPError: HTTP Error 400: Bad Request",
+                status_code=400,
+                reason="Bad Request",
+                attempts=1,
+            )
+        ]
     )
+    provider = ArxivSearchProvider(http_client=client)
     provider._last_request_time = 0
     provider.MIN_REQUEST_INTERVAL = 0
 
@@ -250,7 +217,21 @@ def test_arxiv_non_fallback_http_error():
     assert response.error is not None
     assert response.error.stage == "http"
     assert response.error.status_code == 400
-    assert response.attempts == 1
+    assert len(client.calls) == 1
+
+
+def test_arxiv_parse_error():
+    client = FakeHttpClient([FakeResponse(body=b"not xml")])
+    provider = ArxivSearchProvider(http_client=client)
+    provider._last_request_time = 0
+    provider.MIN_REQUEST_INTERVAL = 0
+
+    response = provider.search_detailed(SearchQuery(query="transformer"))
+
+    assert response.success is False
+    assert response.error is not None
+    assert response.error.stage == "parse"
+    assert "XML 解析失败" in response.error.message
 
 
 def test_arxiv_invalid_query():
@@ -261,17 +242,8 @@ def test_arxiv_invalid_query():
     assert response.error.stage == "validation"
 
 
-def test_empty_query():
-    provider = WikipediaSearchProvider()
-    try:
-        provider.search(SearchQuery(query=""))
-    except ValueError:
-        return
-    raise AssertionError("空查询应该被拒绝")
-
-
 def test_wikipedia_search_uses_shared_http_client():
-    class FakeHttpClient:
+    class FakeWikipediaHttpClient:
         def __init__(self):
             self.calls = []
 
@@ -293,7 +265,7 @@ def test_wikipedia_search_uses_shared_http_client():
                 body = b'{"title":"Transformer","extract":"Attention is a mechanism.","wikibase_item":"Q123","timestamp":"2026-01-01T00:00:00Z","content_urls":{"desktop":{"page":"https://en.wikipedia.org/wiki/Transformer"}}}'
             return Response(body)
 
-    client = FakeHttpClient()
+    client = FakeWikipediaHttpClient()
     provider = WikipediaSearchProvider(http_client=client)
     provider._last_request_time = 0
 
@@ -307,9 +279,8 @@ def test_wikipedia_search_uses_shared_http_client():
 
 
 def test_wikipedia_detailed_response_http_error():
-    class FakeHttpClient:
+    class FakeWikipediaHttpClient:
         def get(self, url, *, headers=None):
-            from tools.search import HttpRequestError
             raise HttpRequestError(
                 "HTTPError: HTTP Error 503: Service Unavailable",
                 status_code=503,
@@ -318,7 +289,7 @@ def test_wikipedia_detailed_response_http_error():
                 attempts=3,
             )
 
-    provider = WikipediaSearchProvider(http_client=FakeHttpClient())
+    provider = WikipediaSearchProvider(http_client=FakeWikipediaHttpClient())
     provider._last_request_time = 0
     response = provider.search_detailed(SearchQuery(query="transformer"))
 
@@ -331,7 +302,7 @@ def test_wikipedia_detailed_response_http_error():
 
 
 def test_wikipedia_json_parse_error():
-    class FakeHttpClient:
+    class FakeWikipediaHttpClient:
         def get(self, url, *, headers=None):
             class Response:
                 status = 200
@@ -341,7 +312,7 @@ def test_wikipedia_json_parse_error():
                 attempts = 1
             return Response()
 
-    provider = WikipediaSearchProvider(http_client=FakeHttpClient())
+    provider = WikipediaSearchProvider(http_client=FakeWikipediaHttpClient())
     provider._last_request_time = 0
     response = provider.search_detailed(SearchQuery(query="transformer"))
 
@@ -349,3 +320,12 @@ def test_wikipedia_json_parse_error():
     assert response.error is not None
     assert response.error.stage == "parse"
     assert "JSON 解析失败" in response.error.message
+
+
+def test_empty_query():
+    provider = WikipediaSearchProvider()
+    try:
+        provider.search(SearchQuery(query=""))
+    except ValueError:
+        return
+    raise AssertionError("空查询应该被拒绝")
