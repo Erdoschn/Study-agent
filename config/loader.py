@@ -102,6 +102,7 @@ def get_model_config(
         "provider": provider_name,
         "base_url": provider["base_url"],
         "api_key": provider["api_key"],
+        "headers": dict(provider.get("headers", {})),
         "model": model["model"],
         "paid": model.get(
             "paid",
