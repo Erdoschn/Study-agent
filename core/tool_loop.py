@@ -308,9 +308,11 @@ class AgentToolLoop:
                     search_results = observation.get("results", []) if isinstance(observation, dict) else observation
                     success = not (decision.action == "SEARCH" and not search_results)
                     error = "" if success else "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
+                    error_type = "" if success else "SEARCH_EMPTY"
                 except Exception as exc:
                     observation, success = None, False
-                    error = f"{type(exc).__name__}: {exc}"
+                    error_type = type(exc).__name__
+                    error = f"{error_type}: {exc}"
 
                 state.add_step(AgentStep(
                     step_id=step_id, action=decision.action, model=decision.model,
@@ -328,6 +330,9 @@ class AgentToolLoop:
                     state.claims.append({"claim": observation.get("claim", ""), "verification_status": observation.get("verification_status", "UNCERTAIN"), "matched_evidence": observation.get("matched_evidence", [])})
                 state.current_plan_step = self._next_plan_step(state, decision.action)
                 state.last_observation = observation
+                state.last_error_type = error_type if not success else ""
+                if not success:
+                    state.recovery_count += 1
                 debug.log("AgentToolLoop", "OBSERVE → fed back to LLM")
 
             return state
