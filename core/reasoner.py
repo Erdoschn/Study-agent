@@ -198,8 +198,30 @@ ANSWER：
         return text.strip()
 
     @staticmethod
+    def _extract_json(text: str) -> str:
+        """Accept JSON surrounded by harmless whitespace or wrapper text."""
+        text = text.strip()
+        if not text:
+            return text
+        try:
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            pass
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidate = text[start:end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+        return text
+
+    @staticmethod
     def _parse(raw):
-        raw = AgentReasoner._strip_think(raw)
+        raw = AgentReasoner._extract_json(AgentReasoner._strip_think(raw))
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
