@@ -16,6 +16,7 @@ class TaskAnalysis:
     external_facts_needed: bool = False
     answer_strategy: str = ""
     search_sources: list[str] = field(default_factory=list)
+    search_sort_by: str = "relevance"
 
 
 class TaskAnalyzer:
@@ -39,8 +40,12 @@ class TaskAnalyzer:
   专业研究、论文、研究进展优先 arxiv；
   同时包含概念与研究的问题可以给出 [wikipedia, arxiv]；
   不需要搜索时填 []。
+- search_sort_by：搜索排序策略，只能是 relevance / submittedDate。
+  用户明确要求最新、近期、最近研究或研究进展时使用 submittedDate；
+  一般知识或定义使用 relevance。
 
-search_sources 是行动策略，不是相关度分数，也不要填写任何数值评分。
+search_sources 和 search_sort_by 都是定性行动策略，
+不要填写任何相关度、可信度或其他数值评分。
 
 不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
@@ -156,6 +161,10 @@ search_sources 是行动策略，不是相关度分数，也不要填写任何�
         ]
         sources = list(dict.fromkeys(sources))
 
+        sort_by = str(data.get("search_sort_by", "relevance")).strip()
+        if sort_by not in {"relevance", "submittedDate"}:
+            sort_by = "relevance"
+
         return TaskAnalysis(
             task_type=str(data.get("task_type", "general")),
             domain=str(data.get("domain", "general")),
@@ -168,4 +177,5 @@ search_sources 是行动策略，不是相关度分数，也不要填写任何�
             ),
             answer_strategy=str(data.get("answer_strategy", "")),
             search_sources=sources,
+            search_sort_by=sort_by,
         )
