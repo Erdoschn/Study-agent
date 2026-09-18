@@ -12,6 +12,8 @@ from .state import (
     AgentState,
     AgentStep,
     StudentState,
+    BDIState,
+    StudentMind,
 )
 
 from .teacher import Teacher
@@ -46,6 +48,8 @@ __all__ = [
     "AgentState",
     "AgentStep",
     "StudentState",
+    "BDIState",
+    "StudentMind",
     "Teacher",
     "AgentToolLoop",
     "ToolExecutor",
