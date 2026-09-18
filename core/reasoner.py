@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -190,7 +191,15 @@ ANSWER：
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
     @staticmethod
+    def _strip_think(raw: str) -> str:
+        """Remove model-private <think> blocks before parsing structured output."""
+        text = str(raw or "")
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
+        return text.strip()
+
+    @staticmethod
     def _parse(raw):
+        raw = AgentReasoner._strip_think(raw)
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
