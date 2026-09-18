@@ -94,7 +94,7 @@ class ToolExecutor:
         if entry is None:
             raise ValueError(f"未知工具：{tool}")
         _, handler = entry
-        if tool == "search":
+        if tool in {"search", "verify"}:
             return handler(arguments, state)
         return handler(arguments)
 
