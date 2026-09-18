@@ -91,9 +91,7 @@ class StudyAgent:
                             f"Teacher 执行失败：{type(exc).__name__}: {exc}"
                         )
                         state.final_answer = (
-                            f"最终教学回答生成失败。
-
-{state.error}"
+                            f"最终教学回答生成失败。\n\n{state.error}"
                         )
 
             self._update_student_model(state)
