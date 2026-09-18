@@ -206,12 +206,38 @@ class AgentToolLoop:
             for s in state.steps
         )
 
+    def _decide(self, state):
+        """Support current Reasoner and simple one-argument custom/test adapters."""
+        import inspect
+        decide = self.reasoner.decide
+        try:
+            params = list(inspect.signature(decide).parameters.values())
+            if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params) or len(params) >= 2:
+                specs = self.executor.tool_specs() if hasattr(self.executor, "tool_specs") else []
+                return decide(state, specs)
+        except (TypeError, ValueError):
+            pass
+        return decide(state)
+
+    def _execute(self, tool, arguments, state):
+        """Use state-aware execution when supported; keep simple test adapters working."""
+        import inspect
+        execute = self.executor.execute
+        try:
+            signature = inspect.signature(execute)
+            params = signature.parameters
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()) or "state" in params:
+                return execute(tool, arguments, state=state)
+        except (TypeError, ValueError):
+            pass
+        return execute(tool, arguments)
+
     def run(self, state):
         evidence_store = EvidenceStore(state.evidence)
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
                 debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
-                decision = self.reasoner.decide(state, self.executor.tool_specs())
+                decision = self._decide(state)
                 debug.log("AgentToolLoop", f"DECISION → {decision.action}")
 
                 if decision.goal:
@@ -255,7 +281,7 @@ class AgentToolLoop:
                     break
 
                 try:
-                    observation = self.executor.execute(tool, decision.arguments or {}, state=state)
+                    observation = self._execute(tool, decision.arguments or {}, state)
                     search_results = observation.get("results", []) if isinstance(observation, dict) else observation
                     success = not (decision.action == "SEARCH" and not search_results)
                     error = "" if success else "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
