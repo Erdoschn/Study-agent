@@ -3,7 +3,7 @@ from typing import Any, Callable
 from .__debug__ import debug
 from .state import AgentStep
 from .reasoner import ReasoningDecision
-from .evidence import EvidenceEngine
+from .evidence import EvidenceEngine, EvidenceStore
 
 
 class ToolSpec:
@@ -153,12 +153,7 @@ class ToolExecutor:
         evidence = arguments.get("evidence", [])
         if not isinstance(evidence, list):
             evidence = []
-        return {
-            "claim": claim,
-            "evidence": evidence,
-            "verification_status": "READY_FOR_REVIEW" if claim or evidence else "INSUFFICIENT_INPUT",
-            "verification_note": "这是结构化验证入口；当前不对事实真伪给出自动量化结论。",
-        }
+        return self.evidence_engine.verify(claim, evidence)
 
     @staticmethod
     def _safe_calculate(expression):
@@ -210,6 +205,7 @@ class AgentToolLoop:
         )
 
     def run(self, state):
+        evidence_store = EvidenceStore(state.evidence)
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
                 debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
@@ -272,8 +268,11 @@ class AgentToolLoop:
 
                 if decision.action == "SEARCH" and success and observation:
                     search_results = observation.get("results", []) if isinstance(observation, dict) else observation
-                    state.evidence.extend(search_results)
+                    evidence_store.add_many(search_results)
+                    state.evidence = evidence_store.items
 
+                if decision.action == "VERIFY" and success and isinstance(observation, dict):
+                    state.claims.append({"claim": observation.get("claim", ""), "verification_status": observation.get("verification_status", "UNCERTAIN"), "matched_evidence": observation.get("matched_evidence", [])})
                 state.current_plan_step = self._next_plan_step(state, decision.action)
                 state.last_observation = observation
                 debug.log("AgentToolLoop", "OBSERVE → fed back to LLM")
