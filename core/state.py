@@ -32,6 +32,7 @@ class AgentState:
     task_analysis: Any = None
     plan: Any = None
     search_sources: list[str] = field(default_factory=list)
+    search_sort_by: str = "relevance"
     current_plan_step: int = 0
     steps: list[AgentStep] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
