@@ -259,10 +259,10 @@ def test_wikipedia_search_uses_shared_http_client():
                 def __init__(self, body):
                     self.body = body
 
-            if "w/api.php" in url:
+            if "list=search" in url:
                 body = b'{"query":{"search":[{"pageid":123,"title":"Transformer","snippet":"Attention is a mechanism.","timestamp":"2026-01-01T00:00:00Z"}]}}'
             else:
-                body = b'{"title":"Transformer","extract":"Attention is a mechanism.","wikibase_item":"Q123","timestamp":"2026-01-01T00:00:00Z","content_urls":{"desktop":{"page":"https://en.wikipedia.org/wiki/Transformer"}}}'
+                body = b'{"query":{"pages":{"123":{"pageid":123,"title":"Transformer","extract":"Attention is a mechanism.","fullurl":"https://en.wikipedia.org/wiki/Transformer","timestamp":"2026-01-01T00:00:00Z"}}}}'
             return Response(body)
 
     client = FakeWikipediaHttpClient()
@@ -351,17 +351,20 @@ def test_wikipedia_fulltext_search_returns_multiple_ranked_candidates():
                 def __init__(self, body):
                     self.body = body
 
-            if "w/api.php" in url:
+            if "list=search" in url:
                 body = (
                     b'{"query":{"search":['
                     b'{"pageid":1,"title":"Attention","snippet":"...","timestamp":"2026-01-01T00:00:00Z"},'
                     b'{"pageid":2,"title":"Attention mechanism","snippet":"...","timestamp":"2026-02-01T00:00:00Z"}'
                     b']}}'
                 )
-            elif "Attention%20mechanism" in url:
-                body = b'{"title":"Attention mechanism","extract":"Second result.","wikibase_item":"Q2"}'
             else:
-                body = b'{"title":"Attention","extract":"First result.","wikibase_item":"Q1"}'
+                body = (
+                    b'{"query":{"pages":{'
+                    b'"1":{"pageid":1,"title":"Attention","extract":"First result.","fullurl":"https://en.wikipedia.org/wiki/Attention"},'
+                    b'"2":{"pageid":2,"title":"Attention mechanism","extract":"Second result.","fullurl":"https://en.wikipedia.org/wiki/Attention_mechanism"}'
+                    b'}}}'
+                )
             return Response(body)
 
     client = FakeWikipediaHttpClient()
@@ -372,5 +375,5 @@ def test_wikipedia_fulltext_search_returns_multiple_ranked_candidates():
     results = provider.search(SearchQuery(query="attention", max_results=2))
 
     assert [r.title for r in results] == ["Attention", "Attention mechanism"]
-    assert len(client.calls) == 3
+    assert len(client.calls) == 2
     assert "srlimit=2" in client.calls[0][0]
