@@ -259,3 +259,14 @@ def test_qualitative_relevance_is_fed_into_state():
 
     assert state.evidence_relevance[0]["relevance"] == "DIRECT"
     assert state.evidence_relevance[0]["use"] is True
+
+
+def test_search_uses_larger_default_candidate_pool():
+    router = SearchRouter()
+    provider = StubProvider("arxiv", [_result("arxiv", "Paper")])
+    router.register(provider)
+
+    executor = ToolExecutor(search_router=router)
+    executor._search({"query": "attention"})
+
+    assert provider.calls[0].max_results == 10
