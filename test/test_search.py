@@ -273,7 +273,7 @@ def test_wikipedia_search_uses_shared_http_client():
 
     assert len(results) == 1
     assert results[0].title == "Transformer"
-    assert results[0].identifier == "Q123"
+    assert results[0].identifier == "123"
     assert len(client.calls) == 2
     assert "list=search" in client.calls[0][0]
     assert "srsearch=transformer" in client.calls[0][0]
