@@ -11,8 +11,8 @@ class SearchRouter:
         → 明确指定搜索源
 
     source="auto"
-        → 按 source_preferences 顺序尝试已注册搜索源。
-          某个来源返回空结果时，继续尝试下一个来源。
+        → 按 source_preferences 顺序执行已注册搜索源。
+          多个来源会合并结果；某个来源为空则继续后续来源。
     """
 
     AUTO_SOURCES = ("wikipedia", "arxiv")
@@ -61,6 +61,9 @@ class SearchRouter:
             raise ValueError("auto 搜索没有可用的 source_preferences。")
 
         attempted: list[str] = []
+        combined: list[SearchResult] = []
+        seen: set[tuple[str, str]] = set()
+
         for source in ordered:
             provider = self.providers.get(source)
             if provider is None:
@@ -75,6 +78,7 @@ class SearchRouter:
                 "SearchRouter",
                 f"AUTO PROVIDER → {source}",
             )
+
             results = provider.search(
                 SearchQuery(
                     query=query.query,
@@ -85,13 +89,23 @@ class SearchRouter:
                     sort_order=query.sort_order,
                 )
             )
-            if results:
-                return results
 
-            debug.log(
-                "SearchRouter",
-                f"AUTO EMPTY → {source}; try next source",
-            )
+            if not results:
+                debug.log(
+                    "SearchRouter",
+                    f"AUTO EMPTY → {source}; continue",
+                )
+                continue
+
+            for result in results:
+                key = (
+                    result.source,
+                    result.identifier or result.url or result.title,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(result)
 
         if not attempted:
             available = ", ".join(self.available_sources())
@@ -99,4 +113,8 @@ class SearchRouter:
                 f"auto 搜索没有可用 provider。可用搜索源：{available}"
             )
 
-        return []
+        debug.log(
+            "SearchRouter",
+            f"AUTO RESULTS → {len(combined)}",
+        )
+        return combined
