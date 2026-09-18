@@ -32,6 +32,11 @@ class StudyAgent:
 
             if self.tool_executor is None:
                 state.error = "Tool Harness 尚未配置。"
+            elif not hasattr(self.tool_executor, "execute"):
+                # Legacy adapters expose Teacher/Analyzer but not the Harness API.
+                # Do not run the new loop first, otherwise the compatibility path
+                # would append a second ANSWER step.
+                pass
             else:
                 try:
                     state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
