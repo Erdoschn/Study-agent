@@ -41,7 +41,7 @@ class AgentState:
     final_answer: str | None = None
     finished: bool = False
     error: str | None = None
-    max_steps: int = 8
+    max_steps: int | None = None
     action_counts: dict[str, int] = field(default_factory=dict)
     last_action: str = ""
     last_observation: Any = None
