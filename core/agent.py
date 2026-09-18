@@ -39,6 +39,31 @@ class StudyAgent:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
 
+            # 兼容旧的 Teacher/TaskAnalyzer 测试与集成适配器；正式 Harness 不走这里。
+            if not hasattr(self.tool_executor, "execute") and self.teacher is not None:
+                try:
+                    from .task_analyzer import TaskAnalyzer
+                    from .planner import TaskPlanner
+                    from .state import AgentStep
+                    analyzer = TaskAnalyzer(self.reasoner)
+                    state.task_analysis = analyzer.analyze(question, state.student)
+                    state.task_type = state.task_analysis.task_type
+                    state.domain = state.task_analysis.domain
+                    state.goal = state.task_analysis.goal or state.goal
+                    state.search_sources = state.task_analysis.search_sources
+                    state.search_sort_by = state.task_analysis.search_sort_by
+                    state.plan = TaskPlanner().create(state.task_analysis)
+                    state.final_answer = self.teacher.generate(state)
+                    state.add_step(AgentStep(
+                        step_id=1, action="ANSWER",
+                        reasoning_summary="兼容旧式 Teacher 流程。", success=True,
+                    ))
+                    state.finished = True
+                    state.error = None
+                except Exception as exc:
+                    state.error = f"兼容旧流程失败：{type(exc).__name__}: {exc}"
+                    debug.log("StudyAgent", state.error)
+
             debug.log("StudyAgent", f"LOOP FINISHED → steps={state.step_count}")
 
             if state.final_answer is None and state.error:
