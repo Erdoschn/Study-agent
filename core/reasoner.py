@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 from .__debug__ import debug
+from .evidence import EvidenceStore
 
 
 @dataclass
@@ -163,7 +164,7 @@ ANSWER：
             },
             "available_tools": tool_specs,
             "previous_steps": observations,
-            "evidence": state.evidence,
+            "evidence": EvidenceStore(state.evidence).prompt_view(),
             "claims": state.claims,
             "evidence_relevance": state.evidence_relevance,
             "action_counts": state.action_counts,
