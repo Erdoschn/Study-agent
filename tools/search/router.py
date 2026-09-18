@@ -63,6 +63,7 @@ class SearchRouter:
         attempted: list[str] = []
         combined: list[SearchResult] = []
         seen: set[tuple[str, str]] = set()
+        last_error: Exception | None = None
 
         for source in ordered:
             provider = self.providers.get(source)
@@ -79,16 +80,24 @@ class SearchRouter:
                 f"AUTO PROVIDER → {source}",
             )
 
-            results = provider.search(
-                SearchQuery(
-                    query=query.query,
-                    source=source,
-                    categories=list(query.categories),
-                    max_results=query.max_results,
-                    sort_by=query.sort_by,
-                    sort_order=query.sort_order,
+            try:
+                results = provider.search(
+                    SearchQuery(
+                        query=query.query,
+                        source=source,
+                        categories=list(query.categories),
+                        max_results=query.max_results,
+                        sort_by=query.sort_by,
+                        sort_order=query.sort_order,
+                    )
                 )
-            )
+            except Exception as exc:
+                last_error = exc
+                debug.log(
+                    "SearchRouter",
+                    f"AUTO ERROR → {source}: {type(exc).__name__}: {exc}",
+                )
+                continue
 
             if not results:
                 debug.log(
@@ -117,4 +126,8 @@ class SearchRouter:
             "SearchRouter",
             f"AUTO RESULTS → {len(combined)}",
         )
+        if combined:
+            return combined
+        if last_error is not None and len(attempted) == 1:
+            raise last_error
         return combined
