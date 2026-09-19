@@ -270,3 +270,27 @@ def test_search_uses_larger_default_candidate_pool():
     executor._search({"query": "attention"})
 
     assert provider.calls[0].max_results == 10
+
+
+def test_failed_tool_can_be_retried_with_same_call():
+    class FlakyExecutor:
+        def __init__(self):
+            self.calls = 0
+        def execute(self, tool, arguments):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary failure")
+            return [{"title": "recovered"}]
+
+    reasoner = StubReasoner([
+        ReasoningDecision(action="SEARCH", reasoning_summary="retry", tool="search", arguments={"query":"q"}),
+        ReasoningDecision(action="SEARCH", reasoning_summary="retry same query", tool="search", arguments={"query":"q"}),
+        ReasoningDecision(action="ANSWER", reasoning_summary="answer", answer="ok"),
+    ])
+    state = AgentToolLoop(reasoner, FlakyExecutor()).run(AgentState(question="q"))
+    assert state.finished is True
+    assert state.final_answer == "ok"
+    assert state.recovery_count == 1
+    assert state.steps[0].success is False
+    assert state.steps[0].observation["status"] == "ERROR"
+    assert state.steps[1].success is True
