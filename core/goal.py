@@ -8,13 +8,19 @@ class GoalMatcher:
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
-        raw = re.findall(r"[A-Za-z0-9]+|[\u4e00-\u9fff]", str(text or "").lower())
+        text = str(text or "").lower()
+        words = re.findall(r"[A-Za-z0-9]+", text)
+        chinese_runs = re.findall(r"[\u4e00-\u9fff]+", text)
         stop = {
             "the", "a", "an", "and", "or", "to", "of", "in", "on", "for",
             "with", "is", "are", "how", "what", "why", "do", "does", "i",
-            "我", "想", "要", "的", "了", "是", "怎么", "如何",
         }
-        return {x for x in raw if (x not in stop and len(x) > 1) or "\u4e00" <= x <= "\u9fff"}
+        tokens = {x for x in words if x not in stop and len(x) > 1}
+        for run in chinese_runs:
+            if len(run) >= 2:
+                tokens.add(run)
+                tokens.update(run[i:i + 2] for i in range(len(run) - 1))
+        return tokens
 
     @classmethod
     def match(cls, current: str, saved_goals: list[str]) -> list[str]:
