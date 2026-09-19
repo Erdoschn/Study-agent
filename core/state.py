@@ -33,7 +33,8 @@ class StudentMind:
     short_term: BDIState = field(default_factory=BDIState)
     long_term: BDIState = field(default_factory=BDIState)
     recent_decisions: list[str] = field(default_factory=list)
-    belief_history: list[dict[str, str]] = field(default_factory=list)
+    belief_history: list[dict[str, Any]] = field(default_factory=list)
+    belief_support: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +42,7 @@ class StudentMind:
             "long_term": self.long_term.as_dict(),
             "recent_decisions": list(self.recent_decisions),
             "belief_history": [dict(item) for item in self.belief_history],
+            "belief_support": {key: [dict(ref) for ref in refs] for key, refs in self.belief_support.items()},
         }
 
     def apply_update(self, update: dict[str, Any]) -> None:
@@ -68,7 +70,7 @@ class StudentMind:
                     self.recent_decisions.append(text)
         del self.recent_decisions[:-12]
 
-    def revise_beliefs(self, revisions: list[dict[str, Any]]) -> None:
+    def revise_beliefs(self, revisions: list[dict[str, Any]], evidence: list[dict[str, Any]] | None = None) -> None:
         """Apply explicit belief replacements/retractions with a small audit trail."""
         if not isinstance(revisions, list):
             return
@@ -80,6 +82,7 @@ class StudentMind:
             horizon = str(item.get("horizon", "short_term")).strip()
             status = str(item.get("status", "REVISED")).upper()
             reason = str(item.get("reason", "")).strip()
+            evidence_refs = item.get("evidence_refs", [])
             if not old or horizon not in {"short_term", "long_term"}:
                 continue
             target = getattr(self, horizon).beliefs
@@ -87,10 +90,28 @@ class StudentMind:
                 target.remove(old)
             if new and status in {"REVISED", "CONFIRMED"} and new not in target:
                 target.append(new)
+            valid_refs = []
+            for ref in evidence_refs if isinstance(evidence_refs, list) else []:
+                if not isinstance(ref, int) or evidence is None or ref < 0 or ref >= len(evidence):
+                    continue
+                item_ref = evidence[ref]
+                if not isinstance(item_ref, dict):
+                    continue
+                valid_refs.append({
+                    "index": ref, "source": item_ref.get("source"),
+                    "title": item_ref.get("title"), "identifier": item_ref.get("identifier"),
+                    "harness_relevance": item_ref.get("harness_relevance", "UNCERTAIN"),
+                })
+            if new and status in {"REVISED", "CONFIRMED"} and valid_refs:
+                self.belief_support[new] = valid_refs
+            elif new and status in {"REVISED", "CONFIRMED"} and new not in self.belief_support:
+                self.belief_support[new] = []
+            if status == "RETRACTED":
+                self.belief_support.pop(old, None)
             self.belief_history.append({
                 "horizon": horizon, "old": old, "new": new,
                 "status": status if status in {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"} else "UNCERTAIN",
-                "reason": reason,
+                "reason": reason, "evidence_refs": valid_refs,
             })
         del self.belief_history[:-20]
 
