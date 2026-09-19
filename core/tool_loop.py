@@ -30,6 +30,17 @@ class SearchObservation(list):
             return self.coverage
         return default
 
+    def __getitem__(self, key):
+        # Keep list indexing for legacy callers, while exposing Harness metadata
+        # with the same dict-style access used by the Reasoner-facing state.
+        if isinstance(key, str):
+            if key == "results":
+                return list(self)
+            if key == "coverage":
+                return self.coverage
+            raise KeyError(key)
+        return super().__getitem__(key)
+
 
 class ToolExecutor:
     """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
