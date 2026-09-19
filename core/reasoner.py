@@ -123,7 +123,7 @@ ANSWER：
 - 只记录与学习直接相关、可由对话支持的内容；不要猜测隐私、人格、情绪或其他心理事实。
 - 空数组表示不更新。
 - 如果新证据明确与已有 belief 冲突，可以提出 belief_revisions。
-- 每条 revision 使用 old/new/horizon/status/reason；status 只能是 REVISED / CONFIRMED / RETRACTED / UNCERTAIN。
+- 每条 revision 使用 old/new/horizon/status/reason/evidence_refs；evidence_refs 是当前 evidence 列表的整数索引。status 只能是 REVISED / CONFIRMED / RETRACTED / UNCERTAIN。
 - 不要仅因为新信息出现就修改旧 belief；只有有明确证据或用户明确纠正时才修订。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON。
@@ -305,6 +305,10 @@ ANSWER：
             horizon = str(item.get("horizon", "short_term")).strip()
             status = str(item.get("status", "UNCERTAIN")).upper()
             reason = str(item.get("reason", "")).strip()
+            evidence_refs = item.get("evidence_refs", [])
+            if not isinstance(evidence_refs, list):
+                evidence_refs = []
+            evidence_refs = [x for x in evidence_refs if isinstance(x, int) and x >= 0][:8]
             if not old or horizon not in {"short_term", "long_term"}:
                 continue
             normalized.append({
@@ -313,6 +317,7 @@ ANSWER：
                 "horizon": horizon,
                 "status": status if status in allowed else "UNCERTAIN",
                 "reason": reason,
+                "evidence_refs": evidence_refs,
             })
         return normalized[:8]
 
