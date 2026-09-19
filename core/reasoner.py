@@ -157,11 +157,22 @@ ANSWER：
                     debug.log("AgentReasoner", f"MODEL FAILED → {model.name}")
             raise RuntimeError("所有 Reasoner 候选模型均调用失败：\n" + "\n".join(errors))
 
+    @staticmethod
+    def _serialize_observation(observation):
+        """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
+        if hasattr(observation, "get") and hasattr(observation, "coverage"):
+            return {
+                "results": observation.get("results", []),
+                "coverage": observation.get("coverage", {}),
+            }
+        return observation
+
     def _build_prompt(self, state, tool_specs):
         observations = [
             {"step": s.step_id, "action": s.action, "model": s.model, "tool": s.tool,
              "arguments": s.arguments, "reasoning_summary": s.reasoning_summary,
-             "observation": s.observation, "success": s.success, "error": s.error}
+             "observation": self._serialize_observation(s.observation),
+             "success": s.success, "error": s.error}
             for s in state.steps
         ]
         analysis = state.task_analysis
@@ -185,7 +196,7 @@ ANSWER：
             "evidence_relevance": state.evidence_relevance,
             "action_counts": state.action_counts,
             "last_action": state.last_action,
-            "last_observation": state.last_observation,
+            "last_observation": self._serialize_observation(state.last_observation),
             "step_count": state.step_count,
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
