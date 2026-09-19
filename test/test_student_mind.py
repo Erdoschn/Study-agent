@@ -92,3 +92,43 @@ def test_reasoner_normalizes_belief_revisions_safely():
         "old": "A", "new": "B", "horizon": "long_term",
         "status": "REVISED", "reason": "evidence",
     }]
+
+def test_student_mind_binds_belief_to_validated_evidence():
+    mind = StudentMind()
+    evidence = [{
+        "source": "wikipedia",
+        "title": "Attention mechanism",
+        "identifier": "1",
+        "harness_relevance": "DIRECT",
+    }]
+    mind.revise_beliefs([{
+        "old": "attention is one shared score",
+        "new": "attention uses pairwise compatibility scores",
+        "horizon": "long_term",
+        "status": "REVISED",
+        "reason": "supported by retrieved evidence",
+        "evidence_refs": [0, 9, -1, "bad"],
+    }], evidence)
+
+    assert mind.belief_support["attention uses pairwise compatibility scores"] == [{
+        "index": 0,
+        "source": "wikipedia",
+        "title": "Attention mechanism",
+        "identifier": "1",
+        "harness_relevance": "DIRECT",
+    }]
+    assert mind.belief_history[-1]["evidence_refs"][0]["index"] == 0
+
+
+def test_student_mind_ignores_invalid_evidence_reference():
+    mind = StudentMind()
+    evidence = [{"source": "arxiv", "title": "A", "identifier": "1"}]
+    mind.revise_beliefs([{
+        "old": "A",
+        "new": "B",
+        "status": "REVISED",
+        "evidence_refs": [3],
+    }], evidence)
+
+    assert mind.belief_support["B"] == []
+    assert mind.belief_history[-1]["evidence_refs"] == []
