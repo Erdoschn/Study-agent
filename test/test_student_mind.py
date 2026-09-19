@@ -63,3 +63,32 @@ def test_reasoner_strips_think_block_before_json_parse():
     decision = AgentReasoner._parse(raw)
     assert decision.action == "ANSWER"
     assert decision.answer == "done"
+
+def test_student_mind_revises_conflicting_belief_with_audit_trail():
+    mind = StudentMind()
+    mind.long_term.beliefs.append("attention uses one shared score for every head")
+
+    mind.revise_beliefs([{
+        "old": "attention uses one shared score for every head",
+        "new": "each attention head has its own projected Q K V parameters",
+        "horizon": "long_term",
+        "status": "REVISED",
+        "reason": "verified from the model definition",
+    }])
+
+    assert mind.long_term.beliefs == ["each attention head has its own projected Q K V parameters"]
+    assert mind.belief_history[-1]["status"] == "REVISED"
+    assert mind.belief_history[-1]["old"].startswith("attention uses")
+
+
+def test_reasoner_normalizes_belief_revisions_safely():
+    revisions = AgentReasoner._normalize_belief_revisions([
+        {"old": "A", "new": "B", "horizon": "long_term", "status": "revised", "reason": "evidence"},
+        {"old": "", "new": "C", "horizon": "short_term", "status": "REVISED"},
+        {"old": "D", "new": "E", "horizon": "bad", "status": "REVISED"},
+    ])
+
+    assert revisions == [{
+        "old": "A", "new": "B", "horizon": "long_term",
+        "status": "REVISED", "reason": "evidence",
+    }]
