@@ -96,6 +96,7 @@ class AgentState:
     question: str
     student: StudentState = field(default_factory=StudentState)
     goal: str = ""
+    goal_context: list[str] = field(default_factory=list)
     task_type: str = ""
     domain: str = ""
     task_analysis: Any = None
