@@ -311,14 +311,16 @@ ANSWER：
             evidence_refs = [x for x in evidence_refs if isinstance(x, int) and x >= 0][:8]
             if not old or horizon not in {"short_term", "long_term"}:
                 continue
-            normalized.append({
+            normalized_item = {
                 "old": old,
                 "new": new,
                 "horizon": horizon,
                 "status": status if status in allowed else "UNCERTAIN",
                 "reason": reason,
-                "evidence_refs": evidence_refs,
-            })
+            }
+            if "evidence_refs" in item:
+                normalized_item["evidence_refs"] = evidence_refs
+            normalized.append(normalized_item)
         return normalized[:8]
 
     @staticmethod
