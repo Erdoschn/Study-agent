@@ -4,6 +4,7 @@ from .__debug__ import debug
 from .state import AgentStep
 from .reasoner import ReasoningDecision
 from .evidence import EvidenceEngine, EvidenceStore
+from .goal import GoalMatcher
 
 
 class ToolSpec:
@@ -271,6 +272,9 @@ class AgentToolLoop:
         evidence_store = EvidenceStore(state.evidence)
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
+                saved_goals = list(state.student.mind.long_term.desires) + list(state.student.mind.short_term.desires)
+                state.goal_context = GoalMatcher.context_for(state.question, state.goal, saved_goals)
+                debug.log("AgentToolLoop", f"GOAL CONTEXT → matched={len(state.goal_context)}")
                 debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
                 decision = self._decide(state)
                 debug.log("AgentToolLoop", f"DECISION → {decision.action}")
