@@ -33,12 +33,14 @@ class StudentMind:
     short_term: BDIState = field(default_factory=BDIState)
     long_term: BDIState = field(default_factory=BDIState)
     recent_decisions: list[str] = field(default_factory=list)
+    belief_history: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "short_term": self.short_term.as_dict(),
             "long_term": self.long_term.as_dict(),
             "recent_decisions": list(self.recent_decisions),
+            "belief_history": [dict(item) for item in self.belief_history],
         }
 
     def apply_update(self, update: dict[str, Any]) -> None:
@@ -65,6 +67,32 @@ class StudentMind:
                 if text and text not in self.recent_decisions:
                     self.recent_decisions.append(text)
         del self.recent_decisions[:-12]
+
+    def revise_beliefs(self, revisions: list[dict[str, Any]]) -> None:
+        """Apply explicit belief replacements/retractions with a small audit trail."""
+        if not isinstance(revisions, list):
+            return
+        for item in revisions:
+            if not isinstance(item, dict):
+                continue
+            old = str(item.get("old", "")).strip()
+            new = str(item.get("new", "")).strip()
+            horizon = str(item.get("horizon", "short_term")).strip()
+            status = str(item.get("status", "REVISED")).upper()
+            reason = str(item.get("reason", "")).strip()
+            if not old or horizon not in {"short_term", "long_term"}:
+                continue
+            target = getattr(self, horizon).beliefs
+            if old in target:
+                target.remove(old)
+            if new and status in {"REVISED", "CONFIRMED"} and new not in target:
+                target.append(new)
+            self.belief_history.append({
+                "horizon": horizon, "old": old, "new": new,
+                "status": status if status in {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"} else "UNCERTAIN",
+                "reason": reason,
+            })
+        del self.belief_history[:-20]
 
 
 @dataclass
