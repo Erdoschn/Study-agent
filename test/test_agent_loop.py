@@ -294,3 +294,22 @@ def test_failed_tool_can_be_retried_with_same_call():
     assert state.steps[0].success is False
     assert state.steps[0].observation["status"] == "ERROR"
     assert state.steps[1].success is True
+
+
+def test_search_observation_preserves_coverage_in_reasoner_prompt():
+    from core.reasoner import AgentReasoner
+    from core.tool_loop import SearchObservation
+
+    state = AgentState(question="attention")
+    state.last_observation = SearchObservation(
+        [{"title": "Attention mechanism", "harness_relevance": "PARTIAL"}],
+        {"status": "PARTIAL", "relevant_count": 1, "uncovered_terms": ["transformer"]},
+    )
+
+    prompt = AgentReasoner._build_prompt(AgentReasoner.__new__(AgentReasoner), state, [])
+    import json
+    payload = json.loads(prompt)
+
+    assert payload["last_observation"]["coverage"]["status"] == "PARTIAL"
+    assert payload["last_observation"]["coverage"]["uncovered_terms"] == ["transformer"]
+    assert payload["last_observation"]["results"][0]["harness_relevance"] == "PARTIAL"
