@@ -80,7 +80,7 @@ class AgentReasoner:
 核心循环：
 OBSERVE → DECIDE → ACT → OBSERVE → ...
 你可以连续搜索、改变查询、验证、计算，也可以在证据足够时直接 ANSWER。
-不要因为预设计划而机械执行；计划只是先验建议，当前状态优先。
+不要因为预设计划而机械执行；计划只是先验建议，当前状态优先。\n\n目标上下文：\n- Harness 可能提供 goal_context，其中是与当前任务匹配的已保存学习目标。\n- 如果 goal_context 非空，应把它作为当前教学目标的上下文使用；不要把它当作用户刚刚明确说过的新事实。\n- 如果为空，不要自行补造历史目标。
 
 可选 action：
 SEARCH / CALCULATE / VERIFY / ANSWER / STOP
@@ -181,7 +181,7 @@ ANSWER：
             "task_analysis": analysis.__dict__ if analysis else None,
             "plan": [{"action": s.action, "purpose": s.purpose, "tool": s.tool} for s in state.plan.steps] if state.plan else [],
             "current_plan_step": state.current_plan_step,
-            "goal": state.goal, "task_type": state.task_type, "domain": state.domain,
+            "goal": state.goal, "goal_context": list(state.goal_context), "task_type": state.task_type, "domain": state.domain,
             "search_strategy": {"sources": state.search_sources, "sort_by": state.search_sort_by},
             "student_state": {
                 "known_topics": sorted(state.student.known_topics),
