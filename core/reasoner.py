@@ -25,6 +25,7 @@ class ReasoningDecision:
     finish_reason: str = ""
     model: str | None = None
     student_model_update: dict[str, Any] | None = None
+    belief_revisions: list[dict[str, Any]] | None = None
 
 
 class ModelClient(ABC):
@@ -121,10 +122,13 @@ ANSWER：
 - short_term 表示本轮/近期对话中的工作假设；long_term 只有在稳定、重复或用户明确表达时才更新。
 - 只记录与学习直接相关、可由对话支持的内容；不要猜测隐私、人格、情绪或其他心理事实。
 - 空数组表示不更新。
+- 如果新证据明确与已有 belief 冲突，可以提出 belief_revisions。
+- 每条 revision 使用 old/new/horizon/status/reason；status 只能是 REVISED / CONFIRMED / RETRACTED / UNCERTAIN。
+- 不要仅因为新信息出现就修改旧 belief；只有有明确证据或用户明确纠正时才修订。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON。
 格式：
-{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"answer":null,"goal":"...","task_type":"...","domain":"...","claims":[],"evidence_relevance":[],"finish_reason":"...","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]}}
+{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"...","tool":null,"arguments":{},"answer":null,"goal":"...","task_type":"...","domain":"...","claims":[],"evidence_relevance":[],"finish_reason":"...","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
 """
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
@@ -253,6 +257,9 @@ ANSWER：
         student_model_update = AgentReasoner._normalize_student_model_update(
             data.get("student_model_update", {})
         )
+        belief_revisions = AgentReasoner._normalize_belief_revisions(
+            data.get("belief_revisions", [])
+        )
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
         allowed_recency = {"DATED", "UNDATED", "UNKNOWN", "NEWER", "OLDER", "SAME"}
         normalized = []
@@ -280,7 +287,34 @@ ANSWER：
             evidence_relevance=normalized,
             finish_reason=str(data.get("finish_reason", "")),
             student_model_update=student_model_update,
+            belief_revisions=belief_revisions,
         )
+
+    @staticmethod
+    def _normalize_belief_revisions(raw):
+        """Validate explicit belief revision proposals without deciding truth."""
+        if not isinstance(raw, list):
+            return []
+        allowed = {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"}
+        normalized = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            old = str(item.get("old", "")).strip()
+            new = str(item.get("new", "")).strip()
+            horizon = str(item.get("horizon", "short_term")).strip()
+            status = str(item.get("status", "UNCERTAIN")).upper()
+            reason = str(item.get("reason", "")).strip()
+            if not old or horizon not in {"short_term", "long_term"}:
+                continue
+            normalized.append({
+                "old": old,
+                "new": new,
+                "horizon": horizon,
+                "status": status if status in allowed else "UNCERTAIN",
+                "reason": reason,
+            })
+        return normalized[:8]
 
     @staticmethod
     def _normalize_student_model_update(raw):
