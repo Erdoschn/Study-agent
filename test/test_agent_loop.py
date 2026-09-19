@@ -372,3 +372,46 @@ def test_adaptive_search_changes_query_after_partial_coverage():
     assert [call.query for call in arxiv.calls] == ["attention transformer"]
     assert state.steps[0].observation["coverage"]["status"] == "PARTIAL"
     assert state.steps[1].observation["coverage"]["status"] == "COVERED"
+
+def test_goal_context_matches_saved_learning_goal_before_reasoning():
+    from core.goal import GoalMatcher
+
+    matched = GoalMatcher.context_for(
+        "help me derive transformer attention dimensions",
+        "解决当前问题",
+        ["build a reliable study agent", "understand transformer attention dimensions"],
+    )
+
+    assert matched == ["understand transformer attention dimensions"]
+
+
+def test_goal_context_reaches_reasoner_prompt():
+    import json
+    from core.reasoner import AgentReasoner
+
+    state = AgentState(question="attention dimensions")
+    state.goal_context = ["understand transformer attention dimensions"]
+    payload = json.loads(AgentReasoner._build_prompt(AgentReasoner.__new__(AgentReasoner), state, []))
+
+    assert payload["goal_context"] == ["understand transformer attention dimensions"]
+
+
+def test_goal_context_is_injected_from_student_memory_before_first_decision():
+    from core.goal import GoalMatcher
+
+    class Reasoner:
+        def __init__(self):
+            self.seen = None
+
+        def decide(self, state):
+            self.seen = list(state.goal_context)
+            return ReasoningDecision(action="ANSWER", reasoning_summary="answer", answer="ok")
+
+    reasoner = Reasoner()
+    state = AgentState(question="transformer attention dimensions")
+    state.student.mind.long_term.desires.append("understand transformer attention dimensions")
+
+    state = AgentToolLoop(reasoner, ToolExecutor()).run(state)
+
+    assert reasoner.seen == ["understand transformer attention dimensions"]
+    assert state.final_answer == "ok"
