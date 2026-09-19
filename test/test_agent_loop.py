@@ -313,3 +313,62 @@ def test_search_observation_preserves_coverage_in_reasoner_prompt():
     assert payload["last_observation"]["coverage"]["status"] == "PARTIAL"
     assert payload["last_observation"]["coverage"]["uncovered_terms"] == ["transformer"]
     assert payload["last_observation"]["results"][0]["harness_relevance"] == "PARTIAL"
+
+def test_adaptive_search_changes_query_after_partial_coverage():
+    router = SearchRouter()
+    wiki = StubProvider(
+        "wikipedia",
+        [_result("wikipedia", "Attention mechanism")],
+    )
+    arxiv = StubProvider(
+        "arxiv",
+        [_result("arxiv", "Attention mechanism in transformer")],
+    )
+    router.register(wiki)
+    router.register(arxiv)
+
+    executor = ToolExecutor(search_router=router)
+
+    class AdaptiveReasoner:
+        def __init__(self):
+            self.calls = 0
+
+        def decide(self, state):
+            self.calls += 1
+            if self.calls == 1:
+                assert state.last_observation is None
+                return ReasoningDecision(
+                    action="SEARCH",
+                    reasoning_summary="先搜索核心概念。",
+                    tool="search",
+                    arguments={"query": "attention transformer", "source": "wikipedia"},
+                )
+
+            if self.calls == 2:
+                assert state.last_observation["coverage"]["status"] == "PARTIAL"
+                assert state.last_observation["coverage"]["uncovered_terms"] == ["transformer"]
+                return ReasoningDecision(
+                    action="SEARCH",
+                    reasoning_summary="首轮证据只覆盖部分关键词，改用另一来源补足。",
+                    tool="search",
+                    arguments={"query": "attention transformer", "source": "arxiv"},
+                )
+
+            assert state.last_observation["coverage"]["status"] == "COVERED"
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="证据覆盖充分。",
+                answer="ok",
+            )
+
+    state = AgentToolLoop(
+        AdaptiveReasoner(),
+        executor,
+    ).run(AgentState(question="attention transformer"))
+
+    assert state.finished is True
+    assert state.final_answer == "ok"
+    assert [call.query for call in wiki.calls] == ["attention transformer"]
+    assert [call.query for call in arxiv.calls] == ["attention transformer"]
+    assert state.steps[0].observation["coverage"]["status"] == "PARTIAL"
+    assert state.steps[1].observation["coverage"]["status"] == "COVERED"
