@@ -219,6 +219,7 @@ class AgentToolLoop:
         fp = self._fingerprint(decision.action, decision.tool or decision.action.lower(), decision.arguments)
         return any(
             self._fingerprint(s.action, s.tool or s.action.lower(), s.arguments) == fp
+            and s.success
             for s in state.steps
         )
 
@@ -310,9 +311,14 @@ class AgentToolLoop:
                     error = "" if success else "SEARCH_EMPTY: 搜索请求成功，但没有返回结果。"
                     error_type = "" if success else "SEARCH_EMPTY"
                 except Exception as exc:
-                    observation, success = None, False
                     error_type = type(exc).__name__
                     error = f"{error_type}: {exc}"
+                    observation = {
+                        "status": "ERROR",
+                        "error_type": error_type,
+                        "error": str(exc),
+                    }
+                    success = False
 
                 state.add_step(AgentStep(
                     step_id=step_id, action=decision.action, model=decision.model,
