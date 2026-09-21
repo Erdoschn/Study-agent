@@ -18,6 +18,7 @@ flowchart LR
     end
 
     subgraph MODEL["Model System"]
+        direction LR
         REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"] --> CLIENT["Model Client"] --> LLM["LLM API"]
     end
 
