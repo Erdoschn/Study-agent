@@ -73,20 +73,28 @@ flowchart TB
     CLAIM --> AS
 ```
 
-### Agent Loop
+## Agent Reasoning Loop
 
 ```mermaid
 flowchart LR
+
     D["Decide"]
     A["Act"]
     O["Observe"]
-    F["ANSWER / STOP"]
+    FINISH["ANSWER / STOP"]
 
-    D --> A --> O --> D
-    O --> F
+    D --> A
+    A --> O
+    O --> D
+    O --> FINISH
+
+    MR["Model Router"]
+    TOOLS["Tool Executor"]
+
+    MR -.-> D
+    A --> TOOLS
+    TOOLS --> O
 ```
-
-`AgentToolLoop` is the control layer that runs this cycle: the Reasoner decides one action, the Harness executes it, the observation is written back into state, and the next decision uses the updated state.
 
 ## Debug Structure
 
