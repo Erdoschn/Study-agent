@@ -7,6 +7,7 @@ flowchart LR
 
     subgraph CORE["Agent Core"]
         LOOP <--> REASONER["AgentReasoner"]
+        TEACHER["Teacher"]
 
         subgraph STATE["State"]
             AS["AgentState"]
@@ -20,6 +21,8 @@ flowchart LR
         end
 
         LOOP <--> AS
+        SA --> TEACHER
+        AS --> TEACHER
     end
 
     subgraph EVIDENCE["Evidence"]
@@ -50,6 +53,7 @@ flowchart LR
     CONFIG["providers.json"] --> MODEL
 
     REASONER <--> MODEL
+    TEACHER <--> MODEL
     LOOP --> EXECUTOR
     EXECUTOR --> EVI
     EVI --> LOOP
