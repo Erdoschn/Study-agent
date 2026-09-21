@@ -117,9 +117,7 @@ STOP：无法继续时停止并说明原因。
 必须只输出 JSON，且 JSON 中包含单词 JSON：
 {"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
 """
-    @staticmethod
-    def _serialize_observation(observation):
-        def __init__(self, model_router, model_factory, allow_paid: bool = False):
+    def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router
         self.model_factory = model_factory
         self.allow_paid = allow_paid
@@ -150,15 +148,15 @@ STOP：无法继续时停止并说明原因。
                     return decision
                 except Exception as exc:
                     self.model_router.registry.record_failure(model.name, "reasoning")
-                    errors.append(
-                        f"{model.name}: {type(exc).__name__}: {exc}"
-                    )
+                    errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
                     debug.log("AgentReasoner", f"MODEL FAILED → {model.name}")
             raise RuntimeError(
                 "所有 Reasoner 候选模型均调用失败：\n" + "\n".join(errors)
             )
 
-    """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
+    @staticmethod
+    def _serialize_observation(observation):
+        """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
         if hasattr(observation, "get") and hasattr(observation, "coverage"):
             return {
                 "results": observation.get("results", []),
