@@ -18,19 +18,20 @@ flowchart TB
             AS["AgentState"]
             STEP["AgentStep"]
             STUDENT["StudentState"]
+            MIND["StudentMind / BDI"]
         end
 
         LOOP["AgentToolLoop"]
         REASONER["AgentReasoner"]
-        TEACHER["Teacher"]
 
         SA --> AS
         SA --> LOOP
         LOOP --> REASONER
-        LOOP --> TEACHER
         AS --> LOOP
         LOOP --> AS
         AS --> STUDENT
+        STUDENT --> MIND
+        MIND --> AS
     end
 
     subgraph MODEL["Model System"]
@@ -67,10 +68,23 @@ flowchart TB
         EXECUTOR --> VERIFY
     end
 
-    subgraph EVIDENCE["Evidence"]
-        EVI["Evidence"]
+    subgraph EVIDENCE["Evidence System"]
+        EVI["EvidenceStore / Engine"]
+        RELEVANCE["Relevance / Recency"]
+        COVERAGE["Coverage"]
         CLAIM["Claims"]
         CHECK["Claim Verification"]
+
+        EVI --> RELEVANCE
+        EVI --> COVERAGE
+        CLAIM --> CHECK
+        CHECK --> AS
+        RELEVANCE --> AS
+        COVERAGE --> AS
+    end
+
+    subgraph GOAL["Learning Goal"]
+        GOALMATCH["GoalMatcher"]
     end
 
     subgraph DEBUG["Debug"]
@@ -83,8 +97,6 @@ flowchart TB
     LOADER --> FACTORY
 
     REASONER --> ROUTER
-    TEACHER --> ROUTER
-
     REASONER --> EXECUTOR
     EXECUTOR --> REASONER
 
@@ -92,11 +104,10 @@ flowchart TB
     EVI --> AS
 
     REASONER --> CLAIM
-    CLAIM --> CHECK
-    CHECK --> AS
+    REASONER --> GOALMATCH
+    GOALMATCH --> AS
 
-    TEACHER --> AS
-    TEACHER --> STUDENT
+    AS --> REASONER
 
     TRACE -.-> SA
     TRACE -.-> REASONER
@@ -107,9 +118,6 @@ flowchart TB
     TRACE -.-> SEARCH_ROUTER
     TRACE -.-> WIKI
     TRACE -.-> ARXIV
-    TRACE -.-> TEACHER
-
-    AS --> REASONER
 ```
 
 ## Agent Reasoning Loop
@@ -121,21 +129,18 @@ flowchart LR
     A["Act"]
     O["Observe"]
     RR["Re-Reason"]
+    FINISH["ANSWER / STOP"]
 
     R --> A
     A --> O
     O --> RR
     RR --> R
+    O --> FINISH
 
     MR["Model Router"]
-    TOOLS["Tools"]
-    FINISH["Finish"]
-    TEACH["Teacher"]
+    TOOLS["Tool Executor"]
 
     MR -.-> R
     A --> TOOLS
     TOOLS --> O
-
-    O --> FINISH
-    FINISH --> TEACH
 ```
