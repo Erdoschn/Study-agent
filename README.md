@@ -1,51 +1,37 @@
 ## Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
 
-    USER["User"]
+    USER["User"] --> SA["StudyAgent"] --> LOOP["AgentToolLoop"]
 
-    subgraph AGENT["Study Agent"]
-        SA["StudyAgent"]
-        LOOP["AgentToolLoop<br/>Control Loop"]
-        REASONER["AgentReasoner"]
+    subgraph CORE["Agent Core"]
+        LOOP <--> REASONER["AgentReasoner"]
 
-        subgraph STATE["Agent State"]
+        subgraph STATE["State"]
             AS["AgentState"]
             STUDENT["StudentState / BDI"]
+            AS --> STUDENT
         end
 
-        SA --> LOOP
-        LOOP <--> REASONER
         LOOP <--> AS
-        AS --> STUDENT
     end
 
     subgraph MODEL["Model System"]
-        REGISTRY["ModelRegistry"]
-        ROUTER["ModelRouter"]
-        CLIENT["Model Client"]
-        LLM["LLM API"]
-
-        REGISTRY --> ROUTER
-        ROUTER --> CLIENT
-        CLIENT --> LLM
+        REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"] --> CLIENT["Model Client"] --> LLM["LLM API"]
     end
 
     subgraph TOOLS["Tool System"]
         EXECUTOR["ToolExecutor"]
 
         subgraph SEARCH["Search"]
-            SEARCH_ROUTER["SearchRouter"]
-            WIKI["Wikipedia"]
-            ARXIV["arXiv"]
-            SEARCH_ROUTER --> WIKI
-            SEARCH_ROUTER --> ARXIV
+            SEARCH_ROUTER["SearchRouter"] --> WIKI["Wikipedia"]
+            SEARCH_ROUTER --> ARXIV["arXiv"]
         end
 
         CALC["Calculator"]
         VERIFY["Verification"]
-        
+
         EXECUTOR --> SEARCH_ROUTER
         EXECUTOR --> CALC
         EXECUTOR --> VERIFY
@@ -60,15 +46,11 @@ flowchart TB
         EVI --> CLAIM
     end
 
-    CONFIG["providers.json"] --> REGISTRY
-    CONFIG --> CLIENT
+    CONFIG["providers.json"] --> MODEL
 
-    USER --> SA
-    REASONER --> ROUTER
+    REASONER --> MODEL
     LOOP --> EXECUTOR
-    EXECUTOR --> REASONER
-
-    SEARCH_ROUTER --> EVI
+    EXECUTOR --> EVI
     EVI --> AS
     CLAIM --> AS
 ```
