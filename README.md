@@ -47,13 +47,13 @@ flowchart LR
         EVI --> CLAIM
     end
 
-    CONFIG["providers.json"] --> MODEL
+    CONFIG["providers.json"] --> REGISTRY
 
-    REASONER --> MODEL
+    REASONER --> ROUTER
     LOOP --> EXECUTOR
     EXECUTOR --> EVI
     EVI --> LOOP
-    CLAIM --> AS
+    CLAIM --> LOOP
 ```
 
 ## Agent Reasoning Loop
