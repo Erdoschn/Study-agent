@@ -5,47 +5,31 @@ flowchart TB
 
     USER["User"]
 
-    subgraph CONFIG["Configuration"]
-        CFG["providers.json"]
-        LOADER["config/loader.py"]
-        CFG --> LOADER
-    end
-
     subgraph AGENT["Study Agent"]
         SA["StudyAgent"]
+        LOOP["AgentToolLoop<br/>Control Loop"]
+        REASONER["AgentReasoner"]
 
         subgraph STATE["Agent State"]
             AS["AgentState"]
-            STEP["AgentStep"]
-            STUDENT["StudentState"]
-            MIND["StudentMind / BDI"]
+            STUDENT["StudentState / BDI"]
         end
 
-        LOOP["AgentToolLoop"]
-        REASONER["AgentReasoner"]
-
-        SA --> AS
         SA --> LOOP
-        LOOP --> REASONER
-        AS --> LOOP
-        LOOP --> AS
+        LOOP <--> REASONER
+        LOOP <--> AS
         AS --> STUDENT
-        STUDENT --> MIND
-        MIND --> AS
     end
 
     subgraph MODEL["Model System"]
         REGISTRY["ModelRegistry"]
         ROUTER["ModelRouter"]
-        FACTORY["ModelClientFactory"]
-        CLIENT["OpenAICompatibleClient"]
+        CLIENT["Model Client"]
         LLM["LLM API"]
 
         REGISTRY --> ROUTER
-        ROUTER --> FACTORY
-        FACTORY --> CLIENT
+        ROUTER --> CLIENT
         CLIENT --> LLM
-        LLM --> CLIENT
     end
 
     subgraph TOOLS["Tool System"]
@@ -53,82 +37,56 @@ flowchart TB
 
         subgraph SEARCH["Search"]
             SEARCH_ROUTER["SearchRouter"]
-            WIKI["Wikipedia Provider"]
-            ARXIV["arXiv Provider"]
-
+            WIKI["Wikipedia"]
+            ARXIV["arXiv"]
             SEARCH_ROUTER --> WIKI
             SEARCH_ROUTER --> ARXIV
         end
 
         CALC["Calculator"]
-        VERIFY["Verification Tool"]
-
+        VERIFY["Verification"]
+        
         EXECUTOR --> SEARCH_ROUTER
         EXECUTOR --> CALC
         EXECUTOR --> VERIFY
     end
 
-    subgraph EVIDENCE["Evidence System"]
+    subgraph EVIDENCE["Evidence"]
         EVI["EvidenceStore / Engine"]
-        RELEVANCE["Relevance / Recency"]
-        COVERAGE["Coverage"]
-        CLAIM["Claims"]
-        CHECK["Claim Verification"]
+        COVERAGE["Coverage / Relevance"]
+        CLAIM["Claims / Verification"]
 
-        EVI --> RELEVANCE
         EVI --> COVERAGE
-        CLAIM --> CHECK
-        CHECK --> AS
-        RELEVANCE --> AS
-        COVERAGE --> AS
+        EVI --> CLAIM
     end
 
-    subgraph GOAL["Learning Goal"]
-        GOALMATCH["GoalMatcher"]
-    end
+    CONFIG["providers.json"] --> REGISTRY
+    CONFIG --> CLIENT
 
     USER --> SA
-
-    LOADER --> REGISTRY
-    LOADER --> FACTORY
-
     REASONER --> ROUTER
-    REASONER --> EXECUTOR
+    LOOP --> EXECUTOR
     EXECUTOR --> REASONER
 
     SEARCH_ROUTER --> EVI
     EVI --> AS
-
-    REASONER --> CLAIM
-    REASONER --> GOALMATCH
-    GOALMATCH --> AS
-
-    AS --> REASONER
-
+    CLAIM --> AS
 ```
 
-## Agent Reasoning Loop
+### Agent Loop
 
 ```mermaid
 flowchart LR
-
     D["Decide"]
     A["Act"]
     O["Observe"]
-    FINISH["ANSWER / STOP"]
+    F["ANSWER / STOP"]
 
-    D --> A
-    A --> O
-    O --> D
-    O --> FINISH
-
-    MR["Model Router"]
-    TOOLS["Tool Executor"]
-
-    MR -.-> D
-    A --> TOOLS
-    TOOLS --> O
+    D --> A --> O --> D
+    O --> F
 ```
+
+`AgentToolLoop` is the control layer that runs this cycle: the Reasoner decides one action, the Harness executes it, the observation is written back into state, and the next decision uses the updated state.
 
 ## Debug Structure
 
