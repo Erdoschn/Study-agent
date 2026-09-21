@@ -87,10 +87,6 @@ flowchart TB
         GOALMATCH["GoalMatcher"]
     end
 
-    subgraph DEBUG["Debug"]
-        TRACE["DebugTracer"]
-    end
-
     USER --> SA
 
     LOADER --> REGISTRY
@@ -109,15 +105,6 @@ flowchart TB
 
     AS --> REASONER
 
-    TRACE -.-> SA
-    TRACE -.-> REASONER
-    TRACE -.-> ROUTER
-    TRACE -.-> FACTORY
-    TRACE -.-> CLIENT
-    TRACE -.-> EXECUTOR
-    TRACE -.-> SEARCH_ROUTER
-    TRACE -.-> WIKI
-    TRACE -.-> ARXIV
 ```
 
 ## Agent Reasoning Loop
@@ -141,4 +128,28 @@ flowchart LR
     MR -.-> D
     A --> TOOLS
     TOOLS --> O
+```
+
+## Debug Structure
+
+```mermaid
+flowchart TB
+
+    TRACE["DebugTracer"]
+    DEBUG_CONFIG["providers.json<br/>debug: true / false"]
+    SCOPE["Debug Scope"]
+    LOG["Structured Debug Logs"]
+
+    DEBUG_CONFIG --> TRACE
+    TRACE --> SCOPE
+    SCOPE --> LOG
+
+    SCOPE -.-> SA["StudyAgent"]
+    SCOPE -.-> REASONER["AgentReasoner"]
+    SCOPE -.-> ROUTER["ModelRouter"]
+    SCOPE -.-> FACTORY["ModelClientFactory"]
+    SCOPE -.-> CLIENT["OpenAICompatibleClient"]
+    SCOPE -.-> EXECUTOR["ToolExecutor"]
+    SCOPE -.-> SEARCH["SearchRouter"]
+    SCOPE -.-> PROVIDERS["Search Providers"]
 ```
