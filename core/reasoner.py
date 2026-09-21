@@ -119,7 +119,46 @@ STOP：无法继续时停止并说明原因。
 """
     @staticmethod
     def _serialize_observation(observation):
-        """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
+        def __init__(self, model_router, model_factory, allow_paid: bool = False):
+        self.model_router = model_router
+        self.model_factory = model_factory
+        self.allow_paid = allow_paid
+
+    def decide(self, state, tool_specs=None):
+        with debug.scope("AgentReasoner", f"DECIDE → step={state.step_count + 1}"):
+            prompt = self._build_prompt(state, tool_specs or [])
+            candidates = self.model_router.select_candidates(
+                capability="reasoning",
+                allow_paid=self.allow_paid,
+                task_analysis=state.task_analysis,
+                plan=state.plan,
+                exclude=set(),
+            )
+            if not candidates:
+                raise RuntimeError("没有可用于 Reasoning 的模型。")
+            errors = []
+            for model in candidates:
+                debug.log("AgentReasoner", f"TRY MODEL → {model.name}")
+                try:
+                    client = self.model_factory.create(model)
+                    decision = self._parse(
+                        client.generate(self.SYSTEM_PROMPT, prompt, json_mode=True)
+                    )
+                    self.model_router.registry.record_success(model.name, "reasoning")
+                    decision.model = model.name
+                    debug.log("AgentReasoner", f"ACTION → {decision.action}")
+                    return decision
+                except Exception as exc:
+                    self.model_router.registry.record_failure(model.name, "reasoning")
+                    errors.append(
+                        f"{model.name}: {type(exc).__name__}: {exc}"
+                    )
+                    debug.log("AgentReasoner", f"MODEL FAILED → {model.name}")
+            raise RuntimeError(
+                "所有 Reasoner 候选模型均调用失败：\n" + "\n".join(errors)
+            )
+
+    """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
         if hasattr(observation, "get") and hasattr(observation, "coverage"):
             return {
                 "results": observation.get("results", []),
