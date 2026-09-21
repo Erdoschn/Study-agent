@@ -4,14 +4,44 @@ from .__debug__ import debug
 
 
 class StudyAgent:
-    """LLM-driven Study Agent: Harness initializes state; the LLM owns the decision loop."""
+    """LLM-driven Study Agent: Harness 初始化状态，Reasoner 决策，Teacher 负责最终教学表达。"""
 
     def __init__(self, reasoner, teacher=None, tool_executor=None, max_steps=None):
         self.reasoner = reasoner
-        self.teacher = teacher  # 兼容旧接口；不再作为固定流程节点。
+        self.teacher = teacher
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.student_state = None
+
+    def _teach_final_answer(self, state) -> None:
+        """在 Reasoner 决定 ANSWER 后进入教学层；Teacher 失败时保留 Reasoner 草稿。"""
+        if self.teacher is None or state.final_answer is None:
+            return
+        draft_answer = state.final_answer
+        try:
+            if self._teacher_supports_draft():
+                state.final_answer = self.teacher.generate(state, draft_answer=draft_answer)
+            else:
+                state.final_answer = self.teacher.generate(state)
+            if not state.final_answer:
+                state.final_answer = draft_answer
+                debug.log("StudyAgent", "TEACHER EMPTY → kept Reasoner draft")
+        except Exception as exc:
+            state.final_answer = draft_answer
+            debug.log("StudyAgent", f"TEACHER FAILED → kept Reasoner draft: {type(exc).__name__}: {exc}")
+
+    def _teacher_supports_draft(self) -> bool:
+        try:
+            import inspect
+            params = inspect.signature(self.teacher.generate).parameters.values()
+            return any(
+                p.kind == inspect.Parameter.VAR_POSITIONAL
+                or p.kind == inspect.Parameter.VAR_KEYWORD
+                or p.name == "draft_answer"
+                for p in params
+            )
+        except (TypeError, ValueError):
+            return True
 
     def run(self, question: str, student_state=None) -> AgentState:
         with debug.scope("StudyAgent", "RUN"):
@@ -23,9 +53,6 @@ class StudyAgent:
                 self.student_state = state.student
             state.student = self.student_state
 
-            # 不再先调用 TaskAnalyzer/Planner。
-            # Agent Brain 在第一轮直接观察用户任务 + 学生状态 + 工具，
-            # 自己决定是否需要分析、搜索、计算、验证或直接回答。
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
             state.search_sort_by = "relevance"
@@ -34,12 +61,12 @@ class StudyAgent:
                 state.error = "Tool Harness 尚未配置。"
             elif not hasattr(self.tool_executor, "execute"):
                 # Legacy adapters expose Teacher/Analyzer but not the Harness API.
-                # Do not run the new loop first, otherwise the compatibility path
-                # would append a second ANSWER step.
                 pass
             else:
                 try:
                     state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
+                    if state.final_answer is not None and state.steps and state.steps[-1].action == "ANSWER":
+                        self._teach_final_answer(state)
                 except Exception as exc:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
@@ -72,15 +99,15 @@ class StudyAgent:
             debug.log("StudyAgent", f"LOOP FINISHED → steps={state.step_count}")
 
             if state.final_answer is None and state.error:
-                state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
+                state.final_answer = f"Agent 未能完成任务。\\n\\n原因：{state.error}"
             elif state.final_answer is None:
                 state.error = "Agent 在没有产生最终 ANSWER 的情况下结束。"
-                state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
+                state.final_answer = f"Agent 未能完成任务。\\n\\n原因：{state.error}"
 
             self._update_student_model(state)
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
 
-    def _update_student_model(self, state: AgentState) -> None:
+    def _update_student_model(self, state) -> None:
         if state.domain:
             state.student.known_topics.add(state.domain)
