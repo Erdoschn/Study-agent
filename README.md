@@ -125,22 +125,20 @@ flowchart TB
 ```mermaid
 flowchart LR
 
-    R["Reason"]
+    D["Decide"]
     A["Act"]
     O["Observe"]
-    RR["Re-Reason"]
     FINISH["ANSWER / STOP"]
 
-    R --> A
+    D --> A
     A --> O
-    O --> RR
-    RR --> R
+    O --> D
     O --> FINISH
 
     MR["Model Router"]
     TOOLS["Tool Executor"]
 
-    MR -.-> R
+    MR -.-> D
     A --> TOOLS
     TOOLS --> O
 ```
