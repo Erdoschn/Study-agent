@@ -14,12 +14,21 @@ flowchart LR
             AS --> STUDENT
         end
 
+        subgraph MODEL["Model System"]
+            direction LR
+            REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"] --> CLIENT["Model Client"] --> LLM["LLM API"]
+        end
+
         LOOP <--> AS
     end
 
-    subgraph MODEL["Model System"]
-        direction LR
-        REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"] --> CLIENT["Model Client"] --> LLM["LLM API"]
+    subgraph EVIDENCE["Evidence"]
+        EVI["EvidenceStore / Engine"]
+        COVERAGE["Coverage / Relevance"]
+        CLAIM["Claims / Verification"]
+
+        EVI --> COVERAGE
+        EVI --> CLAIM
     end
 
     subgraph TOOLS["Tool System"]
@@ -38,18 +47,9 @@ flowchart LR
         EXECUTOR --> VERIFY
     end
 
-    subgraph EVIDENCE["Evidence"]
-        EVI["EvidenceStore / Engine"]
-        COVERAGE["Coverage / Relevance"]
-        CLAIM["Claims / Verification"]
-
-        EVI --> COVERAGE
-        EVI --> CLAIM
-    end
-
     CONFIG["providers.json"] --> MODEL
 
-    REASONER --> MODEL
+    REASONER <--> MODEL
     LOOP --> EXECUTOR
     EXECUTOR --> EVI
     EVI --> LOOP
