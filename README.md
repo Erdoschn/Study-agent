@@ -52,7 +52,7 @@ flowchart LR
     REASONER --> MODEL
     LOOP --> EXECUTOR
     EXECUTOR --> EVI
-    EVI --> AS
+    EVI --> LOOP
     CLAIM --> AS
 ```
 
