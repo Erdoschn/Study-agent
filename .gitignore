@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 config/providers.json
+data/benchmarks/*
+!data/benchmarks/.gitkeep
