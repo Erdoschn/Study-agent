@@ -116,7 +116,9 @@ STOP：无法继续时停止并说明原因。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON：
 {"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
-"""Preserve Harness metadata when list-compatible observations enter JSON prompts."""
+    @staticmethod
+    def _serialize_observation(observation):
+        """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
         if hasattr(observation, "get") and hasattr(observation, "coverage"):
             return {
                 "results": observation.get("results", []),
