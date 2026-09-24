@@ -133,7 +133,8 @@ class ToolExecutor:
 
         explicit_source = str(arguments.get("source", "")).strip().lower()
         source = explicit_source or "auto"
-        preferences = [] if explicit_source else list(getattr(state, "search_sources", []) or [])
+        # Reasoner owns source selection. Analyzer hints are not injected into routing.
+        preferences = []
         categories = arguments.get("categories", [])
         if not isinstance(categories, list):
             categories = []
@@ -260,19 +261,19 @@ class AgentToolLoop:
             pass
         return execute(tool, arguments)
 
-    def _force_verify(self, state, decision):
-        """Compatibility gate for callers that still expose a pre-planned VERIFY step."""
-        if decision.action == "ANSWER" and state.plan and state.current_plan_step < len(state.plan.steps):
-            if any(step.action == "VERIFY" for step in state.plan.steps[state.current_plan_step:]):
-                return ReasoningDecision(action="VERIFY", reasoning_summary="在回答前完成计划要求的证据核查。", tool="verify", arguments={"claim": state.question, "evidence": state.evidence}, model=decision.model)
-        return decision
-
     def run(self, state):
         evidence_store = EvidenceStore(state.evidence)
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
                 if state.max_steps is not None and state.step_count >= state.max_steps:
                     state.error = f"达到 Agent 最大安全步数上限：{state.max_steps}。"
+                    state.add_step(AgentStep(
+                        step_id=state.step_count + 1,
+                        action="STOP",
+                        reasoning_summary="达到安全步数上限，停止继续调用。",
+                        success=False,
+                        error=state.error,
+                    ))
                     state.finished = True
                     break
 
@@ -355,7 +356,6 @@ class AgentToolLoop:
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
                     state.claims.append({"claim": observation.get("claim", ""), "verification_status": observation.get("verification_status", "UNCERTAIN"), "matched_evidence": observation.get("matched_evidence", [])})
-                state.current_plan_step = self._next_plan_step(state, decision.action)
                 state.last_observation = observation
                 state.last_error_type = error_type if not success else ""
                 if not success:
@@ -364,11 +364,3 @@ class AgentToolLoop:
 
             return state
 
-    @staticmethod
-    def _next_plan_step(state, action):
-        if not state.plan:
-            return state.current_plan_step
-        for i in range(max(0, state.current_plan_step), len(state.plan.steps)):
-            if state.plan.steps[i].action == action:
-                return min(i + 1, len(state.plan.steps))
-        return state.current_plan_step
