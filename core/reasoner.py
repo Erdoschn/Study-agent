@@ -8,6 +8,7 @@ from typing import Any
 from .__debug__ import debug
 from .evidence import EvidenceStore
 from .state import StudentMind
+from .search_strategy import SearchStrategy
 
 
 @dataclass
@@ -84,8 +85,11 @@ class AgentReasoner:
 - 工具由 Harness 执行；不要假设工具成功。
 - SEARCH 的 HTTP 成功不代表证据有效。优先参考 Harness 提供的 relevance、recency 和 coverage。
 - 证据不足或存在关键缺口时继续行动；证据足够时 ANSWER。
-- 不要重复任何已经执行过的完全相同工具调用；失败后可以修改 query、source 或参数继续试错。
+- 不要重复任何已经执行过的完全相同工具调用；失败后必须真正改变 query、source 或参数。
 - SEARCH 的 source 由你在每轮决定；TaskAnalyzer 的 search_sources 只是参考，不是强制路由。
+- 搜索失败后的策略由 Harness 提供 search_strategy。必须遵守 required_change：查询过长时缩短；中文连续无结果时改用英文核心关键词；连续失败后只用 1~2 个核心词并可更换来源。
+- SEARCH 的 source 必须是可用搜索源（通常为 arxiv、wikipedia 或 auto）；不要输出“学术数据库”等自然语言来源名。
+- query 必须是搜索关键词，而不是把用户问题整句复制进去。
 - VERIFY 只表示结构化文本核查结果，不表示事实概率或证明。
 - 不输出隐藏思维链；reasoning_summary 只写简短、可审计的行动理由。
 
@@ -180,7 +184,7 @@ STOP：无法继续时停止并说明原因。
             "plan": [{"action": s.action, "purpose": s.purpose, "tool": s.tool} for s in state.plan.steps] if state.plan else [],
             "current_plan_step": state.current_plan_step,
             "goal": state.goal, "goal_context": list(state.goal_context), "task_type": state.task_type, "domain": state.domain,
-            "search_strategy": {"sources_hint": state.search_sources, "sort_by_hint": state.search_sort_by, "routing_authority": "Reasoner"},
+            "search_strategy": {**SearchStrategy.guidance(state.steps), "sources_hint": state.search_sources, "sort_by_hint": state.search_sort_by, "routing_authority": "Reasoner"},
             "student_state": {
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
