@@ -5,6 +5,7 @@ from .state import AgentStep
 from .reasoner import ReasoningDecision
 from .evidence import EvidenceEngine, EvidenceStore
 from .goal import GoalMatcher
+from .search_strategy import SearchStrategy
 
 
 class ToolSpec:
@@ -133,6 +134,11 @@ class ToolExecutor:
 
         explicit_source = str(arguments.get("source", "")).strip().lower()
         source = explicit_source or "auto"
+        if source != "auto":
+            available = {str(x).strip().lower() for x in self.search_router.available_sources()}
+            if source not in available:
+                names = ", ".join(sorted(available))
+                raise ValueError(f"未知搜索源：{source}。可用搜索源：{names}")
         # Reasoner owns source selection. Analyzer hints are not injected into routing.
         preferences = []
         categories = arguments.get("categories", [])
@@ -353,6 +359,15 @@ class AgentToolLoop:
                     search_results = observation.get("results", []) if isinstance(observation, dict) else observation
                     evidence_store.add_many(search_results)
                     state.evidence = evidence_store.items
+                elif decision.action == "SEARCH" and not success and error_type == "SEARCH_EMPTY":
+                    if isinstance(observation, dict):
+                        observation["search_strategy"] = SearchStrategy.guidance(
+                            state.steps + [AgentStep(
+                                step_id=step_id, action="SEARCH",
+                                arguments=decision.arguments or {},
+                                success=False, error=error,
+                            )]
+                        )
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
                     state.claims.append({"claim": observation.get("claim", ""), "verification_status": observation.get("verification_status", "UNCERTAIN"), "matched_evidence": observation.get("matched_evidence", [])})
