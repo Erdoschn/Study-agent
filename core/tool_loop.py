@@ -231,7 +231,6 @@ class AgentToolLoop:
         fp = self._fingerprint(decision.action, decision.tool or decision.action.lower(), decision.arguments)
         return any(
             self._fingerprint(s.action, s.tool or s.action.lower(), s.arguments) == fp
-            and s.success
             for s in state.steps
         )
 
@@ -272,6 +271,11 @@ class AgentToolLoop:
         evidence_store = EvidenceStore(state.evidence)
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
+                if state.max_steps is not None and state.step_count >= state.max_steps:
+                    state.error = f"达到 Agent 最大安全步数上限：{state.max_steps}。"
+                    state.finished = True
+                    break
+
                 saved_goals = list(state.student.mind.long_term.desires) + list(state.student.mind.short_term.desires)
                 state.goal_context = GoalMatcher.context_for(state.question, state.goal, saved_goals)
                 debug.log("AgentToolLoop", f"GOAL CONTEXT → matched={len(state.goal_context)}")
