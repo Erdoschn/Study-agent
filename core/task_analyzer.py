@@ -15,8 +15,6 @@ class TaskAnalysis:
     required_tools: list[str] = field(default_factory=list)
     external_facts_needed: bool = False
     answer_strategy: str = ""
-    search_sources: list[str] = field(default_factory=list)
-    search_sort_by: str = "relevance"
 
 
 class TaskAnalyzer:
@@ -35,19 +33,7 @@ class TaskAnalyzer:
 - required_tools：只填写真正需要的工具，可选 search / calculate / verify
 - external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
 - answer_strategy：给后续 Reasoner 的简短行动建议
-- search_sources：搜索来源的定性优先顺序，只能使用 wikipedia / arxiv。
-  基础概念、定义、术语解释优先 wikipedia；
-  专业研究、论文、研究进展优先 arxiv；
-  同时包含概念与研究的问题可以给出 [wikipedia, arxiv]；
-  不需要搜索时填 []。
-- search_sort_by：搜索排序策略，只能是 relevance / submittedDate。
-  用户明确要求最新、近期、最近研究或研究进展时使用 submittedDate；
-  一般知识或定义使用 relevance。
-
-search_sources 和 search_sort_by 都是定性行动策略，
-不要填写任何相关度、可信度或其他数值评分。
-
-不要因为关键词出现就机械判断需要工具。
+不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。\n不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
 不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
 必须只输出 JSON。
@@ -148,20 +134,6 @@ search_sources 和 search_sort_by 都是定性行动策略，
         if not isinstance(gaps, list):
             gaps = []
 
-        sources = data.get("search_sources", [])
-        if not isinstance(sources, list):
-            sources = []
-        sources = [
-            str(x).strip().lower()
-            for x in sources
-            if str(x).strip().lower() in {"wikipedia", "arxiv"}
-        ]
-        sources = list(dict.fromkeys(sources))
-
-        sort_by = str(data.get("search_sort_by", "relevance")).strip()
-        if sort_by not in {"relevance", "submittedDate"}:
-            sort_by = "relevance"
-
         return TaskAnalysis(
             task_type=str(data.get("task_type", "general")),
             domain=str(data.get("domain", "general")),
@@ -173,6 +145,4 @@ search_sources 和 search_sort_by 都是定性行动策略，
                 data.get("external_facts_needed", False)
             ),
             answer_strategy=str(data.get("answer_strategy", "")),
-            search_sources=sources,
-            search_sort_by=sort_by,
         )
