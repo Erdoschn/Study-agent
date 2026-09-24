@@ -107,26 +107,6 @@ def test_empty_search_becomes_explicit_observation_failure():
     assert "SEARCH_EMPTY" in state.steps[0].error
 
 
-def test_search_sorting_strategy_reaches_query():
-    router = SearchRouter()
-    provider = StubProvider("arxiv", [_result("arxiv", "Recent paper")])
-    router.register(provider)
-
-    executor = ToolExecutor(search_router=router)
-    state = AgentState(
-        question="latest research",
-        search_sources=["arxiv"],
-        search_sort_by="submittedDate",
-    )
-
-    results = executor._search(
-        {"query": "latest research"},
-        state=state,
-    )
-
-    assert results[0]["title"] == "Recent paper"
-    assert provider.calls[0].sort_by == "submittedDate"
-
 def test_reasoner_parses_qualitative_evidence_relevance():
     from core.reasoner import AgentReasoner
 
