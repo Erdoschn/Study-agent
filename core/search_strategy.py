@@ -7,7 +7,7 @@ from typing import Any
 class SearchStrategy:
     """Deterministic search-recovery policy used to guide the Reasoner after weak searches."""
 
-    MAX_LONG_QUERY_CHARS = 32
+    MAX_LONG_QUERY_CHARS = 20
     MAX_CORE_TERMS = 3
 
     _CN_STOP = {
@@ -18,11 +18,8 @@ class SearchStrategy:
     @classmethod
     def guidance(cls, steps: list[Any]) -> dict[str, Any]:
         searches = [s for s in steps if getattr(s, "action", "") == "SEARCH"]
-        empty = [
-            s for s in searches
-            if not getattr(s, "success", True)
-            and "SEARCH_EMPTY" in str(getattr(s, "error", ""))
-        ]
+        empty = [s for s in searches if not getattr(s, "success", True)
+                 and "SEARCH_EMPTY" in str(getattr(s, "error", ""))]
         if not empty:
             return {"stage": "initial", "required_change": "none",
                     "instruction": "先使用最直接的核心查询。"}
@@ -52,6 +49,10 @@ class SearchStrategy:
     @classmethod
     def core_query(cls, query: str) -> str:
         text = re.sub(r"[，。！？；：、,.!?;:]+", " ", str(query or "")).strip()
+        m = re.match(r"^(.{2,20}?)的(?:定义|研究|现状|目的|结论|应用|成果)", text)
+        if m:
+            return m.group(1).strip()
+
         parts = [p.strip() for p in text.split() if p.strip()]
         if not parts:
             parts = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_-]{1,}", text)
@@ -62,7 +63,6 @@ class SearchStrategy:
             part = re.sub(r"(的定义|相关研究|研究现状|研究成果|应用目的|研究目的|研究结论|结论)$", "", part)
             if part and part not in cls._CN_STOP and part not in cleaned:
                 cleaned.append(part)
-
         return " ".join(cleaned[:cls.MAX_CORE_TERMS]) or text[:18]
 
     @staticmethod
