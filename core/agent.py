@@ -1,12 +1,14 @@
 from .state import AgentState
 from .tool_loop import AgentToolLoop
+from .task_analyzer import TaskAnalyzer
+from .planner import TaskPlanner
 from .__debug__ import debug
 
 
 class StudyAgent:
     """LLM-driven Study Agent: Harness 初始化状态，Reasoner 决策，Teacher 负责最终教学表达。"""
 
-    def __init__(self, reasoner, teacher=None, tool_executor=None, max_steps=None):
+    def __init__(self, reasoner, teacher=None, tool_executor=None, max_steps=15):
         self.reasoner = reasoner
         self.teacher = teacher
         self.tool_executor = tool_executor
@@ -57,6 +59,20 @@ class StudyAgent:
             state.search_sources = []
             state.search_sort_by = "relevance"
 
+            # 一次性建立初始任务上下文；它只提供语义背景，不决定后续行动或搜索来源。
+            if self.tool_executor is not None and hasattr(self.tool_executor, "execute"):
+                try:
+                    analyzer = TaskAnalyzer(self.reasoner)
+                    state.task_analysis = analyzer.analyze(question, state.student)
+                    state.task_type = state.task_analysis.task_type
+                    state.domain = state.task_analysis.domain
+                    state.goal = state.task_analysis.goal or state.goal
+                    state.plan = TaskPlanner().create(state.task_analysis)
+                except Exception as exc:
+                    state.task_analysis = None
+                    state.plan = None
+                    debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback to Reasoner: {type(exc).__name__}: {exc}")
+
             if self.tool_executor is None:
                 state.error = "Tool Harness 尚未配置。"
             elif not hasattr(self.tool_executor, "execute"):
@@ -74,16 +90,12 @@ class StudyAgent:
             # 兼容旧的 Teacher/TaskAnalyzer 测试与集成适配器；正式 Harness 不走这里。
             if not hasattr(self.tool_executor, "execute") and self.teacher is not None:
                 try:
-                    from .task_analyzer import TaskAnalyzer
-                    from .planner import TaskPlanner
                     from .state import AgentStep
                     analyzer = TaskAnalyzer(self.reasoner)
                     state.task_analysis = analyzer.analyze(question, state.student)
                     state.task_type = state.task_analysis.task_type
                     state.domain = state.task_analysis.domain
                     state.goal = state.task_analysis.goal or state.goal
-                    state.search_sources = state.task_analysis.search_sources
-                    state.search_sort_by = state.task_analysis.search_sort_by
                     state.plan = TaskPlanner().create(state.task_analysis)
                     state.final_answer = self.teacher.generate(state)
                     state.add_step(AgentStep(
