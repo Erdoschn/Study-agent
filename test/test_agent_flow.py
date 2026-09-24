@@ -45,7 +45,7 @@ class FakeReasoner:
 
     def decide(self, state):
         from core.reasoner import ReasoningDecision
-        return ReasoningDecision(action="ANSWER", reasoning_summary="当前信息足够回答。", goal=state.goal, task_type=state.task_type, domain=state.domain, model="fake-free-model")
+        return ReasoningDecision(action="ANSWER", answer="reasoner draft", reasoning_summary="当前信息足够回答。", goal=state.goal, task_type=state.task_type, domain=state.domain, model="fake-free-model")
 
 
 class FakeTeacher:
