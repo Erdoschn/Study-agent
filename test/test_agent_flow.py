@@ -52,13 +52,16 @@ class FakeTeacher:
     def generate(self, state): return "teaching answer"
 
 
-def test_agent_runs_analysis_plan_and_reason_loop():
-    agent = StudyAgent(reasoner=FakeReasoner(), teacher=FakeTeacher(), tool_executor=object())
+class FakeExecutor:
+    def execute(self, tool, arguments, state=None):
+        raise AssertionError(f"unexpected tool call: {tool}")
+
+
+def test_agent_runs_analysis_and_reason_loop():
+    agent = StudyAgent(reasoner=FakeReasoner(), teacher=FakeTeacher(), tool_executor=FakeExecutor())
     state = agent.run("解释 Transformer attention")
     assert isinstance(state, AgentState)
     assert state.task_analysis is not None
-    assert state.plan is not None
-    assert state.plan.actions == ["ANALYZE", "ANSWER"]
     assert state.task_type == "conceptual"
     assert state.domain == "transformer"
     assert state.final_answer == "teaching answer"
