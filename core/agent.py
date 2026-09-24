@@ -1,7 +1,6 @@
 from .state import AgentState
 from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
-from .planner import TaskPlanner
 from .__debug__ import debug
 
 
@@ -67,7 +66,6 @@ class StudyAgent:
                     state.task_type = state.task_analysis.task_type
                     state.domain = state.task_analysis.domain
                     state.goal = state.task_analysis.goal or state.goal
-                    state.plan = TaskPlanner().create(state.task_analysis)
                 except Exception as exc:
                     state.task_analysis = None
                     state.plan = None
@@ -76,8 +74,7 @@ class StudyAgent:
             if self.tool_executor is None:
                 state.error = "Tool Harness 尚未配置。"
             elif not hasattr(self.tool_executor, "execute"):
-                # Legacy adapters expose Teacher/Analyzer but not the Harness API.
-                pass
+                state.error = "Tool Harness 接口无效：缺少 execute 方法。"
             else:
                 try:
                     state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
@@ -87,26 +84,6 @@ class StudyAgent:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
 
-            # 兼容旧的 Teacher/TaskAnalyzer 测试与集成适配器；正式 Harness 不走这里。
-            if not hasattr(self.tool_executor, "execute") and self.teacher is not None:
-                try:
-                    from .state import AgentStep
-                    analyzer = TaskAnalyzer(self.reasoner)
-                    state.task_analysis = analyzer.analyze(question, state.student)
-                    state.task_type = state.task_analysis.task_type
-                    state.domain = state.task_analysis.domain
-                    state.goal = state.task_analysis.goal or state.goal
-                    state.plan = TaskPlanner().create(state.task_analysis)
-                    state.final_answer = self.teacher.generate(state)
-                    state.add_step(AgentStep(
-                        step_id=1, action="ANSWER",
-                        reasoning_summary="兼容旧式 Teacher 流程。", success=True,
-                    ))
-                    state.finished = True
-                    state.error = None
-                except Exception as exc:
-                    state.error = f"兼容旧流程失败：{type(exc).__name__}: {exc}"
-                    debug.log("StudyAgent", state.error)
 
             debug.log("StudyAgent", f"LOOP FINISHED → steps={state.step_count}")
 
