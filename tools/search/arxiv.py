@@ -8,7 +8,7 @@ import requests
 
 from core.__debug__ import debug
 from .base import SearchProvider
-from .http import HttpClient, HttpRequestError
+from .http import HttpClient, HttpRequestError, SearchTimeoutError
 from .models import SearchError, SearchQuery, SearchResponse, SearchResult
 
 
@@ -63,6 +63,8 @@ class ArxivSearchProvider(SearchProvider):
             assert response.error is not None
             if response.error.stage == "validation":
                 raise ValueError(response.error.message)
+            if response.error.stage == "timeout":
+                raise SearchTimeoutError(response.error.message)
             raise RuntimeError(response.error.message)
         return response.results
 
@@ -151,6 +153,8 @@ class ArxivSearchProvider(SearchProvider):
 
         except ValueError as exc:
             return self._failure(query, started, "validation", str(exc))
+        except SearchTimeoutError as exc:
+            return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=max(1, total_attempts))
         except HttpRequestError as exc:
             return self._failure(
                 query,
