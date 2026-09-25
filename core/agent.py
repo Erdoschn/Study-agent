@@ -94,9 +94,16 @@ class StudyAgent:
                 state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
 
             self._update_student_model(state)
+            self._update_knowledge_graph(state)
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
 
     def _update_student_model(self, state) -> None:
         if state.domain:
             state.student.known_topics.add(state.domain)
+
+    def _update_knowledge_graph(self, state) -> None:
+        """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
+        graph = state.knowledge_graph
+        if graph is None: return
+        if state.domain: graph.add_concept(state.domain)
