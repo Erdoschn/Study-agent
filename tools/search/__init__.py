@@ -3,7 +3,7 @@ from .base import SearchProvider
 from .arxiv import ArxivSearchProvider
 from .wikipedia import WikipediaSearchProvider
 from .router import SearchRouter
-from .http import HttpClient, HttpRequestError, HttpResponse
+from .http import HttpClient, HttpRequestError, HttpResponse, SearchTimeoutError
 
 __all__ = [
     "SearchQuery",
@@ -17,4 +17,5 @@ __all__ = [
     "HttpClient",
     "HttpRequestError",
     "HttpResponse",
+    "SearchTimeoutError",
 ]
