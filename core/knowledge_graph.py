@@ -115,6 +115,31 @@ class KnowledgeGraph:
         items.sort(key=lambda x: x["confidence"], reverse=True)
         return items[:limit]
 
+    def related_concepts(self, query: str, limit: int = 8) -> list[str]:
+        node_id = self._id(query)
+        if node_id not in self.nodes:
+            return []
+        candidates = []
+        for item in self.neighbors(query, limit=limit * 2):
+            name = str(item.get("name", "")).strip()
+            if name and item.get("relation") != "supported_by_search":
+                candidates.append(name)
+        return candidates[:limit]
+
+    def search_candidates(self, query: str, limit: int = 8) -> list[str]:
+        candidates = []
+        node = self.nodes.get(self._id(query))
+        if node:
+            candidates.extend(node.aliases)
+        candidates.extend(self.related_concepts(query, limit=limit))
+        seen = set()
+        result = []
+        for item in candidates:
+            if item and item not in seen:
+                seen.add(item)
+                result.append(item)
+        return result[:limit]
+
     def context_for(self, query: str, limit: int = 12) -> dict[str, Any]:
         return {
             "query": query,
@@ -123,6 +148,7 @@ class KnowledgeGraph:
                 for n in [self._id(query)] if n in self.nodes
             ],
             "neighbors": self.neighbors(query, limit=limit),
+            "search_candidates": self.search_candidates(query, limit=min(8, limit)),
             "node_count": len(self.nodes),
             "edge_count": len(self.edges),
         }
