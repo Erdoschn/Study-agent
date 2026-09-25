@@ -84,6 +84,26 @@ class ToolExecutor:
         )
         self.register(
             ToolSpec(
+                "assess",
+                "Create a scorable assessment and store it as pending for the student.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "concepts": {"type": "array", "items": {"type": "string"}},
+                        "relations": {"type": "array"},
+                        "difficulty": {"type": "string", "enum": ["basic", "undergraduate", "graduate", "postgraduate", "postgraduate_plus"]},
+                        "question_type": {"type": "string"},
+                        "question": {"type": "string"},
+                        "expected_answer": {"type": "string"},
+                        "rubric": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["concepts", "question"],
+                },
+                self._assess,
+            )
+        )
+        self.register(
+            ToolSpec(
                 "verify",
                 "Review a claim against supplied evidence; if evidence is omitted, Harness uses current state evidence.",
                 {
@@ -242,7 +262,7 @@ class AgentToolLoop:
         return action, tool, json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True, default=str)
 
     def _repeated_tool(self, state, decision):
-        if decision.action not in {"SEARCH", "CALCULATE", "VERIFY"}:
+        if decision.action not in {"SEARCH", "CALCULATE", "VERIFY", "ASSESS"}:
             return False
         fp = self._fingerprint(decision.action, decision.tool or decision.action.lower(), decision.arguments)
         return any(
@@ -383,6 +403,10 @@ class AgentToolLoop:
                 state.last_error_type = error_type if not success else ""
                 if not success:
                     state.recovery_count += 1
+                if decision.action == "ASSESS" and success:
+                    state.finished = True
+                    debug.log("AgentToolLoop", "ASSESSMENT → waiting for student answer")
+                    break
                 debug.log("AgentToolLoop", "OBSERVE → fed back to LLM")
 
             return state
