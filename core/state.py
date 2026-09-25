@@ -167,6 +167,7 @@ class AgentState:
     last_error_type: str = ""
     recovery_count: int = 0
     knowledge_graph: Any = None
+    pending_assessment: dict[str, Any] | None = None
 
     @property
     def step_count(self) -> int:
