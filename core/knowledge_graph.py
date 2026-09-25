@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import time
+
+LEARNING_STAGES = {"unknown", "new", "learning", "familiar", "mastered", "weak"}
+RELATIONS = {"is_a", "part_of", "related_to", "used_in", "depends_on", "alias_of"}
 
 
 @dataclass
@@ -11,6 +15,20 @@ class KnowledgeNode:
     node_type: str = "concept"
     aliases: list[str] = field(default_factory=list)
     evidence_refs: list[dict[str, Any]] = field(default_factory=list)
+    learner: "LearnerState" = field(default_factory=lambda: LearnerState())
+
+
+@dataclass
+class LearnerState:
+    familiarity: float = 0.0
+    confidence: float = 0.0
+    exposure_count: int = 0
+    successful_count: int = 0
+    last_seen: float | None = None
+    learning_stage: str = "unknown"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"familiarity": round(self.familiarity, 3), "confidence": round(self.confidence, 3), "exposure_count": self.exposure_count, "successful_count": self.successful_count, "last_seen": self.last_seen, "learning_stage": self.learning_stage}
 
 
 @dataclass
@@ -20,6 +38,7 @@ class KnowledgeEdge:
     relation: str = "related_to"
     confidence: float = 0.0
     evidence_refs: list[dict[str, Any]] = field(default_factory=list)
+    learner: LearnerState = field(default_factory=LearnerState)
 
 
 class KnowledgeGraph:
@@ -57,8 +76,45 @@ class KnowledgeGraph:
             del node.evidence_refs[:-10]
         return node_id
 
+    def update_learner(self, concept: str, correct: bool, confidence: float | None = None) -> None:
+        node_id = self.add_concept(concept)
+        if not node_id: return
+        s = self.nodes[node_id].learner
+        s.exposure_count += 1
+        if correct: s.successful_count += 1
+        signal = 1.0 if correct else 0.0
+        s.familiarity = max(0.0, min(1.0, s.familiarity * 0.8 + signal * 0.2))
+        s.confidence = max(0.0, min(1.0, 0.7 * s.confidence + 0.3 * (confidence if confidence is not None else signal)))
+        s.last_seen = time.time()
+        s.learning_stage = ("weak" if s.familiarity < 0.3 else "new" if s.familiarity < 0.5 else "learning" if s.familiarity < 0.75 else "familiar" if s.familiarity < 0.9 else "mastered")
+
+    def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None) -> None:
+        for concept in concepts:
+            self.update_learner(concept, correct, confidence)
+
+    def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None) -> None:
+        key = (self._id(source), self._id(target), relation)
+        if key not in self.edges: self.add_relation(source, target, relation)
+        edge = self.edges.get(key)
+        if edge:
+            s = edge.learner
+            s.exposure_count += 1
+            if correct: s.successful_count += 1
+            signal = 1.0 if correct else 0.0
+            s.familiarity = max(0.0, min(1.0, s.familiarity * 0.8 + signal * 0.2))
+            s.confidence = max(0.0, min(1.0, 0.7 * s.confidence + 0.3 * (confidence if confidence is not None else signal)))
+            s.last_seen = time.time()
+            s.learning_stage = "learning" if s.familiarity < 0.75 else "familiar"
+
+    def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
+        node = self.nodes.get(self._id(query))
+        if not node: return {"status": "unknown", "weak_concepts": []}
+        related = self.neighbors(query, limit)
+        return {"status": node.learner.as_dict(), "weak_concepts": [x["name"] for x in related if x.get("learner", {}).get("learning_stage") in {"unknown", "new", "weak", "learning"}]}
+
     def add_relation(self, source: str, target: str, relation: str = "related_to",
                      confidence: float = 0.0, evidence: dict[str, Any] | None = None) -> None:
+        if relation not in RELATIONS: raise ValueError(f"未知知识关系：{relation}")
         source_id = self.add_concept(source)
         target_id = self.add_concept(target)
         if not source_id or not target_id or source_id == target_id:
@@ -111,6 +167,7 @@ class KnowledgeGraph:
                         "relation": edge.relation,
                         "direction": "out" if edge.source == node_id else "in",
                         "confidence": edge.confidence,
+                        "learner": edge.learner.as_dict(),
                     })
         items.sort(key=lambda x: x["confidence"], reverse=True)
         return items[:limit]
@@ -144,10 +201,11 @@ class KnowledgeGraph:
         return {
             "query": query,
             "known_concepts": [
-                {"name": self.nodes[n].name, "aliases": self.nodes[n].aliases}
+                {"name": self.nodes[n].name, "aliases": self.nodes[n].aliases, "learner": self.nodes[n].learner.as_dict()}
                 for n in [self._id(query)] if n in self.nodes
             ],
             "neighbors": self.neighbors(query, limit=limit),
+            "learner_context": self.learner_context(query, limit),
             "search_candidates": self.search_candidates(query, limit=min(8, limit)),
             "node_count": len(self.nodes),
             "edge_count": len(self.edges),
