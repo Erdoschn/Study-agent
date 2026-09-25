@@ -76,6 +76,7 @@ class Teacher:
             "task_type": state.task_type,
             "domain": state.domain,
             "teaching_strategy": strategy,
+            "knowledge_graph": state.knowledge_graph.context_for(state.question) if state.knowledge_graph is not None else {},
             "student": {
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
