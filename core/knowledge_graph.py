@@ -7,6 +7,31 @@ import time
 LEARNING_STAGES = {"unknown", "new", "learning", "familiar", "mastered", "weak"}
 RELATIONS = {"is_a", "part_of", "related_to", "used_in", "depends_on", "alias_of"}
 
+DIFFICULTY_LEVELS = {
+    "basic": 0.25,
+    "undergraduate": 0.50,
+    "graduate": 0.70,
+    "postgraduate": 0.90,
+    "postgraduate_plus": 1.00,
+}
+POSTGRADUATE_THRESHOLD = DIFFICULTY_LEVELS["postgraduate"]
+
+def normalize_difficulty(value: str | float | int | None) -> tuple[str, float]:
+    if isinstance(value, str):
+        key = value.strip().lower().replace("-", "_").replace(" ", "_")
+        if key in DIFFICULTY_LEVELS:
+            return key, DIFFICULTY_LEVELS[key]
+        try:
+            value = float(value)
+        except ValueError:
+            return "graduate", DIFFICULTY_LEVELS["graduate"]
+    try:
+        score = max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        score = DIFFICULTY_LEVELS["graduate"]
+    nearest = min(DIFFICULTY_LEVELS, key=lambda name: abs(DIFFICULTY_LEVELS[name] - score))
+    return nearest, score
+
 
 @dataclass
 class KnowledgeNode:
@@ -89,17 +114,22 @@ class KnowledgeGraph:
         state.exposure_count += 1
         if correct:
             state.successful_count += 1
+        level, difficulty = normalize_difficulty(difficulty)
         state.assessment_history.append({
             "correct": bool(correct),
             "confidence": None if confidence is None else max(0.0, min(1.0, float(confidence))),
             "timestamp": time.time(),
             "difficulty": difficulty,
+            "difficulty_level": level,
         })
         del state.assessment_history[:-8]
         accuracy = state.recent_accuracy()
         state.highest_assessment_level = max(state.highest_assessment_level, difficulty)
         # Low-difficulty questions provide evidence of basics, but cannot certify advanced mastery.
-        state.max_familiarity = max(0.2, min(1.0, difficulty))
+        evidence_cap = max(0.2, difficulty)
+        if difficulty < POSTGRADUATE_THRESHOLD:
+            evidence_cap = min(evidence_cap, 0.89)
+        state.max_familiarity = max(state.max_familiarity, evidence_cap)
         raw = 0.75 * state.familiarity + 0.25 * accuracy
         state.familiarity = max(0.0, min(state.max_familiarity, raw))
         observed_conf = confidence if confidence is not None else accuracy
@@ -110,7 +140,7 @@ class KnowledgeGraph:
             state.learning_stage = "new"
         elif n < 3:
             state.learning_stage = "learning" if accuracy >= 0.5 else "new"
-        elif n >= 5 and difficulty >= 0.9 and accuracy >= 0.8 and all(x.get("correct") for x in state.assessment_history[-3:]) and state.highest_assessment_level >= 0.9:
+        elif n >= 5 and difficulty >= POSTGRADUATE_THRESHOLD and accuracy >= 0.8 and all(x.get("correct") for x in state.assessment_history[-3:]) and state.highest_assessment_level >= 0.9:
             state.learning_stage = "mastered"
         elif n >= 3 and accuracy < 0.5 and sum(1 for x in state.assessment_history[-3:] if x.get("correct")) <= 1:
             state.learning_stage = "weak"
@@ -118,6 +148,10 @@ class KnowledgeGraph:
             state.learning_stage = "familiar"
         else:
             state.learning_stage = "learning"
+
+    @staticmethod
+    def difficulty_policy() -> dict[str, float]:
+        return dict(DIFFICULTY_LEVELS)
 
     def update_learner(self, concept: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         node_id = self.add_concept(concept)
