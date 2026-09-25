@@ -97,6 +97,7 @@ class AgentReasoner:
 SEARCH：搜索知识源。query 应直接服务于当前未解决的问题；必要时下一轮换查询或来源。
 CALCULATE：计算需要精确数值结果的表达式。
 VERIFY：用当前证据核查一个具体 claim。
+ASSESS：针对一个或多个知识点生成一道小测试题；只负责提出题目，不假设学生答对。
 ANSWER：回答用户。外部证据被使用时引用 observation 中的来源；证据不足时明确说明。
 STOP：无法继续时停止并说明原因。
 
@@ -120,7 +121,7 @@ STOP：无法继续时停止并说明原因。
 - revision 字段：old/new/horizon/status/reason/evidence_refs；status 只能为 REVISED/CONFIRMED/RETRACTED/UNCERTAIN。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON：
-{"action":"SEARCH|CALCULATE|VERIFY|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
+{"action":"SEARCH|CALCULATE|VERIFY|ASSESS|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
 """
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router
@@ -240,7 +241,7 @@ STOP：无法继续时停止并说明原因。
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Reasoner JSON 解析失败：{exc}\n原始输出：{raw}") from exc
         action = str(data.get("action", "")).upper()
-        if action not in {"SEARCH", "CALCULATE", "VERIFY", "ANSWER", "STOP"}:
+        if action not in {"SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP"}:
             raise RuntimeError(f"未知 action：{action}")
         arguments = data.get("arguments", {})
         if not isinstance(arguments, dict):
