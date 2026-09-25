@@ -113,6 +113,21 @@ class ArxivSearchProvider(SearchProvider):
                         },
                     )
 
+                except SearchTimeoutError as exc:
+                    total_attempts += 1
+                    last_error = HttpRequestError(
+                        str(exc),
+                        reason="timeout",
+                        retryable=True,
+                        attempts=1,
+                    )
+                    debug.log(
+                        "ArxivSearchProvider",
+                        f"ENDPOINT TIMEOUT → {endpoint}: {exc}",
+                    )
+                    if index >= len(self.endpoints) - 1:
+                        raise
+
                 except HttpRequestError as exc:
                     total_attempts += exc.attempts
                     last_error = exc
