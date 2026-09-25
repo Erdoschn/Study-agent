@@ -26,9 +26,15 @@ class LearnerState:
     successful_count: int = 0
     last_seen: float | None = None
     learning_stage: str = "unknown"
+    assessment_history: list[dict[str, Any]] = field(default_factory=list)
+
+    def recent_accuracy(self) -> float:
+        if not self.assessment_history:
+            return 0.0
+        return sum(1 for x in self.assessment_history if x.get("correct")) / len(self.assessment_history)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"familiarity": round(self.familiarity, 3), "confidence": round(self.confidence, 3), "exposure_count": self.exposure_count, "successful_count": self.successful_count, "last_seen": self.last_seen, "learning_stage": self.learning_stage}
+        return {"familiarity": round(self.familiarity, 3), "confidence": round(self.confidence, 3), "exposure_count": self.exposure_count, "successful_count": self.successful_count, "last_seen": self.last_seen, "learning_stage": self.learning_stage, "recent_accuracy": self.recent_accuracy(), "assessment_history": list(self.assessment_history[-8:])}
 
 
 @dataclass
@@ -76,17 +82,39 @@ class KnowledgeGraph:
             del node.evidence_refs[:-10]
         return node_id
 
+    def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None) -> None:
+        state.exposure_count += 1
+        if correct:
+            state.successful_count += 1
+        state.assessment_history.append({
+            "correct": bool(correct),
+            "confidence": None if confidence is None else max(0.0, min(1.0, float(confidence))),
+            "timestamp": time.time(),
+        })
+        del state.assessment_history[:-8]
+        accuracy = state.recent_accuracy()
+        state.familiarity = max(0.0, min(1.0, 0.75 * state.familiarity + 0.25 * accuracy))
+        observed_conf = confidence if confidence is not None else accuracy
+        state.confidence = max(0.0, min(1.0, 0.75 * state.confidence + 0.25 * float(observed_conf)))
+        state.last_seen = time.time()
+        n = len(state.assessment_history)
+        if n < 2:
+            state.learning_stage = "new"
+        elif n < 3:
+            state.learning_stage = "learning" if accuracy >= 0.5 else "new"
+        elif n >= 5 and accuracy >= 0.8 and all(x.get("correct") for x in state.assessment_history[-2:]):
+            state.learning_stage = "mastered"
+        elif n >= 3 and accuracy < 0.5 and sum(1 for x in state.assessment_history[-3:] if x.get("correct")) <= 1:
+            state.learning_stage = "weak"
+        elif accuracy >= 0.7:
+            state.learning_stage = "familiar"
+        else:
+            state.learning_stage = "learning"
+
     def update_learner(self, concept: str, correct: bool, confidence: float | None = None) -> None:
         node_id = self.add_concept(concept)
-        if not node_id: return
-        s = self.nodes[node_id].learner
-        s.exposure_count += 1
-        if correct: s.successful_count += 1
-        signal = 1.0 if correct else 0.0
-        s.familiarity = max(0.0, min(1.0, s.familiarity * 0.8 + signal * 0.2))
-        s.confidence = max(0.0, min(1.0, 0.7 * s.confidence + 0.3 * (confidence if confidence is not None else signal)))
-        s.last_seen = time.time()
-        s.learning_stage = ("weak" if s.familiarity < 0.3 else "new" if s.familiarity < 0.5 else "learning" if s.familiarity < 0.75 else "familiar" if s.familiarity < 0.9 else "mastered")
+        if node_id:
+            self._apply_assessment(self.nodes[node_id].learner, correct, confidence)
 
     def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None) -> None:
         for concept in concepts:
@@ -94,17 +122,11 @@ class KnowledgeGraph:
 
     def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None) -> None:
         key = (self._id(source), self._id(target), relation)
-        if key not in self.edges: self.add_relation(source, target, relation)
+        if key not in self.edges:
+            self.add_relation(source, target, relation)
         edge = self.edges.get(key)
         if edge:
-            s = edge.learner
-            s.exposure_count += 1
-            if correct: s.successful_count += 1
-            signal = 1.0 if correct else 0.0
-            s.familiarity = max(0.0, min(1.0, s.familiarity * 0.8 + signal * 0.2))
-            s.confidence = max(0.0, min(1.0, 0.7 * s.confidence + 0.3 * (confidence if confidence is not None else signal)))
-            s.last_seen = time.time()
-            s.learning_stage = "learning" if s.familiarity < 0.75 else "familiar"
+            self._apply_assessment(edge.learner, correct, confidence)
 
     def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
         node = self.nodes.get(self._id(query))
@@ -152,7 +174,17 @@ class KnowledgeGraph:
             }
             title_id = self.add_concept(title, node_type="document", evidence=evidence)
             if query_id and title_id:
-                self.add_relation(query, title, "supported_by_search", 0.5, evidence)
+                self._add_provenance_edge(query_id, title_id, evidence)
+
+    def _add_provenance_edge(self, source_id: str, target_id: str, evidence: dict[str, Any]) -> None:
+        key = (source_id, target_id, "supported_by_search")
+        edge = self.edges.get(key)
+        if edge is None and len(self.edges) < self.MAX_EDGES:
+            edge = KnowledgeEdge(source_id, target_id, "supported_by_search", 0.5)
+            self.edges[key] = edge
+        if edge and evidence not in edge.evidence_refs:
+            edge.evidence_refs.append(dict(evidence))
+            del edge.evidence_refs[:-10]
 
     def neighbors(self, concept: str, limit: int = 12) -> list[dict[str, Any]]:
         node_id = self._id(concept)
