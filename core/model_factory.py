@@ -59,5 +59,6 @@ class ModelClientFactory:
                 base_url=provider["base_url"],
                 api_key=provider["api_key"],
                 model=model.model,
+                timeout=int(provider.get("timeout", 120)),
                 headers=provider.get("headers", {}),
             )
