@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-from tools.search import HttpClient, HttpRequestError
+from tools.search import HttpClient, HttpRequestError, SearchTimeoutError
 
 
 class FakeResponse:
@@ -126,3 +126,25 @@ def test_http_client_network_error_retries(monkeypatch):
     assert exc.attempts == 2
     assert len(session.calls) == 2
     assert "connection reset" in str(exc)
+
+
+def test_http_client_timeout_is_explicit(monkeypatch):
+    session = FakeSession(
+        exceptions=[
+            requests.exceptions.Timeout("read timed out"),
+            requests.exceptions.Timeout("read timed out"),
+        ]
+    )
+    monkeypatch.setattr("tools.search.http.time.sleep", lambda _: None)
+
+    with pytest.raises(SearchTimeoutError) as exc_info:
+        HttpClient(
+            timeout=3,
+            retries=1,
+            backoff_seconds=0,
+            session=session,
+        ).get("https://example.com/slow")
+
+    assert "SEARCH_TIMEOUT" in str(exc_info.value)
+    assert "timeout=3s" in str(exc_info.value)
+    assert len(session.calls) == 2
