@@ -102,6 +102,18 @@ class StudyAgent:
         if state.domain:
             state.student.known_topics.add(state.domain)
 
+    def record_assessment(self, concepts, correct: bool, confidence: float | None = None, relation=None) -> None:
+        """Update the persistent learner graph from an explicit quiz/exercise result."""
+        if not isinstance(concepts, (list, tuple)):
+            concepts = [concepts]
+        self.knowledge_graph.record_assessment(
+            [str(x) for x in concepts if str(x).strip()], bool(correct), confidence
+        )
+        if relation is not None and len(relation) == 3:
+            self.knowledge_graph.update_relation_learner(
+                str(relation[0]), str(relation[1]), str(relation[2]), bool(correct), confidence
+            )
+
     def _update_knowledge_graph(self, state) -> None:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
         graph = state.knowledge_graph
