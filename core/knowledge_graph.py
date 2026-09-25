@@ -27,6 +27,8 @@ class LearnerState:
     last_seen: float | None = None
     learning_stage: str = "unknown"
     assessment_history: list[dict[str, Any]] = field(default_factory=list)
+    max_familiarity: float = 1.0
+    highest_assessment_level: float = 0.0
 
     def recent_accuracy(self) -> float:
         if not self.assessment_history:
@@ -34,7 +36,7 @@ class LearnerState:
         return sum(1 for x in self.assessment_history if x.get("correct")) / len(self.assessment_history)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"familiarity": round(self.familiarity, 3), "confidence": round(self.confidence, 3), "exposure_count": self.exposure_count, "successful_count": self.successful_count, "last_seen": self.last_seen, "learning_stage": self.learning_stage, "recent_accuracy": self.recent_accuracy(), "assessment_history": list(self.assessment_history[-8:])}
+        return {"familiarity": round(self.familiarity, 3), "confidence": round(self.confidence, 3), "exposure_count": self.exposure_count, "successful_count": self.successful_count, "last_seen": self.last_seen, "learning_stage": self.learning_stage, "recent_accuracy": self.recent_accuracy(), "assessment_history": list(self.assessment_history[-8:]), "max_familiarity": round(self.max_familiarity, 3), "highest_assessment_level": round(self.highest_assessment_level, 3)}
 
 
 @dataclass
@@ -82,7 +84,8 @@ class KnowledgeGraph:
             del node.evidence_refs[:-10]
         return node_id
 
-    def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None) -> None:
+    def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        difficulty = max(0.0, min(1.0, float(difficulty)))
         state.exposure_count += 1
         if correct:
             state.successful_count += 1
@@ -90,10 +93,15 @@ class KnowledgeGraph:
             "correct": bool(correct),
             "confidence": None if confidence is None else max(0.0, min(1.0, float(confidence))),
             "timestamp": time.time(),
+            "difficulty": difficulty,
         })
         del state.assessment_history[:-8]
         accuracy = state.recent_accuracy()
-        state.familiarity = max(0.0, min(1.0, 0.75 * state.familiarity + 0.25 * accuracy))
+        state.highest_assessment_level = max(state.highest_assessment_level, difficulty)
+        # Low-difficulty questions provide evidence of basics, but cannot certify advanced mastery.
+        state.max_familiarity = max(0.2, min(1.0, difficulty))
+        raw = 0.75 * state.familiarity + 0.25 * accuracy
+        state.familiarity = max(0.0, min(state.max_familiarity, raw))
         observed_conf = confidence if confidence is not None else accuracy
         state.confidence = max(0.0, min(1.0, 0.75 * state.confidence + 0.25 * float(observed_conf)))
         state.last_seen = time.time()
@@ -102,7 +110,7 @@ class KnowledgeGraph:
             state.learning_stage = "new"
         elif n < 3:
             state.learning_stage = "learning" if accuracy >= 0.5 else "new"
-        elif n >= 5 and accuracy >= 0.8 and all(x.get("correct") for x in state.assessment_history[-2:]):
+        elif n >= 5 and difficulty >= 0.9 and accuracy >= 0.8 and all(x.get("correct") for x in state.assessment_history[-3:]) and state.highest_assessment_level >= 0.9:
             state.learning_stage = "mastered"
         elif n >= 3 and accuracy < 0.5 and sum(1 for x in state.assessment_history[-3:] if x.get("correct")) <= 1:
             state.learning_stage = "weak"
@@ -111,22 +119,22 @@ class KnowledgeGraph:
         else:
             state.learning_stage = "learning"
 
-    def update_learner(self, concept: str, correct: bool, confidence: float | None = None) -> None:
+    def update_learner(self, concept: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         node_id = self.add_concept(concept)
         if node_id:
-            self._apply_assessment(self.nodes[node_id].learner, correct, confidence)
+            self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
 
-    def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None) -> None:
+    def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         for concept in concepts:
-            self.update_learner(concept, correct, confidence)
+            self.update_learner(concept, correct, confidence, difficulty)
 
-    def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None) -> None:
+    def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         key = (self._id(source), self._id(target), relation)
         if key not in self.edges:
             self.add_relation(source, target, relation)
         edge = self.edges.get(key)
         if edge:
-            self._apply_assessment(edge.learner, correct, confidence)
+            self._apply_assessment(edge.learner, correct, confidence, difficulty)
 
     def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
         node = self.nodes.get(self._id(query))
