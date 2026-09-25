@@ -33,8 +33,6 @@ class SearchObservation(list):
         return default
 
     def __getitem__(self, key):
-        # Keep list indexing for legacy callers, while exposing Harness metadata
-        # with the same dict-style access used by the Reasoner-facing state.
         if isinstance(key, str):
             if key == "results":
                 return list(self)
@@ -108,11 +106,7 @@ class ToolExecutor:
 
     def tool_specs(self) -> list[dict[str, Any]]:
         return [
-            {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.parameters,
-            }
+            {"name": spec.name, "description": spec.description, "parameters": spec.parameters}
             for spec, _ in self._tools.values()
         ]
 
@@ -139,7 +133,6 @@ class ToolExecutor:
             if source not in available:
                 names = ", ".join(sorted(available))
                 raise ValueError(f"未知搜索源：{source}。可用搜索源：{names}")
-        # Reasoner owns source selection. Analyzer hints are not injected into routing.
         preferences = []
         categories = arguments.get("categories", [])
         if not isinstance(categories, list):
@@ -157,15 +150,9 @@ class ToolExecutor:
         results = self.search_router.search(query)
         raw = [
             {
-                "source": item.source,
-                "source_type": item.source_type,
-                "title": item.title,
-                "url": item.url,
-                "abstract": item.abstract,
-                "authors": item.authors,
-                "published": item.published,
-                "updated": item.updated,
-                "identifier": item.identifier,
+                "source": item.source, "source_type": item.source_type, "title": item.title,
+                "url": item.url, "abstract": item.abstract, "authors": item.authors,
+                "published": item.published, "updated": item.updated, "identifier": item.identifier,
             }
             for item in results
         ]
@@ -242,7 +229,6 @@ class AgentToolLoop:
         )
 
     def _decide(self, state):
-        """Support current Reasoner and simple one-argument custom/test adapters."""
         import inspect
         decide = self.reasoner.decide
         try:
@@ -255,7 +241,6 @@ class AgentToolLoop:
         return decide(state)
 
     def _execute(self, tool, arguments, state):
-        """Use state-aware execution when supported; keep simple test adapters working."""
         import inspect
         execute = self.executor.execute
         try:
@@ -274,11 +259,9 @@ class AgentToolLoop:
                 if state.max_steps is not None and state.step_count >= state.max_steps:
                     state.error = f"达到 Agent 最大安全步数上限：{state.max_steps}。"
                     state.add_step(AgentStep(
-                        step_id=state.step_count + 1,
-                        action="STOP",
+                        step_id=state.step_count + 1, action="STOP",
                         reasoning_summary="达到安全步数上限，停止继续调用。",
-                        success=False,
-                        error=state.error,
+                        success=False, error=state.error,
                     ))
                     state.finished = True
                     break
@@ -314,8 +297,7 @@ class AgentToolLoop:
                     state.add_step(AgentStep(
                         step_id=step_id, action=decision.action, model=decision.model,
                         reasoning_summary=decision.reasoning_summary,
-                        success=decision.action == "ANSWER",
-                        error=state.error or "",
+                        success=decision.action == "ANSWER", error=state.error or "",
                     ))
                     state.finished = True
                     break
@@ -341,11 +323,7 @@ class AgentToolLoop:
                 except Exception as exc:
                     error_type = type(exc).__name__
                     error = f"{error_type}: {exc}"
-                    observation = {
-                        "status": "ERROR",
-                        "error_type": error_type,
-                        "error": str(exc),
-                    }
+                    observation = {"status": "ERROR", "error_type": error_type, "error": str(exc)}
                     success = False
 
                 state.add_step(AgentStep(
@@ -359,18 +337,26 @@ class AgentToolLoop:
                     search_results = observation.get("results", []) if isinstance(observation, dict) else observation
                     evidence_store.add_many(search_results)
                     state.evidence = evidence_store.items
+                    if state.knowledge_graph is not None:
+                        state.knowledge_graph.learn_from_search(
+                            str((decision.arguments or {}).get("query", "")),
+                            search_results,
+                        )
                 elif decision.action == "SEARCH" and not success and error_type == "SEARCH_EMPTY":
                     if isinstance(observation, dict):
                         observation["search_strategy"] = SearchStrategy.guidance(
                             state.steps + [AgentStep(
                                 step_id=step_id, action="SEARCH",
-                                arguments=decision.arguments or {},
-                                success=False, error=error,
+                                arguments=decision.arguments or {}, success=False, error=error,
                             )]
                         )
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
-                    state.claims.append({"claim": observation.get("claim", ""), "verification_status": observation.get("verification_status", "UNCERTAIN"), "matched_evidence": observation.get("matched_evidence", [])})
+                    state.claims.append({
+                        "claim": observation.get("claim", ""),
+                        "verification_status": observation.get("verification_status", "UNCERTAIN"),
+                        "matched_evidence": observation.get("matched_evidence", []),
+                    })
                 state.last_observation = observation
                 state.last_error_type = error_type if not success else ""
                 if not success:
@@ -378,4 +364,3 @@ class AgentToolLoop:
                 debug.log("AgentToolLoop", "OBSERVE → fed back to LLM")
 
             return state
-
