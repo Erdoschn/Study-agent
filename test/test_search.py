@@ -393,7 +393,7 @@ def test_arxiv_timeout_falls_back_to_next_endpoint(monkeypatch):
     http = TimeoutHttp()
     provider = ArxivSearchProvider(http_client=http)
     monkeypatch.setattr(provider, "_wait_for_rate_limit", lambda: None)
-    monkeypatch.setattr(provider, "endpoints", property(lambda: ("https://one.test", "https://two.test")))
+    provider.endpoints = ("https://one.test", "https://two.test")
 
     response = provider.search_detailed(SearchQuery(query="transformer", source="arxiv"))
 
