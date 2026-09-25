@@ -185,7 +185,8 @@ STOP：无法继续时停止并说明原因。
             "plan": [{"action": s.action, "purpose": s.purpose, "tool": s.tool} for s in state.plan.steps] if state.plan else [],
             "current_plan_step": state.current_plan_step,
             "goal": state.goal, "goal_context": list(state.goal_context), "task_type": state.task_type, "domain": state.domain,
-            "search_strategy": {**SearchStrategy.guidance(state.steps), "sources_hint": state.search_sources, "sort_by_hint": state.search_sort_by, "routing_authority": "Reasoner"},\n            "knowledge_graph": state.knowledge_graph.context_for(state.question) if state.knowledge_graph is not None else {},
+            "search_strategy": {**SearchStrategy.guidance(state.steps), "sources_hint": state.search_sources, "sort_by_hint": state.search_sort_by, "routing_authority": "Reasoner"},
+            "knowledge_graph": state.knowledge_graph.context_for(state.question) if state.knowledge_graph is not None else {},
             "student_state": {
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
