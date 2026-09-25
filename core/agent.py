@@ -1,7 +1,7 @@
 from .state import AgentState
 from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
-from .knowledge_graph import KnowledgeGraph
+from .knowledge_graph import KnowledgeGraph, normalize_difficulty
 from .__debug__ import debug
 
 
@@ -102,12 +102,12 @@ class StudyAgent:
         if state.domain:
             state.student.known_topics.add(state.domain)
 
-    def record_assessment(self, concepts, correct: bool, confidence: float | None = None, relation=None) -> None:
+    def record_assessment(self, concepts, correct: bool, confidence: float | None = None, relation=None, difficulty="graduate") -> None:
         """Update the persistent learner graph from an explicit quiz/exercise result."""
         if not isinstance(concepts, (list, tuple)):
             concepts = [concepts]
         self.knowledge_graph.record_assessment(
-            [str(x) for x in concepts if str(x).strip()], bool(correct), confidence
+            [str(x) for x in concepts if str(x).strip()], bool(correct), confidence, normalize_difficulty(difficulty)[1]
         )
         if relation is not None and len(relation) == 3:
             self.knowledge_graph.update_relation_learner(
