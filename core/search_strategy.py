@@ -65,6 +65,27 @@ class SearchStrategy:
                 cleaned.append(part)
         return " ".join(cleaned[:cls.MAX_CORE_TERMS]) or text[:18]
 
+    @classmethod
+    def query_signature(cls, query: str) -> str:
+        text = re.sub(r"[^A-Za-z0-9\\u4e00-\\u9fff]+", " ", str(query or "").lower())
+        text = re.sub(
+            r"(是什么|有哪些|如何|为什么|的定义|相关研究|研究现状|研究成果|研究结论|应用目的|研究目的|结论|研究|现状|目的|定义|成果|应用|相关)",
+            " ",
+            text,
+        )
+        return re.sub(r"\\s+", " ", text).strip()
+
+    @classmethod
+    def is_ineffective_rewrite(cls, query: str, history: list[str]) -> bool:
+        current = cls.query_signature(query)
+        if not current:
+            return False
+        for previous in history:
+            old = cls.query_signature(previous)
+            if old and (current == old or current in old or old in current):
+                return True
+        return False
+
     @staticmethod
     def _has_cjk(text: str) -> bool:
         return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
