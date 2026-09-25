@@ -41,3 +41,13 @@ def test_third_empty_search_requires_one_or_two_english_terms():
 def test_core_query_removes_question_filler():
     query = "上下文缓存的定义、研究现状、应用目的和研究结论"
     assert SearchStrategy.core_query(query) == "上下文缓存"
+
+
+def test_ineffective_chinese_rewrite_is_detected():
+    history = ["上下文缓存的研究现状", "上下文缓存相关研究", "上下文缓存研究成果"]
+    assert SearchStrategy.is_ineffective_rewrite("上下文缓存的研究结论", history)
+
+
+def test_different_concept_is_not_detected():
+    history = ["上下文缓存的研究现状"]
+    assert not SearchStrategy.is_ineffective_rewrite("KV cache", history)
