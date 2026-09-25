@@ -117,6 +117,17 @@ class StudentMind:
 
 
 @dataclass
+class StudentState:
+    known_topics: set[str] = field(default_factory=set)
+    weak_topics: set[str] = field(default_factory=set)
+    misconceptions: list[str] = field(default_factory=list)
+    mind: StudentMind = field(default_factory=StudentMind)
+
+    def apply_mind_update(self, update: dict[str, Any]) -> None:
+        self.mind.apply_update(update)
+
+
+@dataclass
 class AgentStep:
     step_id: int
     action: str
@@ -127,17 +138,6 @@ class AgentStep:
     observation: Any = None
     success: bool = True
     error: str = ""
-
-
-@dataclass
-class StudentState:
-    known_topics: set[str] = field(default_factory=set)
-    weak_topics: set[str] = field(default_factory=set)
-    misconceptions: list[str] = field(default_factory=list)
-    mind: StudentMind = field(default_factory=StudentMind)
-
-    def apply_mind_update(self, update: dict[str, Any]) -> None:
-        self.mind.apply_update(update)
 
 
 @dataclass
@@ -166,6 +166,7 @@ class AgentState:
     last_observation: Any = None
     last_error_type: str = ""
     recovery_count: int = 0
+    knowledge_graph: Any = None
 
     @property
     def step_count(self) -> int:
