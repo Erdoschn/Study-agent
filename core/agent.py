@@ -2,6 +2,7 @@ from .state import AgentState
 from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
+from .assessment import AssessmentEvaluator
 from .__debug__ import debug
 
 
@@ -15,6 +16,8 @@ class StudyAgent:
         self.max_steps = max_steps
         self.student_state = None
         self.knowledge_graph = KnowledgeGraph()
+        self.assessment_evaluator = AssessmentEvaluator()
+        self.last_state = None
 
     def _teach_final_answer(self, state) -> None:
         """在 Reasoner 决定 ANSWER 后进入教学层；Teacher 失败时保留 Reasoner 草稿。"""
@@ -95,8 +98,44 @@ class StudyAgent:
 
             self._update_student_model(state)
             self._update_knowledge_graph(state)
+            self.last_state = state
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
+
+    def submit_assessment_answer(self, answer: str, confidence: float | None = None) -> dict:
+        """Evaluate the pending assessment and update the persistent learner graph."""
+        state = self.last_state
+        if state is None or not state.pending_assessment:
+            raise ValueError("当前没有待作答的测试题。")
+        answer = str(answer or "").strip()
+        if not answer:
+            raise ValueError("测试答案不能为空。")
+
+        result = self.assessment_evaluator.evaluate(
+            state.pending_assessment, answer, confidence=confidence
+        )
+        assessment = state.pending_assessment
+        self.knowledge_graph.record_assessment(
+            assessment["concepts"],
+            result["correct"],
+            result["confidence"],
+            assessment["difficulty"],
+        )
+        relations = assessment.get("relations", [])
+        for relation in relations if isinstance(relations, list) else []:
+            if isinstance(relation, (list, tuple)) and len(relation) == 3:
+                self.knowledge_graph.update_relation_learner(
+                    str(relation[0]), str(relation[1]), str(relation[2]),
+                    result["correct"], result["confidence"], assessment["difficulty"]
+                )
+        result["learner_state"] = {
+            concept: self.knowledge_graph.nodes[self.knowledge_graph._id(concept)].learner.as_dict()
+            for concept in assessment["concepts"]
+            if self.knowledge_graph._id(concept) in self.knowledge_graph.nodes
+        }
+        result["assessment"] = assessment
+        state.pending_assessment = None
+        return result
 
     def _update_student_model(self, state) -> None:
         if state.domain:
@@ -111,7 +150,7 @@ class StudyAgent:
         )
         if relation is not None and len(relation) == 3:
             self.knowledge_graph.update_relation_learner(
-                str(relation[0]), str(relation[1]), str(relation[2]), bool(correct), confidence
+                str(relation[0]), str(relation[1]), str(relation[2]), bool(correct), confidence, normalize_difficulty(difficulty)[1]
             )
 
     def _update_knowledge_graph(self, state) -> None:
