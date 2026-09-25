@@ -19,6 +19,10 @@ class HttpResponse:
     elapsed_seconds: float
 
 
+class SearchTimeoutError(TimeoutError):
+    """Search HTTP request exhausted its timeout/retry budget."""
+
+
 class HttpRequestError(RuntimeError):
     """HTTP/network failure with enough context for the search layer."""
 
@@ -136,11 +140,8 @@ class HttpClient:
                     f"TIMEOUT attempt={attempt}: {exc}",
                 )
                 if attempt >= total_attempts:
-                    raise HttpRequestError(
-                        f"网络请求超时：{exc}",
-                        reason="timeout",
-                        retryable=True,
-                        attempts=attempt,
+                    raise SearchTimeoutError(
+                        f"SEARCH_TIMEOUT: 网络请求超时：{exc}，timeout={self.timeout}s，attempts={attempt}"
                     ) from exc
             except requests.RequestException as exc:
                 debug.log(
