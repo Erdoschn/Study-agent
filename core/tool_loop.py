@@ -117,7 +117,7 @@ class ToolExecutor:
         if entry is None:
             raise ValueError(f"未知工具：{tool}")
         _, handler = entry
-        if tool in {"search", "verify"}:
+        if tool in {"search", "verify", "assess"}:
             return handler(arguments, state)
         return handler(arguments)
 
@@ -169,6 +169,28 @@ class ToolExecutor:
         if not expression:
             raise ValueError("calculate 缺少 expression。")
         return self._safe_calculate(expression)
+
+    def _assess(self, arguments, state=None):
+        from .knowledge_graph import normalize_difficulty
+        concepts = arguments.get("concepts", [])
+        question = str(arguments.get("question", "")).strip()
+        if not isinstance(concepts, list) or not concepts or not question:
+            raise ValueError("assess 需要 concepts 和 question。")
+        level, score = normalize_difficulty(arguments.get("difficulty", "graduate"))
+        rubric = arguments.get("rubric", [])
+        pending = {
+            "concepts": [str(x).strip() for x in concepts if str(x).strip()][:8],
+            "relations": arguments.get("relations", []),
+            "difficulty": score,
+            "difficulty_level": level,
+            "question_type": str(arguments.get("question_type", "open_ended")),
+            "question": question,
+            "expected_answer": str(arguments.get("expected_answer", "")).strip(),
+            "rubric": [str(x).strip() for x in rubric if str(x).strip()][:8] if isinstance(rubric, list) else [],
+        }
+        if state is not None:
+            state.pending_assessment = pending
+        return {"status": "ASSESSMENT_PENDING", "assessment": pending}
 
     def _verify(self, arguments, state=None):
         claim = str(arguments.get("claim", "")).strip()
