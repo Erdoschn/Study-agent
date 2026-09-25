@@ -97,7 +97,7 @@ class AgentReasoner:
 SEARCH：搜索知识源。query 应直接服务于当前未解决的问题；必要时下一轮换查询或来源。
 CALCULATE：计算需要精确数值结果的表达式。
 VERIFY：用当前证据核查一个具体 claim。
-ASSESS：针对一个或多个知识点生成一道小测试题；只负责提出题目，不假设学生答对。
+ASSESS：生成可评分测试题，必须提供 concepts、difficulty、question_type、question、expected_answer、rubric；difficulty 只能是 basic/undergraduate/graduate/postgraduate/postgraduate_plus。只有 postgraduate 或 postgraduate_plus 的高质量正确表现才可能支持 mastered，低难度题不能证明高级掌握。
 ANSWER：回答用户。外部证据被使用时引用 observation 中的来源；证据不足时明确说明。
 STOP：无法继续时停止并说明原因。
 
@@ -201,6 +201,7 @@ STOP：无法继续时停止并说明原因。
             "last_action": state.last_action,
             "last_observation": self._serialize_observation(state.last_observation),
             "step_count": state.step_count,
+            "pending_assessment": getattr(state, "pending_assessment", None),
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
