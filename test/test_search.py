@@ -7,6 +7,7 @@ from tools.search import (
     SearchQuery,
     SearchResult,
     SearchRouter,
+    SearchTimeoutError,
     WikipediaSearchProvider,
 )
 
@@ -377,3 +378,53 @@ def test_wikipedia_fulltext_search_returns_multiple_ranked_candidates():
     assert [r.title for r in results] == ["Attention", "Attention mechanism"]
     assert len(client.calls) == 2
     assert "srlimit=2" in client.calls[0][0]
+
+
+def test_arxiv_timeout_falls_back_to_next_endpoint(monkeypatch):
+    class TimeoutHttp:
+        def __init__(self):
+            self.calls = []
+        def get(self, url, *, headers=None):
+            self.calls.append(url)
+            if len(self.calls) == 1:
+                raise SearchTimeoutError("SEARCH_TIMEOUT")
+            return FakeResponse()
+
+    http = TimeoutHttp()
+    provider = ArxivSearchProvider(http_client=http)
+    monkeypatch.setattr(provider, "_wait_for_rate_limit", lambda: None)
+    monkeypatch.setattr(provider, "endpoints", property(lambda: ("https://one.test", "https://two.test")))
+
+    response = provider.search_detailed(SearchQuery(query="transformer", source="arxiv"))
+
+    assert response.success is True
+    assert len(http.calls) == 2
+    assert "one.test" in http.calls[0]
+    assert "two.test" in http.calls[1]
+
+
+def test_search_router_auto_continues_after_timeout():
+    class TimeoutProvider:
+        name = "slow"
+        def search(self, query):
+            raise SearchTimeoutError("SEARCH_TIMEOUT")
+
+    class GoodProvider:
+        name = "good"
+        def search(self, query):
+            return [SearchResult(source="good", title="ok", url="https://example.com")]
+
+    router = SearchRouter()
+    router.register(TimeoutProvider())
+    router.register(GoodProvider())
+
+    results = router.search(
+        SearchQuery(
+            query="transformer",
+            source="auto",
+            source_preferences=["slow", "good"],
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].source == "good"
