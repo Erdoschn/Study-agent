@@ -29,6 +29,10 @@ class ReasoningDecision:
     belief_revisions: list[dict[str, Any]] | None = None
 
 
+class ModelTimeoutError(TimeoutError):
+    """A model request exceeded its configured timeout."""
+
+
 class ModelClient(ABC):
     @abstractmethod
     def generate(self, system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
@@ -66,6 +70,8 @@ class OpenAICompatibleClient(ModelClient):
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"LLM HTTP {exc.code}: {body}") from exc
+        except TimeoutError as exc:
+            raise ModelTimeoutError(f"LLM 请求超时：{self.timeout}s，model={self.model}") from exc
         except Exception as exc:
             raise RuntimeError(f"LLM 请求失败：{type(exc).__name__}: {exc}") from exc
         try:
@@ -152,6 +158,10 @@ STOP：无法继续时停止并说明原因。
                     decision.model = model.name
                     debug.log("AgentReasoner", f"ACTION → {decision.action}")
                     return decision
+                except ModelTimeoutError as exc:
+                    self.model_router.registry.record_failure(model.name, "reasoning")
+                    errors.append(f"{model.name}: TIMEOUT: {exc}")
+                    debug.log("AgentReasoner", f"MODEL TIMEOUT → {model.name}")
                 except Exception as exc:
                     self.model_router.registry.record_failure(model.name, "reasoning")
                     errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
