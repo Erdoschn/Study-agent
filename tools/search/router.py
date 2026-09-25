@@ -1,5 +1,6 @@
 from .base import SearchProvider
 from .models import SearchQuery, SearchResult
+from .http import SearchTimeoutError
 from core.__debug__ import debug
 
 
@@ -91,6 +92,10 @@ class SearchRouter:
                         sort_order=query.sort_order,
                     )
                 )
+            except SearchTimeoutError as exc:
+                last_error = exc
+                debug.log("SearchRouter", f"AUTO TIMEOUT → {source}: {exc}")
+                continue
             except Exception as exc:
                 last_error = exc
                 debug.log(
