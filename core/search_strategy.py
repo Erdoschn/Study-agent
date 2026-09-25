@@ -67,13 +67,13 @@ class SearchStrategy:
 
     @classmethod
     def query_signature(cls, query: str) -> str:
-        text = re.sub(r"[^A-Za-z0-9\\u4e00-\\u9fff]+", " ", str(query or "").lower())
+        text = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", " ", str(query or "").lower())
         text = re.sub(
             r"(是什么|有哪些|如何|为什么|的定义|相关研究|研究现状|研究成果|研究结论|应用目的|研究目的|结论|研究|现状|目的|定义|成果|应用|相关)",
             " ",
             text,
         )
-        return re.sub(r"\\s+", " ", text).strip()
+        return re.sub(r"\s+", " ", text).strip()
 
     @classmethod
     def is_ineffective_rewrite(cls, query: str, history: list[str]) -> bool:
