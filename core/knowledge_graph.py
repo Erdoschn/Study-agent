@@ -52,7 +52,7 @@ class LearnerState:
     last_seen: float | None = None
     learning_stage: str = "unknown"
     assessment_history: list[dict[str, Any]] = field(default_factory=list)
-    max_familiarity: float = 1.0
+    max_familiarity: float = 0.2
     highest_assessment_level: float = 0.0
 
     def recent_accuracy(self) -> float:
@@ -110,11 +110,10 @@ class KnowledgeGraph:
         return node_id
 
     def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
-        difficulty = max(0.0, min(1.0, float(difficulty)))
+        level, difficulty = normalize_difficulty(difficulty)
         state.exposure_count += 1
         if correct:
             state.successful_count += 1
-        level, difficulty = normalize_difficulty(difficulty)
         state.assessment_history.append({
             "correct": bool(correct),
             "confidence": None if confidence is None else max(0.0, min(1.0, float(confidence))),
