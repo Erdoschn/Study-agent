@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 import math
+import re
 import time
 
 from .__debug__ import debug
@@ -29,7 +30,8 @@ def normalize_difficulty(value: str | float | int | None) -> tuple[str, float]:
         except ValueError:
             return "graduate", DIFFICULTY_LEVELS["graduate"]
     try:
-        score = max(0.0, min(1.0, float(value)))
+        candidate = float(value)
+        score = max(0.0, min(1.0, candidate)) if math.isfinite(candidate) else DIFFICULTY_LEVELS["graduate"]
     except (TypeError, ValueError):
         score = DIFFICULTY_LEVELS["graduate"]
     nearest = min(DIFFICULTY_LEVELS, key=lambda name: abs(DIFFICULTY_LEVELS[name] - score))
@@ -281,6 +283,43 @@ class KnowledgeGraph:
             edge.evidence_refs.append(dict(evidence))
             del edge.evidence_refs[:-10]
 
+    @staticmethod
+    def _concept_tokens(text: str) -> set[str]:
+        value = str(text or "").lower()
+        tokens = set(re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", value))
+        expanded = set(tokens)
+        for token in list(tokens):
+            if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+                expanded.update(token[i:i + 2] for i in range(len(token) - 1))
+        return {token for token in expanded if len(token) > 1}
+
+    def relevant_concepts(self, query: str, limit: int = 6) -> list[str]:
+        query_id = self._id(query)
+        if query_id in self.nodes:
+            return [self.nodes[query_id].name]
+
+        query_tokens = self._concept_tokens(query)
+        if not query_tokens:
+            return []
+
+        ranked = []
+        for node in self.nodes.values():
+            if node.node_type != "concept":
+                continue
+            candidate_text = " ".join([node.name, *node.aliases])
+            overlap = query_tokens & self._concept_tokens(candidate_text)
+            if not overlap:
+                continue
+            score = len(overlap) / max(1, len(query_tokens))
+            ranked.append((score, len(overlap), node.name))
+        ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        result = [name for _, _, name in ranked[:limit]]
+        debug.log(
+            "KnowledgeGraph",
+            f"RESOLVE → query={query!r}, matched={result}",
+        )
+        return result
+
     def neighbors(self, concept: str, limit: int = 12) -> list[dict[str, Any]]:
         node_id = self._id(concept)
         items = []
@@ -325,15 +364,59 @@ class KnowledgeGraph:
         return result[:limit]
 
     def context_for(self, query: str, limit: int = 12) -> dict[str, Any]:
-        return {
+        matched_names = self.relevant_concepts(query, limit=6)
+        matched_ids = [self._id(name) for name in matched_names]
+        neighbors = []
+        seen_neighbors = set()
+        for node_name in matched_names:
+            for item in self.neighbors(node_name, limit=max(4, limit)):
+                key = (item.get("name"), item.get("relation"), item.get("direction"))
+                if key in seen_neighbors:
+                    continue
+                seen_neighbors.add(key)
+                neighbors.append(item)
+        neighbors.sort(key=lambda item: item.get("confidence", 0.0), reverse=True)
+
+        known_concepts = []
+        for node_id in matched_ids:
+            node = self.nodes.get(node_id)
+            if node:
+                known_concepts.append({
+                    "name": node.name,
+                    "aliases": list(node.aliases),
+                    "learner": node.learner.as_dict(),
+                })
+
+        weak = []
+        for item in neighbors:
+            if item.get("relation") == "supported_by_search":
+                continue
+            if item.get("learner", {}).get("learning_stage") in {"unknown", "new", "weak", "learning"}:
+                weak.append(item["name"])
+
+        search_candidates = []
+        seen_candidates = set()
+        for node_name in matched_names:
+            for candidate in self.search_candidates(node_name, limit=min(8, limit)):
+                if candidate and candidate not in seen_candidates:
+                    seen_candidates.add(candidate)
+                    search_candidates.append(candidate)
+
+        context = {
             "query": query,
-            "known_concepts": [
-                {"name": self.nodes[n].name, "aliases": self.nodes[n].aliases, "learner": self.nodes[n].learner.as_dict()}
-                for n in [self._id(query)] if n in self.nodes
-            ],
-            "neighbors": self.neighbors(query, limit=limit),
-            "learner_context": self.learner_context(query, limit),
-            "search_candidates": self.search_candidates(query, limit=min(8, limit)),
+            "matched_concepts": matched_names,
+            "known_concepts": known_concepts,
+            "neighbors": neighbors[:limit],
+            "learner_context": {
+                "matched_concepts": matched_names,
+                "weak_concepts": weak[:limit],
+            },
+            "search_candidates": search_candidates[:8],
             "node_count": len(self.nodes),
             "edge_count": len(self.edges),
         }
+        debug.log(
+            "KnowledgeGraph",
+            f"CONTEXT → query={query!r}, matched={matched_names}, neighbors={len(context['neighbors'])}",
+        )
+        return context
