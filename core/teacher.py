@@ -39,6 +39,7 @@ class Teacher:
         student = getattr(state, "student", None)
         known_topics = set(getattr(student, "known_topics", set()) or set()) if student else set()
         weak_topics = set(getattr(student, "weak_topics", set()) or set()) if student else set()
+        learning_topics = set(getattr(student, "learning_topics", set()) or set()) if student else set()
         misconceptions = list(getattr(student, "misconceptions", []) or []) if student else []
         task_type = str(getattr(state, "task_type", "") or "").lower()
 
@@ -47,7 +48,10 @@ class Teacher:
             focus = "先定位并纠正已明确记录的概念误解，再建立正确理解。"
         elif weak_topics:
             mode = "脚手架教学"
-            focus = "围绕弱项拆成较小步骤，避免一次跳到最终结论。"
+            focus = "围绕真正薄弱项拆成较小步骤，避免一次跳到最终结论。"
+        elif learning_topics:
+            mode = "新知巩固"
+            focus = "围绕刚接触或正在学习的知识建立连接，通过小例子和回忆巩固。"
         elif known_topics:
             mode = "建立在已有知识上"
             focus = "以学生已有知识为入口，减少重复基础。"
@@ -66,7 +70,7 @@ class Teacher:
         }
         debug.log(
             "Teacher",
-            f"STRATEGY → mode={mode}, known={len(known_topics)}, weak={len(weak_topics)}, misconceptions={len(misconceptions)}",
+            f"STRATEGY → mode={mode}, known={len(known_topics)}, weak={len(weak_topics)}, learning={len(learning_topics)}, misconceptions={len(misconceptions)}",
         )
         return strategy
 
@@ -164,6 +168,7 @@ class Teacher:
             "student": {
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
+                "learning_topics": sorted(state.student.learning_topics),
                 "misconceptions": list(state.student.misconceptions),
                 "mind_bdi": state.student.mind.as_dict(),
             },
