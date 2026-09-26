@@ -506,6 +506,22 @@ class AgentToolLoop:
                 step_id = state.step_count + 1
                 if decision.action in {"ANSWER", "STOP"}:
                     if decision.action == "ANSWER":
+                        if not str(decision.answer or "").strip():
+                            state.error = "ANSWER 缺少非空 answer，Harness 拒绝完成空回答。"
+                            debug.log(
+                                "AgentToolLoop",
+                                "ANSWER BLOCKED → EMPTY_ANSWER",
+                            )
+                            state.add_step(AgentStep(
+                                step_id=step_id,
+                                action="ANSWER_BLOCKED",
+                                model=decision.model,
+                                reasoning_summary="模型声明 ANSWER，但没有提供可交付答案。",
+                                success=False,
+                                error="EMPTY_ANSWER: ANSWER 必须提供非空 answer。",
+                            ))
+                            state.finished = True
+                            break
                         verified = self._claims_verified(state)
                         claims_required = bool(state.evidence)
                         debug.log(
