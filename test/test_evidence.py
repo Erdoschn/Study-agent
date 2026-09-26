@@ -77,3 +77,34 @@ def test_evidence_verify_rejects_bare_topic_as_claim():
     verification = EvidenceEngine.verify("attention", evidence)
     assert verification["verification_status"] == "UNCERTAIN"
     assert verification["matched_evidence"] == []
+
+
+
+def test_evidence_verify_rejects_opposite_negation_english():
+    evidence = EvidenceEngine.normalize(
+        "attention uses fixed weights",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "attention uses fixed weights for every input",
+            "identifier": "1",
+        }],
+    )
+    verification = EvidenceEngine.verify("attention does not use fixed weights", evidence)
+    assert verification["verification_status"] == "NOT_MATCHED"
+    assert verification["matched_evidence"] == []
+
+
+def test_evidence_verify_rejects_opposite_negation_chinese():
+    evidence = EvidenceEngine.normalize(
+        "attention 使用固定权重",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "attention 使用固定权重。",
+            "identifier": "1",
+        }],
+    )
+    verification = EvidenceEngine.verify("attention 不使用固定权重", evidence)
+    assert verification["verification_status"] == "NOT_MATCHED"
+    assert verification["matched_evidence"] == []
