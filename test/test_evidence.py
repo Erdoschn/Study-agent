@@ -47,3 +47,17 @@ def test_evidence_engine_reports_coverage():
     coverage = EvidenceEngine.coverage("transformer attention", evidence)
     assert coverage["status"] in {"COVERED", "PARTIAL"}
     assert coverage["relevant_count"] == 1
+
+
+
+def test_evidence_engine_matches_chinese_compound_terms():
+    results = EvidenceEngine.normalize(
+        "上下文缓存",
+        [{
+            "source": "wikipedia",
+            "title": "上下文缓存机制",
+            "abstract": "介绍上下文缓存的工作方式。",
+            "identifier": "cn-1",
+        }],
+    )
+    assert results[0]["harness_relevance"] == "DIRECT"
