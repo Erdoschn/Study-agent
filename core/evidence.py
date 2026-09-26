@@ -30,6 +30,10 @@ class EvidenceStore:
             self.items.append(dict(item))
             seen.add(key)
             added += 1
+        debug.log(
+            "EvidenceStore",
+            f"ADD → added={added}, total={len(self.items)}",
+        )
         return added
 
     def prompt_view(self, max_items: int = 20) -> list[dict[str, Any]]:
@@ -41,10 +45,15 @@ class EvidenceStore:
                 "index": index,
                 "source": item.get("source"), "title": item.get("title"),
                 "url": item.get("url"), "identifier": item.get("identifier"),
-                "abstract": item.get("abstract"), "published": item.get("published"),
+                "abstract": str(item.get("abstract", ""))[:600],
+                "published": item.get("published"),
                 "harness_relevance": item.get("harness_relevance", "UNCERTAIN"),
                 "harness_recency": item.get("harness_recency", "UNKNOWN"),
             })
+        debug.log(
+            "EvidenceStore",
+            f"PROMPT VIEW → items={len(view)}/{len(self.items)}, max_items={max_items}",
+        )
         return view
 
 
