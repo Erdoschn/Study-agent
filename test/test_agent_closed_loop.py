@@ -42,8 +42,14 @@ def test_tool_observation_is_fed_into_next_reasoning_cycle():
     state = AgentToolLoop(reasoner, executor).run(state)
     assert executor.calls == [("search", {"query": "attention"})]
     assert reasoner.n == 2
-    assert state.evidence == [{"result": "fresh evidence"}]
-    assert state.steps[0].observation == [{"result": "fresh evidence"}]
+    assert state.evidence == [{
+        "source": "wikipedia",
+        "title": "Attention",
+        "abstract": "attention mechanisms",
+        "identifier": "attention-1",
+        "harness_relevance": "DIRECT",
+    }]
+    assert state.steps[0].observation == state.evidence
     assert state.steps[-1].action == "ANSWER"
     assert state.finished is True
 
