@@ -1,4 +1,5 @@
 import json
+import math
 import re
 import urllib.error
 import urllib.request
@@ -378,7 +379,8 @@ STOP：无法继续时停止并说明原因。
             target = str(item.get("target", "")).strip()
             relation = str(item.get("relation", "related_to")).strip().lower()
             try:
-                confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
+                candidate = float(item.get("confidence", 0.5))
+                confidence = max(0.0, min(1.0, candidate)) if math.isfinite(candidate) else 0.5
             except (TypeError, ValueError):
                 confidence = 0.5
             if not source or not target or source == target or relation not in RELATIONS:
