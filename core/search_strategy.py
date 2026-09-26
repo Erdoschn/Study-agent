@@ -16,8 +16,17 @@ class SearchStrategy:
     }
 
     @classmethod
-    def guidance(cls, steps: list[Any]) -> dict[str, Any]:
+    def guidance(cls, steps: list[Any], error_type: str = "") -> dict[str, Any]:
         searches = [s for s in steps if getattr(s, "action", "") == "SEARCH"]
+        normalized_error = str(error_type or "").lower()
+        if normalized_error == "searchtimeouterror":
+            last_query = str((getattr(searches[-1], "arguments", {}) or {}).get("query", "")).strip() if searches else ""
+            return {
+                "stage": "timeout",
+                "required_change": "source_or_query",
+                "suggested_query": cls.core_query(last_query) if last_query else None,
+                "instruction": "搜索请求超时；下一轮必须改变搜索源或明显缩短查询，不要立即重复相同请求。",
+            }
         empty = [s for s in searches if not getattr(s, "success", True)
                  and "SEARCH_EMPTY" in str(getattr(s, "error", ""))]
         if not empty:
