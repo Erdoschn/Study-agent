@@ -260,7 +260,7 @@ class KnowledgeGraph:
         query = str(query or "").strip()
         if not query:
             return
-        query_id = self.add_concept(query, alias=query)
+        query_id = self.add_concept(query, node_type="search_query", alias=query)
         for item in results[:20]:
             if not isinstance(item, dict):
                 continue
