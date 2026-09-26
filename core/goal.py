@@ -16,6 +16,7 @@ class GoalMatcher:
         stop = {
             "the", "a", "an", "and", "or", "to", "of", "in", "on", "for",
             "with", "is", "are", "how", "what", "why", "do", "does", "i",
+            "understand", "learn", "study", "solve", "explain", "build", "improve",
         }
         chinese_stop = {
             "学习", "理解", "掌握", "解决", "当前", "问题", "相关",
