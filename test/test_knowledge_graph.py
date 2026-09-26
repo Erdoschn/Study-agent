@@ -73,3 +73,24 @@ def test_search_provenance_is_not_a_learner_weak_concept():
 
     context = graph.context_for("attention")
     assert "Attention mechanism" not in context["learner_context"]["weak_concepts"]
+
+
+
+def test_student_state_sync_preserves_unassessed_external_topics():
+    from core.state import StudentState
+
+    graph = KnowledgeGraph()
+    for _ in range(3):
+        graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
+
+    student = StudentState()
+    student.known_topics.add("transformer")
+    student.known_topics.add("attention")
+    student.weak_topics.add("optimization")
+
+    student.sync_from_knowledge_graph(graph)
+
+    assert "transformer" in student.known_topics
+    assert "attention" not in student.known_topics
+    assert "attention" in student.weak_topics
+    assert "optimization" in student.weak_topics
