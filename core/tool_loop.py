@@ -165,7 +165,6 @@ class ToolExecutor:
         categories = arguments.get("categories", [])
         if not isinstance(categories, list):
             categories = []
-        sort_by = str(arguments.get("sort_by", "")).strip() or str(getattr(state, "search_sort_by", "relevance"))
         try:
             max_results = int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS))
         except (TypeError, ValueError) as exc:
