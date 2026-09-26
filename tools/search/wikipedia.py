@@ -81,7 +81,7 @@ class WikipediaSearchProvider(SearchProvider):
         except ValueError as exc:
             return self._failure(query, started, "validation", str(exc))
         except SearchTimeoutError as exc:
-            return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=exc.args and 1 or 1)
+            return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=exc.attempts)
         except HttpRequestError as exc:
             return self._failure(
                 query,
