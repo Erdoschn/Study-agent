@@ -35,7 +35,10 @@ class ArxivSearchProvider(SearchProvider):
     )
 
     MIN_REQUEST_INTERVAL = 3.0
-    REQUEST_TIMEOUT = 30.0
+    # Four fallback endpoints exist; keep the worst-case endpoint/retry
+    # sequence within roughly two minutes instead of multiplying a 30s timeout
+    # across every endpoint.
+    REQUEST_TIMEOUT = 12.0
     MAX_RESULTS = 50
 
     FALLBACK_HTTP_STATUSES = {403, 406, 408, 429, 500, 502, 503, 504}
