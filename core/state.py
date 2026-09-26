@@ -126,6 +126,21 @@ class StudentState:
     def apply_mind_update(self, update: dict[str, Any]) -> None:
         self.mind.apply_update(update)
 
+    def sync_from_knowledge_graph(self, graph) -> None:
+        """Synchronize explicit learner evidence into the fast teaching-facing state."""
+        if graph is None:
+            return
+        known = set()
+        weak = set()
+        for node in getattr(graph, "nodes", {}).values():
+            stage = getattr(getattr(node, "learner", None), "learning_stage", "unknown")
+            if stage in {"familiar", "mastered"}:
+                known.add(node.name)
+            elif stage in {"weak", "new", "learning"}:
+                weak.add(node.name)
+        self.known_topics = known
+        self.weak_topics = weak - known
+
 
 @dataclass
 class AgentStep:
