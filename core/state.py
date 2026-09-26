@@ -132,22 +132,27 @@ class StudentState:
         """Synchronize explicit learner evidence into the fast teaching-facing state."""
         if graph is None:
             return
-        known = set()
-        weak = set()
+        graph_known = set()
+        graph_weak = set()
         for node in getattr(graph, "nodes", {}).values():
             # Search-result/document nodes are evidence provenance, not learner concepts.
             if getattr(node, "node_type", "concept") != "concept":
                 continue
             stage = getattr(getattr(node, "learner", None), "learning_stage", "unknown")
             if stage in {"familiar", "mastered"}:
-                known.add(node.name)
+                graph_known.add(node.name)
             elif stage in {"weak", "new", "learning"}:
-                weak.add(node.name)
-        self.known_topics = known
-        self.weak_topics = weak - known
+                graph_weak.add(node.name)
+
+        # Preserve externally supplied learner topics that have no conflicting
+        # graph assessment; explicit graph assessment wins on conflicts.
+        self.known_topics = (set(self.known_topics) - graph_weak) | graph_known
+        self.weak_topics = (set(self.weak_topics) - graph_known) | graph_weak
+        self.weak_topics -= self.known_topics
         debug.log(
             "StudentState",
-            f"SYNC → known={sorted(self.known_topics)}, weak={sorted(self.weak_topics)}",
+            f"SYNC → graph_known={sorted(graph_known)}, graph_weak={sorted(graph_weak)}, "
+            f"known={sorted(self.known_topics)}, weak={sorted(self.weak_topics)}",
         )
 
 
