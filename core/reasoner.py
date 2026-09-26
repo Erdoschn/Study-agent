@@ -279,6 +279,8 @@ STOP：无法继续时停止并说明原因。
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Reasoner JSON 解析失败：{exc}\n原始输出：{raw}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("Reasoner JSON 解析失败：顶层结果必须是对象。")
         action = str(data.get("action", "")).upper()
         if action not in {"SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP"}:
             raise RuntimeError(f"未知 action：{action}")
