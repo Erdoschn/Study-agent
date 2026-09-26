@@ -142,6 +142,8 @@ class ToolExecutor:
     def execute(self, tool: str, arguments: dict[str, Any], state=None) -> Any:
         debug.log("ToolExecutor", f"EXECUTE → {tool}")
         debug.log("ToolExecutor", f"ARGS → {arguments}")
+        if not isinstance(arguments, dict):
+            raise ValueError("工具参数必须是 JSON 对象。")
         entry = self._tools.get(tool)
         if entry is None:
             raise ValueError(f"未知工具：{tool}")
