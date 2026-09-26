@@ -134,6 +134,7 @@ class StudyAgent:
             if self.knowledge_graph._id(concept) in self.knowledge_graph.nodes
         }
         result["assessment"] = assessment
+        state.student.sync_from_knowledge_graph(self.knowledge_graph)
         state.pending_assessment = None
         return result
 
@@ -154,6 +155,8 @@ class StudyAgent:
             self.knowledge_graph.update_relation_learner(
                 str(relation[0]), str(relation[1]), str(relation[2]), bool(correct), confidence, normalize_difficulty(difficulty)[1]
             )
+        if self.student_state is not None:
+            self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
 
     def _update_knowledge_graph(self, state) -> None:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
