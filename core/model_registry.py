@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from .__debug__ import debug
+
 
 @dataclass
 class ModelInfo:
@@ -81,6 +83,10 @@ class ModelRegistry:
         model.cooldown_until = 0.0
         if capability:
             self._update_capability(model, capability, True)
+        debug.log(
+            "ModelRegistry",
+            f"SUCCESS → model={name}, capability={capability or 'none'}, calls={model.calls}, failures={model.failures}, cooldown=0",
+        )
 
     def record_failure(self, name: str, capability: str | None = None) -> None:
         import time
@@ -92,6 +98,11 @@ class ModelRegistry:
         model.cooldown_until = time.time() + cooldown
         if capability:
             self._update_capability(model, capability, False)
+        debug.log(
+            "ModelRegistry",
+            f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, cooldown={cooldown:.1f}s",
+        )
+
     @staticmethod
     def _update_capability(model: ModelInfo, capability: str, success: bool) -> None:
         old = model.capability_stats.get(capability, 0.5)
