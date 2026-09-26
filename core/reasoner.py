@@ -287,6 +287,18 @@ STOP：无法继续时停止并说明原因。
         arguments = data.get("arguments", {})
         if not isinstance(arguments, dict):
             arguments = {}
+        tool = str(data.get("tool", "")).strip().lower() if data.get("tool") is not None else None
+        expected_tools = {
+            "SEARCH": "search",
+            "CALCULATE": "calculate",
+            "VERIFY": "verify",
+            "ASSESS": "assess",
+        }
+        expected_tool = expected_tools.get(action)
+        if expected_tool and tool and tool != expected_tool:
+            raise RuntimeError(
+                f"action={action} 与 tool={tool} 不一致，应为 {expected_tool}。"
+            )
         claims = AgentReasoner._normalize_claims(data.get("claims", []))
         evidence_relevance = data.get("evidence_relevance", [])
         if not isinstance(evidence_relevance, list):
@@ -318,7 +330,7 @@ STOP：无法继续时停止并说明原因。
         return ReasoningDecision(
             action=action,
             reasoning_summary=str(data.get("reasoning_summary", "")),
-            tool=str(data["tool"]) if data.get("tool") is not None else None,
+            tool=tool,
             arguments=arguments,
             answer=str(data["answer"]) if data.get("answer") is not None else None,
             goal=str(data.get("goal", "")),
