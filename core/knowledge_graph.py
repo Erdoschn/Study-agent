@@ -227,6 +227,10 @@ class KnowledgeGraph:
         if evidence and evidence not in edge.evidence_refs:
             edge.evidence_refs.append(dict(evidence))
             del edge.evidence_refs[:-10]
+        debug.log(
+            "KnowledgeGraph",
+            f"RELATION → {source!r} -[{relation}]-> {target!r} confidence={edge.confidence:.2f}",
+        )
 
     def learn_from_search(self, query: str, results: list[dict[str, Any]]) -> None:
         """Record only explicit search concepts and result titles; never invent a hierarchy."""
