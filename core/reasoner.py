@@ -27,6 +27,7 @@ class ReasoningDecision:
     model: str | None = None
     student_model_update: dict[str, Any] | None = None
     belief_revisions: list[dict[str, Any]] | None = None
+    knowledge_relations: list[dict[str, Any]] | None = None
 
 
 class ModelTimeoutError(TimeoutError):
@@ -98,6 +99,7 @@ class AgentReasoner:
 - query 必须是搜索关键词，而不是把用户问题整句复制进去。
 - VERIFY 只表示结构化文本核查结果，不表示事实概率或证明。
 - 不输出隐藏思维链；reasoning_summary 只写简短、可审计的行动理由。
+- knowledge_relations 用来显式记录概念之间的知识关系；只有当前问题、证据或已有知识图谱直接支持的关系才填写，不要凭关键词臆测层级。
 
 行动：
 SEARCH：搜索知识源。query 应直接服务于当前未解决的问题；必要时下一轮换查询或来源。
@@ -127,7 +129,7 @@ STOP：无法继续时停止并说明原因。
 - revision 字段：old/new/horizon/status/reason/evidence_refs；status 只能为 REVISED/CONFIRMED/RETRACTED/UNCERTAIN。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON：
-{"action":"SEARCH|CALCULATE|VERIFY|ASSESS|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[]}
+{"action":"SEARCH|CALCULATE|VERIFY|ASSESS|ANSWER|STOP","reasoning_summary":"简短行动理由","tool":null,"arguments":{},"answer":null,"goal":"","task_type":"","domain":"","claims":[],"evidence_relevance":[],"finish_reason":"","student_model_update":{"short_term":{"beliefs":[],"desires":[],"intentions":[]},"long_term":{"beliefs":[],"desires":[],"intentions":[]},"recent_decisions":[]},"belief_revisions":[],"knowledge_relations":[{"source":"","target":"","relation":"related_to","confidence":0.0}]}
 """
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router
@@ -271,6 +273,9 @@ STOP：无法继续时停止并说明原因。
         belief_revisions = AgentReasoner._normalize_belief_revisions(
             data.get("belief_revisions", [])
         )
+        knowledge_relations = AgentReasoner._normalize_knowledge_relations(
+            data.get("knowledge_relations", [])
+        )
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
         allowed_recency = {"DATED", "UNDATED", "UNKNOWN", "NEWER", "OLDER", "SAME"}
         normalized = []
@@ -299,6 +304,7 @@ STOP：无法继续时停止并说明原因。
             finish_reason=str(data.get("finish_reason", "")),
             student_model_update=student_model_update,
             belief_revisions=belief_revisions,
+            knowledge_relations=knowledge_relations,
         )
 
     @staticmethod
@@ -333,6 +339,33 @@ STOP：无法继续时停止并说明原因。
                 normalized_item["evidence_refs"] = evidence_refs
             normalized.append(normalized_item)
         return normalized[:8]
+
+    @staticmethod
+    def _normalize_knowledge_relations(raw):
+        if not isinstance(raw, list):
+            return []
+        from .knowledge_graph import RELATIONS
+
+        normalized = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source", "")).strip()
+            target = str(item.get("target", "")).strip()
+            relation = str(item.get("relation", "related_to")).strip().lower()
+            try:
+                confidence = max(0.0, min(1.0, float(item.get("confidence", 0.5))))
+            except (TypeError, ValueError):
+                confidence = 0.5
+            if not source or not target or source == target or relation not in RELATIONS:
+                continue
+            normalized.append({
+                "source": source,
+                "target": target,
+                "relation": relation,
+                "confidence": round(confidence, 3),
+            })
+        return normalized[:12]
 
     @staticmethod
     def _normalize_student_model_update(raw):
