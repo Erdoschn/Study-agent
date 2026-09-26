@@ -161,6 +161,14 @@ class EvidenceEngine:
             return False
 
         def strip_negation(text: str) -> str:
+            # Remove common auxiliary+not constructions as a unit so
+            # morphology such as "does not use" does not become
+            # "does use" and miss the corresponding positive sentence.
+            text = re.sub(
+                r"\b(?:do|does|did|can|could|will|would|shall|should|is|are|was|were|has|have|had)\s+not\b",
+                " ",
+                text,
+            )
             text = re.sub(
                 r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b",
                 " ",
