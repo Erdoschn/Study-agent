@@ -25,7 +25,15 @@ class ModelInfo:
         base = self.extra.get("capabilities", {})
         if not isinstance(base, dict):
             base = {}
-        result = {str(k): float(v) for k, v in base.items()}
+        result = {}
+        for key, value in base.items():
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                continue
+            if score != score or score in {float("inf"), float("-inf")}:
+                continue
+            result[str(key)] = max(0.0, min(1.0, score))
         result.update(self.capability_stats)
         return result
 
@@ -43,10 +51,18 @@ class ModelRegistry:
     def _load(self, config: dict[str, Any]) -> None:
         providers = config.get("providers", {})
         models = config.get("models", {})
+        if not isinstance(providers, dict) or not isinstance(models, dict):
+            debug.log("ModelRegistry", "CONFIG INVALID → providers/models must be objects")
+            return
+
         for name, item in models.items():
+            if not isinstance(item, dict):
+                debug.log("ModelRegistry", f"MODEL SKIP → {name}: config is not an object")
+                continue
             provider_name = item.get("provider")
             provider = providers.get(provider_name)
-            if not provider:
+            if not isinstance(provider, dict):
+                debug.log("ModelRegistry", f"MODEL SKIP → {name}: provider={provider_name!r} missing/invalid")
                 continue
             extra = dict(item.get("extra", {}))
             capabilities = item.get("capabilities", extra.get("capabilities", {}))
@@ -70,12 +86,17 @@ class ModelRegistry:
     def available(self, allow_paid: bool = False) -> list[ModelInfo]:
         import time
         now = time.time()
-        return [
+        result = [
             model for model in self.models.values()
             if model.enabled
             and (allow_paid or not model.paid)
             and model.cooldown_until <= now
         ]
+        debug.log(
+            "ModelRegistry",
+            f"AVAILABLE → allow_paid={allow_paid}, count={len(result)}",
+        )
+        return result
 
     def record_success(self, name: str, capability: str | None = None) -> None:
         model = self.get(name)
