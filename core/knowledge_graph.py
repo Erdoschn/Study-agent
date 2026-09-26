@@ -108,6 +108,10 @@ class KnowledgeGraph:
                 return ""
             node = KnowledgeNode(id=node_id, name=name, node_type=node_type)
             self.nodes[node_id] = node
+        elif node_type == "concept" and node.node_type != "concept":
+            # A searched document title can later become an assessed learner concept.
+            node.node_type = "concept"
+            debug.log("KnowledgeGraph", f"NODE PROMOTE → {name!r} document→concept")
         if alias and alias.strip() and alias.strip() not in node.aliases and alias.strip() != node.name:
             node.aliases.append(alias.strip())
         if evidence and evidence not in node.evidence_refs:
