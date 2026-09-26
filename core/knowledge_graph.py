@@ -219,7 +219,14 @@ class KnowledgeGraph:
 
     def add_relation(self, source: str, target: str, relation: str = "related_to",
                      confidence: float = 0.0, evidence: dict[str, Any] | None = None) -> None:
-        if relation not in RELATIONS: raise ValueError(f"未知知识关系：{relation}")
+        if relation not in RELATIONS:
+            raise ValueError(f"未知知识关系：{relation}")
+        try:
+            candidate = float(confidence)
+            safe_confidence = max(0.0, min(1.0, candidate)) if math.isfinite(candidate) else 0.0
+        except (TypeError, ValueError):
+            safe_confidence = 0.0
+
         source_id = self.add_concept(source)
         target_id = self.add_concept(target)
         if not source_id or not target_id or source_id == target_id:
@@ -228,11 +235,12 @@ class KnowledgeGraph:
         edge = self.edges.get(key)
         if edge is None:
             if len(self.edges) >= self.MAX_EDGES:
+                debug.log("KnowledgeGraph", f"EDGE LIMIT → rejected relation={source!r} -[{relation}]-> {target!r}")
                 return
-            edge = KnowledgeEdge(source_id, target_id, str(relation), float(confidence))
+            edge = KnowledgeEdge(source_id, target_id, str(relation), safe_confidence)
             self.edges[key] = edge
         else:
-            edge.confidence = max(edge.confidence, float(confidence))
+            edge.confidence = max(edge.confidence, safe_confidence)
         if evidence and evidence not in edge.evidence_refs:
             edge.evidence_refs.append(dict(evidence))
             del edge.evidence_refs[:-10]
