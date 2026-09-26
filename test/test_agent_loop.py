@@ -311,3 +311,39 @@ def test_goal_context_is_injected_from_student_memory_before_first_decision():
 
     assert reasoner.seen == ["understand transformer attention dimensions"]
     assert state.final_answer == "ok"
+
+
+def test_assess_rejects_missing_expected_answer():
+    executor = ToolExecutor()
+    state = AgentState(question="attention")
+    try:
+        executor.execute(
+            "assess",
+            {"concepts": ["attention"], "question": "What is attention?"},
+            state=state,
+        )
+        assert False
+    except ValueError as exc:
+        assert "expected_answer" in str(exc)
+    assert state.pending_assessment is None
+
+
+def test_assess_filters_invalid_relations_and_keeps_valid_assessment():
+    executor = ToolExecutor()
+    state = AgentState(question="attention")
+    result = executor.execute(
+        "assess",
+        {
+            "concepts": ["attention"],
+            "question": "What is attention?",
+            "expected_answer": "attention maps queries to relevant values",
+            "relations": [
+                ["attention", "query", "invalid_relation"],
+                ["attention", "query", "depends_on"],
+                ["malformed"],
+            ],
+        },
+        state=state,
+    )
+    assert result["status"] == "ASSESSMENT_PENDING"
+    assert state.pending_assessment["relations"] == [["attention", "query", "depends_on"]]
