@@ -51,3 +51,16 @@ def test_ineffective_chinese_rewrite_is_detected():
 def test_different_concept_is_not_detected():
     history = ["上下文缓存的研究现状"]
     assert not SearchStrategy.is_ineffective_rewrite("KV cache", history)
+
+
+def test_timeout_search_requires_source_or_query_change():
+    step = AgentStep(
+        step_id=1,
+        action="SEARCH",
+        arguments={"query": "transformer attention"},
+        success=False,
+        error="SearchTimeoutError: SEARCH_TIMEOUT",
+    )
+    guidance = SearchStrategy.guidance([step], "SearchTimeoutError")
+    assert guidance["required_change"] == "source_or_query"
+    assert guidance["suggested_query"] == "transformer attention"
