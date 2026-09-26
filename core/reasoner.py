@@ -285,9 +285,7 @@ STOP：无法继续时停止并说明原因。
         arguments = data.get("arguments", {})
         if not isinstance(arguments, dict):
             arguments = {}
-        claims = data.get("claims", [])
-        if not isinstance(claims, list):
-            claims = []
+        claims = AgentReasoner._normalize_claims(data.get("claims", []))
         evidence_relevance = data.get("evidence_relevance", [])
         if not isinstance(evidence_relevance, list):
             evidence_relevance = []
@@ -331,6 +329,40 @@ STOP：无法继续时停止并说明原因。
             belief_revisions=belief_revisions,
             knowledge_relations=knowledge_relations,
         )
+
+    @staticmethod
+    def _normalize_claims(raw):
+        if not isinstance(raw, list):
+            return []
+        normalized = []
+        for item in raw:
+            if isinstance(item, str):
+                claim = item.strip()
+                if claim:
+                    normalized.append({"claim": claim})
+                continue
+            if not isinstance(item, dict):
+                continue
+            claim = str(item.get("claim", "")).strip()
+            if not claim:
+                continue
+            normalized_item = {"claim": claim}
+            for key in ("reason", "evidence_refs"):
+                if key not in item:
+                    continue
+                if key == "reason":
+                    normalized_item[key] = str(item.get(key, "")).strip()
+                elif isinstance(item.get(key), list):
+                    normalized_item[key] = [
+                        x for x in item[key]
+                        if isinstance(x, int) and x >= 0
+                    ][:8]
+            normalized.append(normalized_item)
+        debug.log(
+            "AgentReasoner",
+            f"CLAIMS → accepted={len(normalized)}",
+        )
+        return normalized[:12]
 
     @staticmethod
     def _normalize_belief_revisions(raw):
