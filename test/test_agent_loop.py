@@ -593,3 +593,47 @@ def test_search_tool_rejects_invalid_runtime_arguments():
             assert expected in str(exc)
         else:
             raise AssertionError("invalid search arguments should be rejected")
+
+
+
+def test_empty_search_observation_contains_recovery_guidance():
+    router = SearchRouter()
+    router.register(StubProvider("arxiv", []))
+    executor = ToolExecutor(search_router=router)
+
+    reasoner = StubReasoner([
+        ReasoningDecision(
+            action="SEARCH",
+            reasoning_summary="search",
+            tool="search",
+            arguments={"query": "long transformer question", "source": "arxiv"},
+        ),
+        ReasoningDecision(
+            action="STOP",
+            reasoning_summary="stop",
+        ),
+    ])
+    state = AgentToolLoop(reasoner, executor).run(
+        AgentState(question="transformer", max_steps=2)
+    )
+    observation = state.steps[0].observation
+    assert observation.get("search_strategy") is not None
+    assert observation["search_strategy"]["required_change"] in {
+        "shorter_query",
+        "new_query_or_source",
+        "one_or_two_terms",
+        "english_query",
+    }
+
+
+def test_reasoner_rejects_mismatched_action_tool():
+    from core.reasoner import AgentReasoner
+
+    try:
+        AgentReasoner._parse(
+            '{"action":"SEARCH","reasoning_summary":"bad","tool":"calculate"}'
+        )
+    except RuntimeError as exc:
+        assert "不一致" in str(exc)
+    else:
+        raise AssertionError("mismatched action/tool should fail")
