@@ -46,6 +46,7 @@ class WikipediaSearchProvider(SearchProvider):
 
     def search_detailed(self, query: SearchQuery) -> SearchResponse:
         started = time.monotonic()
+        self._attempts = 0
         try:
             self._validate_query(query)
             title_results = self._search_titles(query)
@@ -81,7 +82,7 @@ class WikipediaSearchProvider(SearchProvider):
         except ValueError as exc:
             return self._failure(query, started, "validation", str(exc))
         except SearchTimeoutError as exc:
-            return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=exc.attempts)
+            return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=max(1, self._attempts))
         except HttpRequestError as exc:
             return self._failure(
                 query,
@@ -92,7 +93,7 @@ class WikipediaSearchProvider(SearchProvider):
                 reason=exc.reason,
                 response_body=exc.response_body,
                 retryable=exc.retryable,
-                attempts=exc.attempts,
+                attempts=max(1, self._attempts),
             )
         except RuntimeError as exc:
             return self._failure(query, started, "parse", str(exc))
@@ -114,8 +115,16 @@ class WikipediaSearchProvider(SearchProvider):
     def _request_json(self, url: str) -> dict | list:
         self._wait()
         debug.log("WikipediaSearchProvider", f"API CALL → {url}")
-        response = self.http.get(url, headers=self._headers())
-        self._attempts = response.attempts
+        try:
+            response = self.http.get(url, headers=self._headers())
+        except SearchTimeoutError as exc:
+            self._attempts += exc.attempts
+            raise
+        except HttpRequestError as exc:
+            self._attempts += exc.attempts
+            raise
+
+        self._attempts += response.attempts
 
         try:
             return json.loads(response.body.decode("utf-8"))
