@@ -99,10 +99,17 @@ class StudentMind:
                 item_ref = evidence[ref]
                 if not isinstance(item_ref, dict):
                     continue
+                relevance = str(item_ref.get("harness_relevance", "UNCERTAIN")).upper()
+                if relevance not in {"DIRECT", "PARTIAL"}:
+                    debug.log(
+                        "StudentMind",
+                        f"BELIEF SUPPORT SKIP → index={ref}, relevance={relevance}",
+                    )
+                    continue
                 valid_refs.append({
                     "index": ref, "source": item_ref.get("source"),
                     "title": item_ref.get("title"), "identifier": item_ref.get("identifier"),
-                    "harness_relevance": item_ref.get("harness_relevance", "UNCERTAIN"),
+                    "harness_relevance": relevance,
                 })
             if new and status in {"REVISED", "CONFIRMED"} and valid_refs:
                 self.belief_support[new] = valid_refs
@@ -110,6 +117,10 @@ class StudentMind:
                 self.belief_support[new] = []
             if status == "RETRACTED":
                 self.belief_support.pop(old, None)
+            debug.log(
+                "StudentMind",
+                f"BELIEF REVISION → status={status}, horizon={horizon}, evidence_refs={len(valid_refs)}",
+            )
             self.belief_history.append({
                 "horizon": horizon, "old": old, "new": new,
                 "status": status if status in {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"} else "UNCERTAIN",
