@@ -207,19 +207,33 @@ class KnowledgeGraph:
 
     def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
         node = self.nodes.get(self._id(query))
-        if not node: return {"status": "unknown", "weak_concepts": []}
+        if not node:
+            return {
+                "status": {"learning_stage": "unknown"},
+                "weak_concepts": [],
+                "learning_concepts": [],
+                "unassessed_concepts": [],
+            }
         related = [
             item for item in self.neighbors(query, limit * 2)
             if item.get("relation") != "supported_by_search"
         ]
+        weak = []
+        learning = []
+        unknown = []
+        for item in related:
+            stage = item.get("learner", {}).get("learning_stage")
+            if stage == "weak":
+                weak.append(item["name"])
+            elif stage in {"new", "learning"}:
+                learning.append(item["name"])
+            elif stage == "unknown":
+                unknown.append(item["name"])
         return {
             "status": node.learner.as_dict(),
-            "weak_concepts": [
-                x["name"]
-                for x in related
-                if x.get("learner", {}).get("learning_stage")
-                in {"unknown", "new", "weak", "learning"}
-            ][:limit],
+            "weak_concepts": weak[:limit],
+            "learning_concepts": learning[:limit],
+            "unassessed_concepts": unknown[:limit],
         }
 
 
