@@ -132,3 +132,27 @@ def test_student_mind_ignores_invalid_evidence_reference():
 
     assert mind.belief_support["B"] == []
     assert mind.belief_history[-1]["evidence_refs"] == []
+
+
+
+def test_student_mind_rejects_irrelevant_evidence_as_belief_support():
+    from core.state import StudentMind
+
+    mind = StudentMind()
+    evidence = [{
+        "source": "wikipedia",
+        "title": "Unrelated",
+        "identifier": "1",
+        "harness_relevance": "IRRELEVANT",
+    }]
+    mind.revise_beliefs([{
+        "old": "old belief",
+        "new": "new belief",
+        "horizon": "long_term",
+        "status": "REVISED",
+        "reason": "claimed support",
+        "evidence_refs": [0],
+    }], evidence)
+
+    assert mind.belief_support["new belief"] == []
+    assert mind.belief_history[-1]["evidence_refs"] == []
