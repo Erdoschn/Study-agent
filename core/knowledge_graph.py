@@ -393,11 +393,18 @@ class KnowledgeGraph:
                 })
 
         weak = []
+        learning = []
+        unknown = []
         for item in neighbors:
             if item.get("relation") == "supported_by_search":
                 continue
-            if item.get("learner", {}).get("learning_stage") in {"unknown", "new", "weak", "learning"}:
+            stage = item.get("learner", {}).get("learning_stage")
+            if stage == "weak":
                 weak.append(item["name"])
+            elif stage in {"new", "learning"}:
+                learning.append(item["name"])
+            elif stage == "unknown":
+                unknown.append(item["name"])
 
         search_candidates = []
         seen_candidates = set()
@@ -420,6 +427,8 @@ class KnowledgeGraph:
                 ),
                 "matched_concepts": matched_names,
                 "weak_concepts": weak[:limit],
+                "learning_concepts": learning[:limit],
+                "unassessed_concepts": unknown[:limit],
             },
             "search_candidates": search_candidates[:8],
             "node_count": len(self.nodes),
