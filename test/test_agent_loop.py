@@ -537,3 +537,30 @@ def test_reasoner_drops_empty_claims():
     assert decision.claims == [
         {"claim": "attention uses query"}
     ]
+
+
+
+def test_verify_uses_state_evidence_instead_of_supplied_override():
+    executor = ToolExecutor()
+    from core.state import AgentState
+
+    state = AgentState(question="attention")
+    state.evidence = [{
+        "title": "Actual evidence",
+        "abstract": "attention mechanisms",
+        "harness_relevance": "DIRECT",
+    }]
+
+    result = executor.execute(
+        "verify",
+        {
+            "claim": "fabricated claim",
+            "evidence": [{
+                "title": "Fake evidence",
+                "abstract": "fabricated claim",
+                "harness_relevance": "DIRECT",
+            }],
+        },
+        state=state,
+    )
+    assert result["verification_status"] == "NOT_MATCHED"
