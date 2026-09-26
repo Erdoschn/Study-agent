@@ -232,3 +232,14 @@ def test_mastery_survives_one_easy_correct_answer():
 
     graph.record_assessment(["attention"], True, difficulty="basic")
     assert graph.nodes["attention"].learner.learning_stage == "mastered"
+
+
+def test_mastery_demotes_after_three_consecutive_advanced_failures():
+    graph = KnowledgeGraph()
+    for _ in range(5):
+        graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+
+    for _ in range(3):
+        graph.record_assessment(["attention"], False, difficulty="postgraduate_plus")
+    assert graph.nodes["attention"].learner.learning_stage == "weak"
