@@ -175,6 +175,8 @@ class KnowledgeGraph:
         return dict(DIFFICULTY_LEVELS)
 
     def update_learner(self, concept: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        if not isinstance(correct, bool):
+            raise ValueError("assessment correct 必须是布尔值。")
         node_id = self.add_concept(concept)
         if node_id:
             debug.log(
@@ -184,6 +186,8 @@ class KnowledgeGraph:
             self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
 
     def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        if not isinstance(correct, bool):
+            raise ValueError("assessment correct 必须是布尔值。")
         seen = set()
         for concept in concepts:
             name = str(concept or "").strip()
@@ -198,6 +202,8 @@ class KnowledgeGraph:
         )
 
     def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        if not isinstance(correct, bool):
+            raise ValueError("assessment correct 必须是布尔值。")
         key = (self._id(source), self._id(target), relation)
         if key not in self.edges:
             self.add_relation(source, target, relation)
