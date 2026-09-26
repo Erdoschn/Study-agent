@@ -428,3 +428,29 @@ def test_search_router_auto_continues_after_timeout():
 
     assert len(results) == 1
     assert results[0].source == "good"
+
+
+
+def test_wikipedia_search_timeout_preserves_attempts():
+    from tools.search.http import SearchTimeoutError
+
+    class FakeWikipediaHttpClient:
+        def get(self, url, *, headers=None):
+            raise SearchTimeoutError(
+                "SEARCH_TIMEOUT: simulated",
+                attempts=4,
+            )
+
+    provider = WikipediaSearchProvider(http_client=FakeWikipediaHttpClient())
+    response = provider.search_detailed(SearchQuery(query="transformer"))
+    assert response.success is False
+    assert response.error is not None
+    assert response.error.stage == "timeout"
+    assert response.error.attempts == 4
+
+    try:
+        provider.search(SearchQuery(query="transformer"))
+    except SearchTimeoutError as exc:
+        assert exc.attempts == 4
+    else:
+        raise AssertionError("timeout should propagate from search()")
