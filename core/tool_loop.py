@@ -408,8 +408,8 @@ class AgentToolLoop:
                     state.task_type = decision.task_type
                 if decision.domain:
                     state.domain = decision.domain
-                if decision.claims:
-                    state.claims = decision.claims
+                if decision.action == "ANSWER":
+                    state.claims = decision.claims or []
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
                 if decision.knowledge_relations and state.knowledge_graph is not None:
@@ -433,11 +433,26 @@ class AgentToolLoop:
                 if decision.action in {"ANSWER", "STOP"}:
                     if decision.action == "ANSWER":
                         verified = self._claims_verified(state)
+                        claims_required = bool(state.evidence)
                         debug.log(
                             "AgentToolLoop",
-                            f"ANSWER GATE → evidence={len(state.evidence)}, claims={len(state.claims)}, verified={verified}",
+                            f"ANSWER GATE → evidence={len(state.evidence)}, claims={len(state.claims)}, verified={verified}, claims_required={claims_required}",
                         )
-                        if state.evidence and state.claims and not verified:
+                        if claims_required and not state.claims:
+                            state.last_error_type = "CLAIMS_REQUIRED"
+                            state.recovery_count += 1
+                            debug.log(
+                                "AgentToolLoop",
+                                "ANSWER BLOCKED → CLAIMS_REQUIRED",
+                            )
+                            state.add_step(AgentStep(
+                                step_id=step_id, action="ANSWER_BLOCKED", model=decision.model,
+                                reasoning_summary="使用了外部证据，但当前 ANSWER 未提供需要核查的 claims。",
+                                success=False,
+                                error="CLAIMS_REQUIRED: 使用外部证据时必须显式提交当前 ANSWER 的 claims。",
+                            ))
+                            continue
+                        if claims_required and not verified:
                             state.last_error_type = "VERIFY_REQUIRED"
                             state.recovery_count += 1
                             debug.log(
@@ -513,11 +528,10 @@ class AgentToolLoop:
                         )
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
-                    state.claims.append({
-                        "claim": observation.get("claim", ""),
-                        "verification_status": observation.get("verification_status", "UNCERTAIN"),
-                        "matched_evidence": observation.get("matched_evidence", []),
-                    })
+                    debug.log(
+                        "AgentToolLoop",
+                        f"VERIFY RESULT → claim={observation.get('claim', '')!r}, status={observation.get('verification_status', 'UNCERTAIN')}",
+                    )
                 debug.log(
                     "AgentToolLoop",
                     f"OBSERVE → action={decision.action}, success={success}, error_type={error_type or 'none'}",
