@@ -139,3 +139,38 @@ def test_legacy_teacher_adapter_can_be_detected():
 
     assert Teacher.supports_draft_answer(LegacyTeacher()) is False
     assert Teacher.supports_draft_answer(ModernTeacher()) is True
+
+
+
+def test_teacher_payload_compacts_search_observations():
+    from core.tool_loop import SearchObservation
+
+    state = AgentState(question="attention")
+    state.steps = [
+        type("Step", (), {
+            "step_id": 1,
+            "action": "SEARCH",
+            "model": "fake",
+            "tool": "search",
+            "reasoning_summary": "search",
+            "observation": SearchObservation(
+                [{
+                    "source": "wikipedia",
+                    "title": "Attention",
+                    "identifier": "1",
+                    "abstract": "x" * 1000,
+                    "harness_relevance": "DIRECT",
+                    "harness_recency": "UNKNOWN",
+                }] * 20,
+                {"status": "COVERED", "relevant_count": 20, "uncovered_terms": []},
+            ),
+            "success": True,
+            "error": "",
+        })
+    ]
+
+    payload = Teacher._build_payload(state)
+    observation = payload["steps"][0]["observation"]
+    assert len(observation["results"]) == 8
+    assert len(observation["results"][0]["abstract"]) == 500
+    assert observation["coverage"]["status"] == "COVERED"
