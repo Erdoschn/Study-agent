@@ -299,8 +299,9 @@ class KnowledgeGraph:
 
     def relevant_concepts(self, query: str, limit: int = 6) -> list[str]:
         query_id = self._id(query)
-        if query_id in self.nodes:
-            return [self.nodes[query_id].name]
+        direct = self.nodes.get(query_id)
+        if direct is not None and direct.node_type == "concept":
+            return [direct.name]
 
         query_tokens = self._concept_tokens(query)
         if not query_tokens:
