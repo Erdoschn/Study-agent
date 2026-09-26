@@ -175,10 +175,21 @@ class StudyAgent:
         self.knowledge_graph.record_assessment(
             [str(x) for x in concepts if str(x).strip()], bool(correct), confidence, normalize_difficulty(difficulty)[1]
         )
-        if relation is not None and len(relation) == 3:
-            self.knowledge_graph.update_relation_learner(
-                str(relation[0]), str(relation[1]), str(relation[2]), bool(correct), confidence, normalize_difficulty(difficulty)[1]
-            )
+        if isinstance(relation, (list, tuple)) and len(relation) == 3:
+            source, target, relation_type = (str(x).strip() for x in relation)
+            from .knowledge_graph import RELATIONS
+            if source and target and source != target and relation_type in RELATIONS:
+                self.knowledge_graph.update_relation_learner(
+                    source, target, relation_type, bool(correct), confidence,
+                    normalize_difficulty(difficulty)[1]
+                )
+                debug.log(
+                    "StudyAgent",
+                    f"ASSESS RELATION → {source} -[{relation_type}]-> {target}",
+                )
+        elif relation is not None:
+            debug.log("StudyAgent", "ASSESS RELATION → ignored malformed relation input")
+
         if self.student_state is not None:
             self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
 
