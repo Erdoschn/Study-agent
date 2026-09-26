@@ -2,6 +2,8 @@
 
 import re
 
+from .__debug__ import debug
+
 
 class GoalMatcher:
     """Match current task text to saved learning goals without LLM self-scoring."""
@@ -15,11 +17,18 @@ class GoalMatcher:
             "the", "a", "an", "and", "or", "to", "of", "in", "on", "for",
             "with", "is", "are", "how", "what", "why", "do", "does", "i",
         }
+        chinese_stop = {
+            "学习", "理解", "掌握", "解决", "当前", "问题", "相关",
+            "研究", "知识", "概念", "内容", "方法", "一下", "这个",
+        }
         tokens = {x for x in words if x not in stop and len(x) > 1}
         for run in chinese_runs:
             if len(run) >= 2:
-                tokens.add(run)
-                tokens.update(run[i:i + 2] for i in range(len(run) - 1))
+                if run not in chinese_stop:
+                    tokens.add(run)
+                for pair in (run[i:i + 2] for i in range(len(run) - 1)):
+                    if pair not in chinese_stop:
+                        tokens.add(pair)
         return tokens
 
     @classmethod
@@ -37,6 +46,10 @@ class GoalMatcher:
             overlap = current_tokens & goal_tokens
             if any(len(token) >= 2 for token in overlap):
                 matched.append(goal_text)
+        debug.log(
+            "GoalMatcher",
+            f"MATCH → current={current!r}, candidates={len(saved_goals or [])}, matched={len(matched)}",
+        )
         return matched
 
     @classmethod
