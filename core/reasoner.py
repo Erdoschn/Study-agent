@@ -222,6 +222,7 @@ STOP：无法继续时停止并说明原因。
             "student_state": {
                 "known_topics": sorted(state.student.known_topics),
                 "weak_topics": sorted(state.student.weak_topics),
+                "learning_topics": sorted(state.student.learning_topics),
                 "misconceptions": state.student.misconceptions,
                 "mind_bdi": state.student.mind.as_dict(),
             },
