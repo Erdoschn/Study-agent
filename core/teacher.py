@@ -69,6 +69,35 @@ class Teacher:
         )
         return strategy
 
+    @staticmethod
+    def _compact_observation(observation):
+        if hasattr(observation, "get") and hasattr(observation, "coverage"):
+            results = []
+            for item in (observation.get("results", []) or [])[:8]:
+                if not isinstance(item, dict):
+                    continue
+                results.append({
+                    "source": item.get("source"),
+                    "title": item.get("title"),
+                    "identifier": item.get("identifier"),
+                    "abstract": str(item.get("abstract", ""))[:500],
+                    "harness_relevance": item.get("harness_relevance", "UNCERTAIN"),
+                    "harness_recency": item.get("harness_recency", "UNKNOWN"),
+                })
+            return {
+                "results": results,
+                "coverage": observation.get("coverage", {}),
+            }
+        if isinstance(observation, dict):
+            result = dict(observation)
+            for key, value in list(result.items()):
+                if isinstance(value, str):
+                    result[key] = value[:1000]
+            return result
+        if isinstance(observation, str):
+            return observation[:1500]
+        return observation
+
     @classmethod
     def _build_payload(cls, state, draft_answer: str | None = None) -> dict:
         strategy = cls._derive_strategy(state)
