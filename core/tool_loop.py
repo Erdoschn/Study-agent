@@ -109,7 +109,7 @@ class ToolExecutor:
         self.register(
             ToolSpec(
                 "verify",
-                "Review a claim against supplied evidence; if evidence is omitted, Harness uses current state evidence.",
+                "Review a claim against current state evidence. Caller-supplied evidence is ignored inside the agent loop.",
                 {
                     "type": "object",
                     "properties": {
@@ -150,6 +150,9 @@ class ToolExecutor:
             raise RuntimeError("SearchRouter 尚未配置。")
         from tools.search import SearchQuery
 
+        query_text = str(arguments.get("query", "")).strip()
+        if not query_text:
+            raise ValueError("search 缺少 query。")
         explicit_source = str(arguments.get("source", "")).strip().lower()
         source = explicit_source or "auto"
         if source != "auto":
@@ -162,14 +165,30 @@ class ToolExecutor:
         if not isinstance(categories, list):
             categories = []
         sort_by = str(arguments.get("sort_by", "")).strip() or str(getattr(state, "search_sort_by", "relevance"))
+        try:
+            max_results = int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("search max_results 必须是整数。") from exc
+        if not 1 <= max_results <= 50:
+            raise ValueError("search max_results 必须在 1~50 之间。")
+
+        sort_by = str(
+            arguments.get("sort_by", "")
+        ).strip() or str(getattr(state, "search_sort_by", "relevance"))
+        if sort_by not in {"relevance", "submittedDate"}:
+            raise ValueError("search sort_by 只支持 relevance 或 submittedDate。")
+        sort_order = str(arguments.get("sort_order", "descending")).strip().lower()
+        if sort_order not in {"ascending", "descending"}:
+            raise ValueError("search sort_order 只支持 ascending 或 descending。")
+
         query = SearchQuery(
-            query=str(arguments.get("query", "")),
+            query=query_text,
             source=source,
             source_preferences=preferences,
             categories=[str(x) for x in categories],
-            max_results=int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS)),
+            max_results=max_results,
             sort_by=sort_by,
-            sort_order=str(arguments.get("sort_order", "descending")),
+            sort_order=sort_order,
         )
         results = self.search_router.search(query)
         raw = [
