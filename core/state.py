@@ -133,6 +133,9 @@ class StudentState:
         known = set()
         weak = set()
         for node in getattr(graph, "nodes", {}).values():
+            # Search-result/document nodes are evidence provenance, not learner concepts.
+            if getattr(node, "node_type", "concept") != "concept":
+                continue
             stage = getattr(getattr(node, "learner", None), "learning_stage", "unknown")
             if stage in {"familiar", "mastered"}:
                 known.add(node.name)
