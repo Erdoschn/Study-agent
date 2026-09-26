@@ -576,3 +576,20 @@ def test_reasoner_rejects_non_object_json():
         assert "顶层结果必须是对象" in str(exc)
     else:
         raise AssertionError("non-object Reasoner JSON should fail")
+
+
+
+def test_search_tool_rejects_invalid_runtime_arguments():
+    executor = ToolExecutor()
+    for arguments, expected in [
+        ({"query": "attention", "max_results": 0}, "1~50"),
+        ({"query": "attention", "sort_by": "bad"}, "sort_by"),
+        ({"query": "attention", "sort_order": "bad"}, "sort_order"),
+        ({"query": ""}, "缺少 query"),
+    ]:
+        try:
+            executor._search(arguments)
+        except ValueError as exc:
+            assert expected in str(exc)
+        else:
+            raise AssertionError("invalid search arguments should be rejected")
