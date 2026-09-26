@@ -155,13 +155,18 @@ class KnowledgeGraph:
         state.last_seen = time.time()
         n = len(state.assessment_history)
         if previous_stage == "mastered":
-            recent_wrong = sum(
-                1 for x in state.assessment_history[-3:]
-                if not x.get("correct")
+            recent = state.assessment_history[-3:]
+            recent_wrong = len(recent) == 3 and all(
+                not x.get("correct") for x in recent
             )
-            # Mastery is sticky: one wrong or one easier question is not enough
-            # to revoke stronger prior evidence. Require sustained counter-evidence.
-            if recent_wrong >= 2 and accuracy < 0.5:
+            recent_advanced = len(recent) == 3 and all(
+                float(x.get("difficulty", 0.0)) >= POSTGRADUATE_THRESHOLD
+                for x in recent
+            )
+            # Mastery is sticky: one wrong or an easier question is not enough
+            # to revoke stronger prior evidence. Require sustained advanced-level
+            # counter-evidence (three consecutive failures).
+            if recent_wrong and recent_advanced:
                 state.learning_stage = "weak"
             else:
                 state.learning_stage = "mastered"
