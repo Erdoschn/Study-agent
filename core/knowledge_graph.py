@@ -260,8 +260,14 @@ class KnowledgeGraph:
         }
 
 
-    def add_relation(self, source: str, target: str, relation: str = "related_to",
-                     confidence: float = 0.0, evidence: dict[str, Any] | None = None) -> None:
+    def add_relation(
+        self,
+        source: str,
+        target: str,
+        relation: str = "related_to",
+        confidence: float = 0.0,
+        evidence: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> None:
         if relation not in RELATIONS:
             raise ValueError(f"未知知识关系：{relation}")
         try:
@@ -284,9 +290,13 @@ class KnowledgeGraph:
             self.edges[key] = edge
         else:
             edge.confidence = max(edge.confidence, safe_confidence)
-        if evidence and evidence not in edge.evidence_refs:
-            edge.evidence_refs.append(dict(evidence))
-            del edge.evidence_refs[:-10]
+        evidence_items = evidence if isinstance(evidence, list) else ([evidence] if isinstance(evidence, dict) else [])
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                continue
+            if item not in edge.evidence_refs:
+                edge.evidence_refs.append(dict(item))
+        del edge.evidence_refs[:-10]
         debug.log(
             "KnowledgeGraph",
             f"RELATION → {source!r} -[{relation}]-> {target!r} confidence={edge.confidence:.2f}",
@@ -375,7 +385,10 @@ class KnowledgeGraph:
                         "relation": edge.relation,
                         "direction": "out" if edge.source == node_id else "in",
                         "confidence": edge.confidence,
-                        "learner": edge.learner.as_dict(),
+                        # "learner" describes the neighboring concept.
+                        # Relation-specific assessment evidence is exposed separately.
+                        "learner": node.learner.as_dict(),
+                        "relation_learner": edge.learner.as_dict(),
                     })
         items.sort(key=lambda x: x["confidence"], reverse=True)
         return items[:limit]
