@@ -154,13 +154,10 @@ class EvidenceEngine:
 
     @classmethod
     def _negation_conflicts(cls, claim: str, evidence_text: str) -> bool:
+        """Detect opposite negation only in a local evidence span supporting the claim."""
         claim_text = str(claim or "").strip().lower()
         evidence_text = str(evidence_text or "").strip().lower()
         if not claim_text or not evidence_text:
-            return False
-        claim_neg = cls._negation_words(claim_text)
-        evidence_neg = cls._negation_words(evidence_text)
-        if claim_neg == evidence_neg:
             return False
 
         def strip_negation(text: str) -> str:
@@ -174,9 +171,27 @@ class EvidenceEngine:
                 "",
                 text,
             )
+
+        claim_neg = cls._negation_words(claim_text)
         claim_base = re.sub(r"\s+", "", strip_negation(claim_text))
-        evidence_base = re.sub(r"\s+", "", strip_negation(evidence_text))
-        return bool(claim_base and claim_base in evidence_base)
+        if not claim_base:
+            return False
+
+        # Work sentence-by-sentence (plus common semicolon/period delimiters).
+        # A negated side remark elsewhere in the same abstract must not cancel
+        # an unrelated positive claim.
+        spans = re.split(r"(?:[.!?。！？；;]\s*|\n+)", evidence_text)
+        for span in spans:
+            span = span.strip()
+            if not span:
+                continue
+            span_base = re.sub(r"\s+", "", strip_negation(span))
+            if not span_base or claim_base not in span_base:
+                continue
+            span_neg = cls._negation_words(span)
+            if span_neg != claim_neg:
+                return True
+        return False
 
     @classmethod
     def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
