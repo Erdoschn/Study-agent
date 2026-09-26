@@ -81,7 +81,7 @@ class EvidenceEngine:
         query_text = str(query or "").strip().lower()
         chinese_direct = bool(
             query_text
-            and re.search(r"[\\u4e00-\\u9fff]", query_text)
+            and re.search(r"[\u4e00-\u9fff]", query_text)
             and query_text in combined_text
         )
         if not q or not (title or body):
