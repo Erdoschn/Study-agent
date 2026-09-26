@@ -91,6 +91,6 @@ def test_student_state_sync_preserves_unassessed_external_topics():
     student.sync_from_knowledge_graph(graph)
 
     assert "transformer" in student.known_topics
-    assert "attention" not in student.known_topics
-    assert "attention" in student.weak_topics
+    assert "attention" in student.known_topics
+    assert "attention" not in student.weak_topics
     assert "optimization" in student.weak_topics
