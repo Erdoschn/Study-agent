@@ -108,3 +108,19 @@ def test_evidence_verify_rejects_opposite_negation_chinese():
     verification = EvidenceEngine.verify("attention 不使用固定权重", evidence)
     assert verification["verification_status"] == "NOT_MATCHED"
     assert verification["matched_evidence"] == []
+
+
+
+def test_evidence_verify_allows_unrelated_negation_in_same_evidence():
+    evidence = EvidenceEngine.normalize(
+        "attention uses query",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "attention uses query and values. It does not use fixed weights.",
+            "identifier": "1",
+        }],
+    )
+    verification = EvidenceEngine.verify("attention uses query", evidence)
+    assert verification["verification_status"] == "MATCHED"
+    assert verification["matched_evidence"] == [0]
