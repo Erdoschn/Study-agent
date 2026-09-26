@@ -188,7 +188,10 @@ class Teacher:
         debug.log("Teacher", f"CALL LLM → {model.name}")
         result = self.model_factory.create(model).generate(self.SYSTEM_PROMPT, prompt)
         self.model_router.registry.record_success(model.name, "teaching")
-        debug.log("Teacher", f"SUCCESS → {model.name}")
+        debug.log(
+            "Teacher",
+            f"SUCCESS → {model.name}, output_chars={len(str(result or ''))}",
+        )
         return result
 
     def generate(self, state, draft_answer: str | None = None) -> str:
