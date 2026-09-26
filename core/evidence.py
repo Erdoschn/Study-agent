@@ -132,6 +132,15 @@ class EvidenceEngine:
             normalized.append(item)
         return normalized
 
+    @staticmethod
+    def _negation_profile(text: str) -> bool | None:
+        text = str(text or "").lower()
+        english = bool(re.search(r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b", text))
+        chinese = bool(re.search(r"(?:没有|并非|不是|不会|不能|无需|未曾|未被|不使用|不采用)", text))
+        if english or chinese:
+            return True
+        return False
+
     @classmethod
     def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
         """Structural text matching only; this does not establish factual truth."""
@@ -150,6 +159,12 @@ class EvidenceEngine:
             if not isinstance(item, dict) or item.get("harness_relevance") not in {"DIRECT", "PARTIAL"}:
                 continue
             text = f"{item.get('title', '')} {item.get('abstract', '')} {item.get('notes', '')}"
+            if cls._negation_profile(claim) != cls._negation_profile(text):
+                debug.log(
+                    "EvidenceEngine",
+                    f"VERIFY SKIP → claim/evidence negation mismatch at evidence={index}",
+                )
+                continue
             if claim_tokens.issubset(cls._tokens(text)):
                 matched.append(index)
         status = "MATCHED" if matched else "NOT_MATCHED"
