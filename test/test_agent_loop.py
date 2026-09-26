@@ -264,11 +264,19 @@ def test_adaptive_search_changes_query_after_partial_coverage():
                     arguments={"query": "attention transformer", "source": "arxiv"},
                 )
 
-            assert state.last_observation["coverage"]["status"] == "COVERED"
+            if self.calls == 3:
+                assert state.last_observation["coverage"]["status"] == "COVERED"
+                return ReasoningDecision(
+                    action="VERIFY",
+                    reasoning_summary="核查当前陈述。",
+                    tool="verify",
+                    arguments={"claim": "attention transformer"},
+                )
             return ReasoningDecision(
                 action="ANSWER",
                 reasoning_summary="证据覆盖充分。",
                 answer="ok",
+                claims=[{"claim": "attention transformer"}],
             )
 
     state = AgentToolLoop(
@@ -278,6 +286,8 @@ def test_adaptive_search_changes_query_after_partial_coverage():
 
     assert state.finished is True
     assert state.final_answer == "ok"
+    assert state.steps[-2].action == "VERIFY"
+    assert state.steps[-1].action == "ANSWER"
     assert [call.query for call in wiki.calls] == ["attention transformer"]
     assert [call.query for call in arxiv.calls] == ["attention transformer"]
     assert state.steps[0].observation["coverage"]["status"] == "PARTIAL"
