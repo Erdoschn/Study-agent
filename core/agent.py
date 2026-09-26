@@ -58,6 +58,8 @@ class StudyAgent:
             elif self.student_state is None:
                 self.student_state = state.student
             state.student = self.student_state
+            # Restore persistent learner evidence before TaskAnalyzer sees the student.
+            state.student.sync_from_knowledge_graph(self.knowledge_graph)
 
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
