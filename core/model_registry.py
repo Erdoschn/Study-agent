@@ -30,6 +30,9 @@ class ModelInfo:
 class ModelRegistry:
     """模型注册、可用性与运行统计；不负责最终选择。"""
 
+    BASE_COOLDOWN_SECONDS = 5.0
+    MAX_COOLDOWN_SECONDS = 120.0
+
     def __init__(self, config: dict[str, Any]):
         self.models: dict[str, ModelInfo] = {}
         self._load(config)
@@ -75,16 +78,20 @@ class ModelRegistry:
         model = self.get(name)
         model.calls += 1
         model.successes += 1
+        model.cooldown_until = 0.0
         if capability:
             self._update_capability(model, capability, True)
 
     def record_failure(self, name: str, capability: str | None = None) -> None:
+        import time
         model = self.get(name)
         model.calls += 1
         model.failures += 1
+        failures = max(1, model.failures)
+        cooldown = min(self.MAX_COOLDOWN_SECONDS, self.BASE_COOLDOWN_SECONDS * (2 ** min(failures - 1, 5)))
+        model.cooldown_until = time.time() + cooldown
         if capability:
             self._update_capability(model, capability, False)
-
     @staticmethod
     def _update_capability(model: ModelInfo, capability: str, success: bool) -> None:
         old = model.capability_stats.get(capability, 0.5)
