@@ -151,20 +151,16 @@ class ToolExecutor:
         return handler(arguments)
 
     def _search(self, arguments, state=None):
-        if self.search_router is None:
-            raise RuntimeError("SearchRouter 尚未配置。")
         from tools.search import SearchQuery
 
+        # Validate caller arguments before checking runtime dependencies so
+        # malformed tool calls fail deterministically even in unit tests or
+        # isolated harnesses without a configured SearchRouter.
         query_text = str(arguments.get("query", "")).strip()
         if not query_text:
             raise ValueError("search 缺少 query。")
         explicit_source = str(arguments.get("source", "")).strip().lower()
         source = explicit_source or "auto"
-        if source != "auto":
-            available = {str(x).strip().lower() for x in self.search_router.available_sources()}
-            if source not in available:
-                names = ", ".join(sorted(available))
-                raise ValueError(f"未知搜索源：{source}。可用搜索源：{names}")
         preferences = []
         categories = arguments.get("categories", [])
         if not isinstance(categories, list):
@@ -185,6 +181,14 @@ class ToolExecutor:
         sort_order = str(arguments.get("sort_order", "descending")).strip().lower()
         if sort_order not in {"ascending", "descending"}:
             raise ValueError("search sort_order 只支持 ascending 或 descending。")
+
+        if self.search_router is None:
+            raise RuntimeError("SearchRouter 尚未配置。")
+        if source != "auto":
+            available = {str(x).strip().lower() for x in self.search_router.available_sources()}
+            if source not in available:
+                names = ", ".join(sorted(available))
+                raise ValueError(f"未知搜索源：{source}。可用搜索源：{names}")
 
         query = SearchQuery(
             query=query_text,
