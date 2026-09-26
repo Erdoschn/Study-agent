@@ -435,6 +435,8 @@ def test_reasoner_parses_and_sanitizes_knowledge_relations():
 
 
 def test_tool_loop_persists_reasoner_knowledge_relations():
+    from core.knowledge_graph import KnowledgeGraph
+
     class Reasoner:
         def decide(self, state):
             return ReasoningDecision(
@@ -449,10 +451,11 @@ def test_tool_loop_persists_reasoner_knowledge_relations():
                 }],
             )
 
+    state = AgentState(question="attention", knowledge_graph=KnowledgeGraph())
     state = AgentToolLoop(
         Reasoner(),
         ToolExecutor(),
-    ).run(AgentState(question="attention"))
+    ).run(state)
 
     edge = state.knowledge_graph.edges[("attention", "transformer", "part_of")]
     assert edge.confidence == 0.8
