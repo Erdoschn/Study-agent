@@ -50,3 +50,14 @@ def test_parse_normalizes_invalid_task_type_and_non_object_json():
         assert "顶层结果必须是对象" in str(exc)
     else:
         raise AssertionError("non-object JSON should fail")
+
+
+def test_parse_normalizes_string_boolean_and_bounds_lists():
+    result = TaskAnalyzer._parse(
+        '{"task_type":"conceptual","external_facts_needed":"false",'
+        '"issues":["a","a","","b"],'
+        '"knowledge_gaps":["gap","gap"]}'
+    )
+    assert result.external_facts_needed is False
+    assert result.issues == ["a", "b"]
+    assert result.knowledge_gaps == ["gap"]
