@@ -133,6 +133,7 @@ class StudentMind:
 class StudentState:
     known_topics: set[str] = field(default_factory=set)
     weak_topics: set[str] = field(default_factory=set)
+    learning_topics: set[str] = field(default_factory=set)
     misconceptions: list[str] = field(default_factory=list)
     mind: StudentMind = field(default_factory=StudentMind)
 
@@ -145,6 +146,7 @@ class StudentState:
             return
         graph_known = set()
         graph_weak = set()
+        graph_learning = set()
         for node in getattr(graph, "nodes", {}).values():
             # Search-result/document nodes are evidence provenance, not learner concepts.
             if getattr(node, "node_type", "concept") != "concept":
@@ -152,18 +154,24 @@ class StudentState:
             stage = getattr(getattr(node, "learner", None), "learning_stage", "unknown")
             if stage in {"familiar", "mastered"}:
                 graph_known.add(node.name)
-            elif stage in {"weak", "new", "learning"}:
+            elif stage == "weak":
                 graph_weak.add(node.name)
+            elif stage in {"new", "learning"}:
+                graph_learning.add(node.name)
 
         # Preserve externally supplied learner topics that have no conflicting
         # graph assessment; explicit graph assessment wins on conflicts.
-        self.known_topics = (set(self.known_topics) - graph_weak) | graph_known
-        self.weak_topics = (set(self.weak_topics) - graph_known) | graph_weak
+        self.known_topics = (set(self.known_topics) - graph_weak - graph_learning) | graph_known
+        self.weak_topics = (set(self.weak_topics) - graph_known - graph_learning) | graph_weak
+        self.learning_topics = (set(self.learning_topics) - graph_known - graph_weak) | graph_learning
         self.weak_topics -= self.known_topics
+        self.learning_topics -= self.known_topics
+        self.learning_topics -= self.weak_topics
         debug.log(
             "StudentState",
             f"SYNC → graph_known={sorted(graph_known)}, graph_weak={sorted(graph_weak)}, "
-            f"known={sorted(self.known_topics)}, weak={sorted(self.weak_topics)}",
+            f"graph_learning={sorted(graph_learning)}, known={sorted(self.known_topics)}, "
+            f"weak={sorted(self.weak_topics)}, learning={sorted(self.learning_topics)}",
         )
 
 
