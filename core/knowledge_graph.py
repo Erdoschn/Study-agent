@@ -172,8 +172,20 @@ class KnowledgeGraph:
     def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
         node = self.nodes.get(self._id(query))
         if not node: return {"status": "unknown", "weak_concepts": []}
-        related = self.neighbors(query, limit)
-        return {"status": node.learner.as_dict(), "weak_concepts": [x["name"] for x in related if x.get("learner", {}).get("learning_stage") in {"unknown", "new", "weak", "learning"}]}
+        related = [
+            item for item in self.neighbors(query, limit * 2)
+            if item.get("relation") != "supported_by_search"
+        ]
+        return {
+            "status": node.learner.as_dict(),
+            "weak_concepts": [
+                x["name"]
+                for x in related
+                if x.get("learner", {}).get("learning_stage")
+                in {"unknown", "new", "weak", "learning"}
+            ][:limit],
+        }
+
 
     def add_relation(self, source: str, target: str, relation: str = "related_to",
                      confidence: float = 0.0, evidence: dict[str, Any] | None = None) -> None:
