@@ -289,7 +289,7 @@ class AgentToolLoop:
     @staticmethod
     def _claim_key(claim):
         import re
-        return re.sub(r"[^a-z0-9\\u4e00-\\u9fff]+", "", str(claim or "").strip().lower())
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(claim or "").strip().lower())
 
     @classmethod
     def _verified_claim_keys(cls, state):
