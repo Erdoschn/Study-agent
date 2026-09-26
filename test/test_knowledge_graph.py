@@ -80,7 +80,7 @@ def test_student_state_sync_preserves_unassessed_external_topics():
     from core.state import StudentState
 
     graph = KnowledgeGraph()
-    for _ in range(3):
+    for _ in range(5):
         graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
 
     student = StudentState()
