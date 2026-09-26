@@ -106,3 +106,22 @@ def test_router_learns_capability():
     ).capability_stats["reasoning"]
 
     assert score > 0.5
+
+def test_registry_failure_puts_model_on_cooldown(monkeypatch):
+    registry = ModelRegistry(config())
+    monkeypatch.setattr("time.time", lambda: 100.0)
+    registry.record_failure("model-a", "reasoning")
+
+    assert registry.get("model-a").cooldown_until > 100.0
+    assert registry.available() == []
+
+
+def test_registry_success_clears_cooldown(monkeypatch):
+    registry = ModelRegistry(config())
+    monkeypatch.setattr("time.time", lambda: 100.0)
+    registry.record_failure("model-a", "reasoning")
+    assert registry.available() == []
+
+    registry.record_success("model-a", "reasoning")
+    assert registry.get("model-a").cooldown_until == 0.0
+    assert registry.available()[0].name == "model-a"
