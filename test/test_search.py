@@ -454,3 +454,7 @@ def test_wikipedia_search_timeout_preserves_attempts():
         assert exc.attempts == 4
     else:
         raise AssertionError("timeout should propagate from search()")
+
+
+def test_arxiv_timeout_default_is_bounded():
+    assert ArxivSearchProvider.REQUEST_TIMEOUT <= 12.0
