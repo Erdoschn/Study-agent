@@ -174,17 +174,19 @@ class StudyAgent:
 
     def record_assessment(self, concepts, correct: bool, confidence: float | None = None, relation=None, difficulty="graduate") -> None:
         """Update the persistent learner graph from an explicit quiz/exercise result."""
+        if not isinstance(correct, bool):
+            raise ValueError("assessment correct 必须是布尔值。")
         if not isinstance(concepts, (list, tuple)):
             concepts = [concepts]
         self.knowledge_graph.record_assessment(
-            [str(x) for x in concepts if str(x).strip()], bool(correct), confidence, normalize_difficulty(difficulty)[1]
+            [str(x) for x in concepts if str(x).strip()], correct, confidence, normalize_difficulty(difficulty)[1]
         )
         if isinstance(relation, (list, tuple)) and len(relation) == 3:
             source, target, relation_type = (str(x).strip() for x in relation)
             from .knowledge_graph import RELATIONS
             if source and target and source != target and relation_type in RELATIONS:
                 self.knowledge_graph.update_relation_learner(
-                    source, target, relation_type, bool(correct), confidence,
+                    source, target, relation_type, correct, confidence,
                     normalize_difficulty(difficulty)[1]
                 )
                 debug.log(
