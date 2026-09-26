@@ -125,3 +125,26 @@ def test_registry_success_clears_cooldown(monkeypatch):
     registry.record_success("model-a", "reasoning")
     assert registry.get("model-a").cooldown_until == 0.0
     assert registry.available()[0].name == "model-a"
+
+
+
+def test_failure_streak_resets_after_success(monkeypatch):
+    registry = ModelRegistry(config())
+    monkeypatch.setattr("time.time", lambda: 100.0)
+
+    registry.record_failure("model-a", "reasoning")
+    first = registry.get("model-a").cooldown_until
+    registry.get("model-a").cooldown_until = 0.0
+
+    registry.record_failure("model-a", "reasoning")
+    second = registry.get("model-a").cooldown_until
+    assert second - 100.0 > first - 100.0
+
+    registry.get("model-a").cooldown_until = 0.0
+    registry.record_success("model-a", "reasoning")
+    assert registry.get("model-a").failure_streak == 0
+
+    registry.record_failure("model-a", "reasoning")
+    third = registry.get("model-a").cooldown_until
+    assert third - 100.0 == 5.0
+    assert registry.get("model-a").failures == 3
