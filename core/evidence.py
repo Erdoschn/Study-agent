@@ -74,7 +74,9 @@ class EvidenceEngine:
                     tokens.add(token)
                     tokens.update(token[i:i + 2] for i in range(len(token) - 1))
                 continue
-            if len(token) <= 1 or token in stopwords:
+            if len(token) <= 1 and token not in {"q", "k", "v"}:
+                continue
+            if token in stopwords:
                 continue
             if token.endswith("ies") and len(token) > 4:
                 token = token[:-3] + "y"
@@ -146,7 +148,7 @@ class EvidenceEngine:
         text = str(text or "").lower()
         return bool(
             re.search(
-                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b",
+                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't|didn't|couldn't|shouldn't|wouldn't|haven't|hasn't|hadn't)\b",
                 text,
             )
             or re.search(r"(?:没有|并非|不是|不会|不能|无需|未曾|未被|不使用|不采用)", text)
@@ -170,7 +172,7 @@ class EvidenceEngine:
                 text,
             )
             text = re.sub(
-                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b",
+                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't|didn't|couldn't|shouldn't|wouldn't|haven't|hasn't|hadn't)\b",
                 " ",
                 text,
             )
@@ -188,7 +190,10 @@ class EvidenceEngine:
         # Work sentence-by-sentence (plus common semicolon/period delimiters).
         # A negated side remark elsewhere in the same abstract must not cancel
         # an unrelated positive claim.
-        spans = re.split(r"(?:[.!?。！？；;]\s*|\n+)", evidence_text)
+        spans = re.split(
+            r"(?:[.!?。！？；;]\s*|\n+|\bbut\b|\bhowever\b|\bwhereas\b|\brather\s+than\b|但是|但|然而)",
+            evidence_text,
+        )
         for span in spans:
             span = span.strip()
             if not span:
