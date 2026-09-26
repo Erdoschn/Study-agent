@@ -30,3 +30,13 @@ def test_missing_expected_answer_is_rejected():
         assert False
     except ValueError:
         pass
+
+
+
+def test_nonfinite_confidence_falls_back_to_score():
+    result = AssessmentEvaluator().evaluate(
+        _assessment(),
+        "attention maps a query to relevant values",
+        confidence=float("nan"),
+    )
+    assert result["confidence"] == result["score"]
