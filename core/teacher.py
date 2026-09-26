@@ -23,6 +23,7 @@ class Teacher:
 10. Reasoner 的 draft_answer 只是草稿，不是必须照抄的答案。可以重组、补充、删减或纠正。
 11. 不输出隐藏思维链；可以简洁说明为什么采用某种教学方式。
 12. 学生模型只是可修正的工作假设，不是心理事实；不得推测隐私、人格或其他心理事实。
+13. 不要把 Reasoner 草稿扩写成新的未经证据支持的事实。新增事实只能来自 evidence / verified claims；教学类例子必须明确标为示例或假设。
 13. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
 
 输出只需要最终教学回答，不要输出 JSON，不要输出“作为 AI”之类的套话。
@@ -68,6 +69,21 @@ class Teacher:
             f"STRATEGY → mode={mode}, known={len(known_topics)}, weak={len(weak_topics)}, misconceptions={len(misconceptions)}",
         )
         return strategy
+
+    @staticmethod
+    def _verified_claims(state):
+        claims = []
+        for step in state.steps:
+            if (
+                step.action == "VERIFY"
+                and step.success
+                and isinstance(step.observation, dict)
+                and step.observation.get("verification_status") == "MATCHED"
+            ):
+                claim = str(step.observation.get("claim", "")).strip()
+                if claim and claim not in claims:
+                    claims.append(claim)
+        return claims[:12]
 
     @staticmethod
     def _compact_observation(observation):
@@ -154,6 +170,7 @@ class Teacher:
             "evidence": evidence,
             "evidence_relevance": list(state.evidence_relevance)[-20:],
             "claims": list(state.claims)[-12:],
+            "verified_claims": cls._verified_claims(state),
         }
         debug.log(
             "Teacher",
