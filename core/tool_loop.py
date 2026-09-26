@@ -21,15 +21,18 @@ class ToolSpec:
 class SearchObservation(list):
     """List-compatible search observation with dict-style metadata for the Harness."""
 
-    def __init__(self, results, coverage):
+    def __init__(self, results, coverage, search_strategy=None):
         super().__init__(results)
         self.coverage = coverage
+        self.search_strategy = search_strategy
 
     def get(self, key, default=None):
         if key == "results":
             return list(self)
         if key == "coverage":
             return self.coverage
+        if key == "search_strategy":
+            return self.search_strategy if self.search_strategy is not None else default
         return default
 
     def __getitem__(self, key):
@@ -551,11 +554,18 @@ class AgentToolLoop:
                             search_results,
                         )
                 elif decision.action == "SEARCH" and not success:
-                    if isinstance(observation, dict):
-                        observation["search_strategy"] = SearchStrategy.guidance(
-                            state.steps,
-                            error_type=error_type,
-                        )
+                    strategy = SearchStrategy.guidance(
+                        state.steps,
+                        error_type=error_type,
+                    )
+                    if isinstance(observation, SearchObservation):
+                        observation.search_strategy = strategy
+                    elif isinstance(observation, dict):
+                        observation["search_strategy"] = strategy
+                    debug.log(
+                        "AgentToolLoop",
+                        f"SEARCH RECOVERY → required_change={strategy.get('required_change')}",
+                    )
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
                     debug.log(
