@@ -41,6 +41,8 @@ class SearchObservation(list):
                 return list(self)
             if key == "coverage":
                 return self.coverage
+            if key == "search_strategy":
+                return self.search_strategy
             raise KeyError(key)
         return super().__getitem__(key)
 
