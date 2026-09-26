@@ -46,6 +46,10 @@ class ToolExecutor:
     """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
 
     DEFAULT_SEARCH_RESULTS = 10
+    MAX_CALCULATE_EXPRESSION_LENGTH = 200
+    MAX_CALCULATE_AST_DEPTH = 32
+    MAX_CALCULATE_LITERAL_DIGITS = 100
+    MAX_CALCULATE_POWER_EXPONENT = 1000
 
     def __init__(self, search_router=None, evidence_engine=None):
         self.search_router = search_router
@@ -247,23 +251,42 @@ class ToolExecutor:
             ast.Mod: operator.mod, ast.Pow: operator.pow, ast.USub: operator.neg,
             ast.UAdd: operator.pos,
         }
-        def evaluate(node):
+        def evaluate(node, depth=0):
+            if depth > cls.MAX_CALCULATE_AST_DEPTH:
+                raise ValueError("calculate 表达式嵌套过深。")
             if isinstance(node, ast.Constant):
-                if isinstance(node.value, (int, float)):
+                if isinstance(node.value, bool):
+                    raise ValueError("只允许整数或浮点数，不允许布尔值。")
+                if isinstance(node.value, int):
+                    if len(str(abs(node.value))) > cls.MAX_CALCULATE_LITERAL_DIGITS:
+                        raise ValueError("calculate 数字字面量过大。")
+                    return node.value
+                if isinstance(node.value, float):
                     return node.value
                 raise ValueError("只允许数字常量。")
             if isinstance(node, ast.UnaryOp):
                 fn = operators.get(type(node.op))
                 if fn is None:
                     raise ValueError("不支持的运算符。")
-                return fn(evaluate(node.operand))
+                return fn(evaluate(node.operand, depth + 1))
             if isinstance(node, ast.BinOp):
                 fn = operators.get(type(node.op))
                 if fn is None:
                     raise ValueError("不支持的运算符。")
-                return fn(evaluate(node.left), evaluate(node.right))
+                left = evaluate(node.left, depth + 1)
+                right = evaluate(node.right, depth + 1)
+                if isinstance(node.op, ast.Pow):
+                    if not isinstance(right, (int, float)) or abs(right) > cls.MAX_CALCULATE_POWER_EXPONENT:
+                        raise ValueError(
+                            f"幂运算指数过大，绝对值最多允许 {cls.MAX_CALCULATE_POWER_EXPONENT}。"
+                        )
+                return fn(left, right)
             raise ValueError("表达式包含不允许的内容。")
-        return evaluate(ast.parse(expression, mode="eval").body)
+        try:
+            tree = ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"calculate 表达式语法错误：{exc.msg}") from exc
+        return evaluate(tree.body)
 
 
 class AgentToolLoop:
