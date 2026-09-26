@@ -65,6 +65,8 @@ class SearchRouter:
         combined: list[SearchResult] = []
         seen: set[tuple[str, str]] = set()
         last_error: Exception | None = None
+        failed_sources: list[str] = []
+        empty_sources: list[str] = []
 
         for source in ordered:
             provider = self.providers.get(source)
@@ -94,10 +96,12 @@ class SearchRouter:
                 )
             except SearchTimeoutError as exc:
                 last_error = exc
+                failed_sources.append(source)
                 debug.log("SearchRouter", f"AUTO TIMEOUT → {source}: {exc}")
                 continue
             except Exception as exc:
                 last_error = exc
+                failed_sources.append(source)
                 debug.log(
                     "SearchRouter",
                     f"AUTO ERROR → {source}: {type(exc).__name__}: {exc}",
@@ -105,6 +109,7 @@ class SearchRouter:
                 continue
 
             if not results:
+                empty_sources.append(source)
                 debug.log(
                     "SearchRouter",
                     f"AUTO EMPTY → {source}; continue",
@@ -129,7 +134,7 @@ class SearchRouter:
 
         debug.log(
             "SearchRouter",
-            f"AUTO RESULTS → {len(combined)}",
+            f"AUTO SUMMARY → attempted={attempted}, failed={failed_sources}, empty={empty_sources}, results={len(combined)}",
         )
         if combined:
             return combined
