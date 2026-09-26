@@ -64,3 +64,17 @@ def test_timeout_search_requires_source_or_query_change():
     guidance = SearchStrategy.guidance([step], "SearchTimeoutError")
     assert guidance["required_change"] == "source_or_query"
     assert guidance["suggested_query"] == "transformer attention"
+
+
+
+def test_http_search_failure_requires_strategy_change():
+    step = AgentStep(
+        step_id=1,
+        action="SEARCH",
+        arguments={"query": "transformer attention", "source": "wikipedia"},
+        success=False,
+        error="RuntimeError: HTTP 503 ServiceUnavailable",
+    )
+    guidance = SearchStrategy.guidance([step], "RuntimeError")
+    assert guidance["required_change"] == "new_query_or_source"
+    assert guidance["suggested_query"] == "transformer attention"
