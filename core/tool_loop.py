@@ -249,12 +249,23 @@ class ToolExecutor:
 
     def _verify(self, arguments, state=None):
         claim = str(arguments.get("claim", "")).strip()
-        evidence = arguments.get("evidence")
-        if evidence is None and state is not None:
-            evidence = state.evidence
+        if state is not None:
+            evidence = list(getattr(state, "evidence", []) or [])
+            if "evidence" in arguments:
+                debug.log(
+                    "ToolExecutor",
+                    "VERIFY → ignored caller-supplied evidence; using state evidence only",
+                )
+        else:
+            evidence = arguments.get("evidence", [])
         if not isinstance(evidence, list):
             evidence = []
-        return self.evidence_engine.verify(claim, evidence)
+        result = self.evidence_engine.verify(claim, evidence)
+        debug.log(
+            "ToolExecutor",
+            f"VERIFY → claim={claim!r}, evidence_count={len(evidence)}, status={result.get('verification_status')}",
+        )
+        return result
 
     @classmethod
     def _safe_calculate(cls, expression):
