@@ -90,6 +90,10 @@ class TaskAnalyzer:
                         "TaskAnalyzer",
                         f"SUCCESS → {model.name}",
                     )
+                    debug.log(
+                        "TaskAnalyzer",
+                        f"RESULT → type={analysis.task_type}, domain={analysis.domain}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
+                    )
                     return analysis
                 except Exception as exc:
                     self.model_router.registry.record_failure(
