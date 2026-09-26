@@ -94,3 +94,16 @@ def test_student_state_sync_preserves_unassessed_external_topics():
     assert "attention" in student.known_topics
     assert "attention" not in student.weak_topics
     assert "optimization" in student.weak_topics
+
+
+
+def test_knowledge_graph_stores_directed_semantic_relation():
+    graph = KnowledgeGraph()
+    graph.add_relation("attention", "transformer", "part_of", confidence=0.8)
+
+    edge = graph.edges[("attention", "transformer", "part_of")]
+    assert edge.source == "attention"
+    assert edge.target == "transformer"
+    assert edge.relation == "part_of"
+    assert edge.confidence == 0.8
+    assert graph.related_concepts("attention") == ["transformer"]
