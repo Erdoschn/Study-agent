@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import math
 import time
 
 from .__debug__ import debug
@@ -117,9 +118,17 @@ class KnowledgeGraph:
         state.exposure_count += 1
         if correct:
             state.successful_count += 1
+        safe_confidence = None
+        if confidence is not None:
+            try:
+                candidate = float(confidence)
+                if math.isfinite(candidate):
+                    safe_confidence = max(0.0, min(1.0, candidate))
+            except (TypeError, ValueError):
+                safe_confidence = None
         state.assessment_history.append({
             "correct": bool(correct),
-            "confidence": None if confidence is None else max(0.0, min(1.0, float(confidence))),
+            "confidence": safe_confidence,
             "timestamp": time.time(),
             "difficulty": difficulty,
             "difficulty_level": level,
@@ -134,7 +143,7 @@ class KnowledgeGraph:
         state.max_familiarity = max(state.max_familiarity, evidence_cap)
         raw = 0.75 * state.familiarity + 0.25 * accuracy
         state.familiarity = max(0.0, min(state.max_familiarity, raw))
-        observed_conf = confidence if confidence is not None else accuracy
+        observed_conf = safe_confidence if safe_confidence is not None else accuracy
         state.confidence = max(0.0, min(1.0, 0.75 * state.confidence + 0.25 * float(observed_conf)))
         state.last_seen = time.time()
         n = len(state.assessment_history)
