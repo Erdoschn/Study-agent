@@ -110,13 +110,49 @@ class TaskAnalyzer:
             )
 
     @staticmethod
-    def _parse(raw: str) -> TaskAnalysis:
+    def _strip_think(raw: str) -> str:
+        import re
+        return re.sub(r"<think>.*?</think>", "", str(raw or ""), flags=re.IGNORECASE | re.DOTALL).strip()
+
+    @staticmethod
+    def _extract_json(raw: str) -> str:
+        text = TaskAnalyzer._strip_think(raw)
+        if not text:
+            return text
         try:
-            data: dict[str, Any] = json.loads(raw)
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            pass
+        start, end = text.find("{"), text.rfind("}")
+        if start >= 0 and end > start:
+            candidate = text[start:end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+        return text
+
+    @staticmethod
+    def _parse(raw: str) -> TaskAnalysis:
+        cleaned = TaskAnalyzer._extract_json(raw)
+        try:
+            data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise RuntimeError(
                 f"Task Analysis JSON 解析失败：{exc}\n原始输出：{raw}"
             ) from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("Task Analysis JSON 解析失败：顶层结果必须是对象。")
+
+        allowed_task_types = {
+            "math", "coding", "conceptual", "research", "factual",
+            "comparison", "troubleshooting", "explanation", "general",
+        }
+        task_type = str(data.get("task_type", "general")).strip().lower()
+        if task_type not in allowed_task_types:
+            task_type = "general"
 
         tools = data.get("required_tools", [])
         if not isinstance(tools, list):
@@ -135,8 +171,8 @@ class TaskAnalyzer:
             gaps = []
 
         return TaskAnalysis(
-            task_type=str(data.get("task_type", "general")),
-            domain=str(data.get("domain", "general")),
+            task_type=task_type,
+            domain=str(data.get("domain", "general")).strip() or "general",
             goal=str(data.get("goal", "")),
             issues=[str(x) for x in issues],
             knowledge_gaps=[str(x) for x in gaps],
