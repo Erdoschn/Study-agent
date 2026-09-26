@@ -101,7 +101,8 @@ class KnowledgeGraph:
         node = self.nodes.get(node_id)
         if node is None:
             if len(self.nodes) >= self.MAX_NODES:
-                return node_id
+                debug.log("KnowledgeGraph", f"NODE LIMIT → rejected concept={name!r}")
+                return ""
             node = KnowledgeNode(id=node_id, name=name, node_type=node_type)
             self.nodes[node_id] = node
         if alias and alias.strip() and alias.strip() not in node.aliases and alias.strip() != node.name:
@@ -168,8 +169,18 @@ class KnowledgeGraph:
             self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
 
     def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        seen = set()
         for concept in concepts:
-            self.update_learner(concept, correct, confidence, difficulty)
+            name = str(concept or "").strip()
+            node_id = self._id(name)
+            if not name or not node_id or node_id in seen:
+                continue
+            seen.add(node_id)
+            self.update_learner(name, correct, confidence, difficulty)
+        debug.log(
+            "KnowledgeGraph",
+            f"RECORD ASSESSMENT → concepts={len(seen)}, correct={bool(correct)}, difficulty={difficulty!r}",
+        )
 
     def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         key = (self._id(source), self._id(target), relation)
