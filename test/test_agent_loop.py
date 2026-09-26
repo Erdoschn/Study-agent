@@ -564,3 +564,15 @@ def test_verify_uses_state_evidence_instead_of_supplied_override():
         state=state,
     )
     assert result["verification_status"] == "NOT_MATCHED"
+
+
+
+def test_reasoner_rejects_non_object_json():
+    from core.reasoner import AgentReasoner
+
+    try:
+        AgentReasoner._parse('["ANSWER"]')
+    except RuntimeError as exc:
+        assert "顶层结果必须是对象" in str(exc)
+    else:
+        raise AssertionError("non-object Reasoner JSON should fail")
