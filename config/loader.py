@@ -103,6 +103,7 @@ def get_model_config(
         "base_url": provider["base_url"],
         "api_key": provider["api_key"],
         "headers": dict(provider.get("headers", {})),
+        "timeout": int(provider.get("timeout", 120)),
         "model": model["model"],
         "paid": model.get(
             "paid",
