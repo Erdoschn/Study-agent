@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .__debug__ import debug
+
 
 class AssessmentEvaluator:
     """Conservative evaluator for structured assessments."""
@@ -18,6 +20,10 @@ class AssessmentEvaluator:
         score = self._score(answer, expected, rubric)
         correct = score >= 0.8
         confidence_value = score if confidence is None else max(0.0, min(1.0, float(confidence)))
+        debug.log(
+            "AssessmentEvaluator",
+            f"EVALUATE → score={score:.3f}, correct={correct}, confidence={confidence_value:.3f}",
+        )
         return {"correct": correct, "score": round(score, 3), "confidence": round(confidence_value, 3), "evaluation_reason": "答案满足核心评分要求。" if correct else "答案未满足全部核心评分要求。"}
 
     @classmethod
