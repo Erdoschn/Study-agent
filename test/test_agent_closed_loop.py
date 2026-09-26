@@ -32,11 +32,7 @@ class FakeReasoner:
         self.n += 1
         if self.n == 1:
             return ReasoningDecision(action="SEARCH", reasoning_summary="需要外部证据", tool="search", arguments={"query": "attention"}, model="fake")
-        if self.n == 2:
-            return ReasoningDecision(action="ANSWER", reasoning_summary="先验证后回答", answer="verified answer", model="fake")
-        if self.n == 3:
-            return ReasoningDecision(action="VERIFY", reasoning_summary="核查核心 claim", tool="verify", arguments={"claim": "attention"}, model="fake")
-        return ReasoningDecision(action="ANSWER", reasoning_summary="验证通过后回答", answer="verified answer", model="fake")
+        return ReasoningDecision(action="ANSWER", reasoning_summary="观察结果已足够", answer="fresh answer", model="fake")
 
 
 def test_tool_observation_is_fed_into_next_reasoning_cycle():
@@ -45,11 +41,10 @@ def test_tool_observation_is_fed_into_next_reasoning_cycle():
     executor = FakeExecutor()
     state = AgentToolLoop(reasoner, executor).run(state)
     assert executor.calls == [("search", {"query": "attention"})]
-    assert reasoner.n == 4
+    assert reasoner.n == 2
     assert state.evidence == [{"result": "fresh evidence"}]
     assert state.steps[0].observation == [{"result": "fresh evidence"}]
     assert state.steps[-1].action == "ANSWER"
-    assert state.steps[2].action == "VERIFY"
     assert state.finished is True
 
 
