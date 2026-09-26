@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+from .__debug__ import debug
+
 
 class EvidenceStore:
     """Persistent evidence collection used by the Harness."""
@@ -103,6 +105,10 @@ class EvidenceEngine:
                 recency = "DATED"
             except ValueError:
                 recency = "UNKNOWN"
+        debug.log(
+            "EvidenceEngine",
+            f"ASSESS → query={query_text!r}, title={str(result.get('title', ''))[:80]!r}, relevance={relevance}, recency={recency}",
+        )
         return {"relevance": relevance, "recency": recency}
 
     @classmethod
@@ -147,6 +153,10 @@ class EvidenceEngine:
             if claim_tokens.issubset(cls._tokens(text)):
                 matched.append(index)
         status = "MATCHED" if matched else "NOT_MATCHED"
+        debug.log(
+            "EvidenceEngine",
+            f"VERIFY → claim={claim!r}, tokens={len(claim_tokens)}, evidence={len(evidence)}, matched={matched}, status={status}",
+        )
         return {
             "claim": claim, "verification_status": status,
             "matched_evidence": matched,
@@ -170,4 +180,9 @@ class EvidenceEngine:
             status = "COVERED"
         else:
             status = "PARTIAL"
-        return {"status": status, "relevant_count": len(relevant), "uncovered_terms": sorted(q - covered)}
+        uncovered = sorted(q - covered)
+        debug.log(
+            "EvidenceEngine",
+            f"COVERAGE → query={query!r}, status={status}, relevant={len(relevant)}, uncovered={uncovered}",
+        )
+        return {"status": status, "relevant_count": len(relevant), "uncovered_terms": uncovered}
