@@ -32,7 +32,21 @@ class FakeReasoner:
         self.n += 1
         if self.n == 1:
             return ReasoningDecision(action="SEARCH", reasoning_summary="需要外部证据", tool="search", arguments={"query": "attention"}, model="fake")
-        return ReasoningDecision(action="ANSWER", reasoning_summary="观察结果已足够", answer="fresh answer", model="fake")
+        if self.n == 2:
+            return ReasoningDecision(
+                action="VERIFY",
+                reasoning_summary="核查当前回答所需陈述",
+                tool="verify",
+                arguments={"claim": "attention mechanisms"},
+                model="fake",
+            )
+        return ReasoningDecision(
+            action="ANSWER",
+            reasoning_summary="观察结果已足够",
+            answer="fresh answer",
+            claims=[{"claim": "attention mechanisms"}],
+            model="fake",
+        )
 
 
 def test_tool_observation_is_fed_into_next_reasoning_cycle():
@@ -40,8 +54,11 @@ def test_tool_observation_is_fed_into_next_reasoning_cycle():
     reasoner = FakeReasoner()
     executor = FakeExecutor()
     state = AgentToolLoop(reasoner, executor).run(state)
-    assert executor.calls == [("search", {"query": "attention"})]
-    assert reasoner.n == 2
+    assert executor.calls == [
+        ("search", {"query": "attention"}),
+        ("verify", {"claim": "attention mechanisms"}),
+    ]
+    assert reasoner.n == 3
     assert state.evidence == [{
         "source": "wikipedia",
         "title": "Attention",
@@ -50,6 +67,7 @@ def test_tool_observation_is_fed_into_next_reasoning_cycle():
         "harness_relevance": "DIRECT",
     }]
     assert state.steps[0].observation == state.evidence
+    assert state.steps[-2].action == "VERIFY"
     assert state.steps[-1].action == "ANSWER"
     assert state.finished is True
 
