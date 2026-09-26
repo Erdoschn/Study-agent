@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .__debug__ import debug
+
 
 class SearchStrategy:
     """Deterministic search-recovery policy used to guide the Reasoner after weak searches."""
@@ -19,7 +21,12 @@ class SearchStrategy:
     def guidance(cls, steps: list[Any], error_type: str = "") -> dict[str, Any]:
         searches = [s for s in steps if getattr(s, "action", "") == "SEARCH"]
         normalized_error = str(error_type or "").lower()
+        debug.log(
+            "SearchStrategy",
+            f"GUIDANCE → searches={len(searches)}, error_type={error_type or 'none'}",
+        )
         if normalized_error == "searchtimeouterror":
+
             last_query = str((getattr(searches[-1], "arguments", {}) or {}).get("query", "")).strip() if searches else ""
             return {
                 "stage": "timeout",
