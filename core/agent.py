@@ -113,6 +113,10 @@ class StudyAgent:
             self._update_student_model(state)
             self._update_knowledge_graph(state)
             self.last_state = state
+            debug.log(
+                "StudyAgent",
+                f"FINAL STATE → finished={state.finished}, answer={'yes' if state.final_answer else 'no'}, pending_assessment={'yes' if state.pending_assessment else 'no'}, steps={state.step_count}, evidence={len(state.evidence)}, claims={len(state.claims)}",
+            )
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
 
