@@ -171,3 +171,19 @@ def test_document_node_is_promoted_when_later_assessed_as_concept():
     )
     assert graph.nodes["attention"].node_type == "concept"
     assert graph.nodes["attention"].learner.exposure_count == 1
+
+
+
+def test_search_query_node_is_not_a_learner_concept():
+    graph = KnowledgeGraph()
+    graph.learn_from_search(
+        "transformer attention definition",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "identifier": "doc-1",
+        }],
+    )
+    assert graph.nodes["transformer_attention_definition"].node_type == "search_query"
+    context = graph.context_for("transformer attention definition")
+    assert "transformer attention definition" not in context["matched_concepts"]
