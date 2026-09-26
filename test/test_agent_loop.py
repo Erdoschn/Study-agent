@@ -725,3 +725,13 @@ def test_tool_loop_rejects_empty_answer_from_manual_reasoner():
     assert state.final_answer is None
     assert state.steps[-1].action == "ANSWER_BLOCKED"
     assert "EMPTY_ANSWER" in state.steps[-1].error
+
+
+def test_tool_executor_rejects_non_object_arguments():
+    executor = ToolExecutor()
+    try:
+        executor.execute("calculate", None)
+    except ValueError as exc:
+        assert "JSON 对象" in str(exc)
+    else:
+        raise AssertionError("non-object tool arguments should be rejected")
