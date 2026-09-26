@@ -80,7 +80,7 @@ class WikipediaSearchProvider(SearchProvider):
             )
 
         except ValueError as exc:
-            return self._failure(query, started, "validation", str(exc))
+            return self._failure(query, started, "validation", str(exc), attempts=0)
         except SearchTimeoutError as exc:
             return self._failure(query, started, "timeout", str(exc), reason="timeout", retryable=True, attempts=max(1, self._attempts))
         except HttpRequestError as exc:
@@ -96,7 +96,7 @@ class WikipediaSearchProvider(SearchProvider):
                 attempts=max(1, self._attempts),
             )
         except RuntimeError as exc:
-            return self._failure(query, started, "parse", str(exc))
+            return self._failure(query, started, "parse", str(exc), attempts=max(1, self._attempts))
 
     @classmethod
     def _validate_query(cls, query: SearchQuery) -> None:
@@ -248,11 +248,3 @@ class WikipediaSearchProvider(SearchProvider):
             attempts=error.attempts,
             error=error,
         )
-
-    @property
-    def _attempts(self) -> int:
-        return getattr(self, "__attempts", 1)
-
-    @_attempts.setter
-    def _attempts(self, value: int) -> None:
-        self.__attempts = value
