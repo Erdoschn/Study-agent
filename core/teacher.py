@@ -58,11 +58,16 @@ class Teacher:
         if task_type in {"math", "coding"}:
             interaction = "在数学或代码问题中，可以保留一个关键中间步骤供学生判断。"
 
-        return {
+        strategy = {
             "mode": mode,
             "focus": focus,
             "interaction": interaction,
         }
+        debug.log(
+            "Teacher",
+            f"STRATEGY → mode={mode}, known={len(known_topics)}, weak={len(weak_topics)}, misconceptions={len(misconceptions)}",
+        )
+        return strategy
 
     @classmethod
     def _build_payload(cls, state, draft_answer: str | None = None) -> dict:
