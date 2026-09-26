@@ -64,10 +64,13 @@ class ModelRegistry:
             if not isinstance(provider, dict):
                 debug.log("ModelRegistry", f"MODEL SKIP → {name}: provider={provider_name!r} missing/invalid")
                 continue
-            extra = dict(item.get("extra", {}))
+            raw_extra = item.get("extra", {})
+            extra = dict(raw_extra) if isinstance(raw_extra, dict) else {}
             capabilities = item.get("capabilities", extra.get("capabilities", {}))
             if isinstance(capabilities, dict):
-                extra["capabilities"] = capabilities
+                extra["capabilities"] = dict(capabilities)
+            else:
+                extra.pop("capabilities", None)
             self.models[name] = ModelInfo(
                 name=name,
                 provider=provider_name,
