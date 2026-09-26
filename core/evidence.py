@@ -133,13 +133,41 @@ class EvidenceEngine:
         return normalized
 
     @staticmethod
-    def _negation_profile(text: str) -> bool | None:
+    def _negation_words(text: str) -> bool:
         text = str(text or "").lower()
-        english = bool(re.search(r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b", text))
-        chinese = bool(re.search(r"(?:没有|并非|不是|不会|不能|无需|未曾|未被|不使用|不采用)", text))
-        if english or chinese:
-            return True
-        return False
+        return bool(
+            re.search(
+                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b",
+                text,
+            )
+            or re.search(r"(?:没有|并非|不是|不会|不能|无需|未曾|未被|不使用|不采用)", text)
+        )
+
+    @classmethod
+    def _negation_conflicts(cls, claim: str, evidence_text: str) -> bool:
+        claim_text = str(claim or "").strip().lower()
+        evidence_text = str(evidence_text or "").strip().lower()
+        if not claim_text or not evidence_text:
+            return False
+        claim_neg = cls._negation_words(claim_text)
+        evidence_neg = cls._negation_words(evidence_text)
+        if claim_neg == evidence_neg:
+            return False
+
+        def strip_negation(text: str) -> str:
+            text = re.sub(
+                r"\b(?:not|no|never|without|cannot|can't|doesn't|isn't|aren't|don't|won't)\b",
+                " ",
+                text,
+            )
+            return re.sub(
+                r"(?:没有|并非|不是|不会|不能|无需|未曾|未被|不使用|不采用)",
+                "",
+                text,
+            )
+        claim_base = re.sub(r"\s+", "", strip_negation(claim_text))
+        evidence_base = re.sub(r"\s+", "", strip_negation(evidence_text))
+        return bool(claim_base and claim_base in evidence_base)
 
     @classmethod
     def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
@@ -159,7 +187,7 @@ class EvidenceEngine:
             if not isinstance(item, dict) or item.get("harness_relevance") not in {"DIRECT", "PARTIAL"}:
                 continue
             text = f"{item.get('title', '')} {item.get('abstract', '')} {item.get('notes', '')}"
-            if cls._negation_profile(claim) != cls._negation_profile(text):
+            if cls._negation_conflicts(claim, text):
                 debug.log(
                     "EvidenceEngine",
                     f"VERIFY SKIP → claim/evidence negation mismatch at evidence={index}",
