@@ -637,3 +637,69 @@ def test_reasoner_rejects_mismatched_action_tool():
         assert "不一致" in str(exc)
     else:
         raise AssertionError("mismatched action/tool should fail")
+
+
+def test_reasoner_rejects_empty_answer_payload():
+    from core.reasoner import AgentReasoner
+    try:
+        AgentReasoner._parse('{"action":"ANSWER","reasoning_summary":"missing answer"}')
+    except RuntimeError as exc:
+        assert "非空 answer" in str(exc)
+    else:
+        raise AssertionError("empty ANSWER payload should be rejected")
+
+
+def test_unsupported_reasoner_knowledge_relation_is_not_persisted():
+    from core.knowledge_graph import KnowledgeGraph
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="answer",
+                answer="ok",
+                knowledge_relations=[{
+                    "source":"invented-source",
+                    "target":"invented-target",
+                    "relation":"related_to",
+                    "confidence":0.8,
+                }],
+            )
+    graph = KnowledgeGraph()
+    state = AgentState(question="attention", knowledge_graph=graph)
+    state = AgentToolLoop(Reasoner(), ToolExecutor()).run(state)
+    assert not graph.edges
+    assert "invented_source" not in graph.nodes
+    assert "invented_target" not in graph.nodes
+
+
+def test_reasoner_knowledge_relation_can_use_relevant_evidence():
+    from core.knowledge_graph import KnowledgeGraph
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="answer",
+                answer="ok",
+                knowledge_relations=[{
+                    "source":"attention",
+                    "target":"query",
+                    "relation":"used_in",
+                    "confidence":0.8,
+                    "evidence_refs":[0],
+                }],
+            )
+    graph = KnowledgeGraph()
+    state = AgentState(
+        question="attention",
+        knowledge_graph=graph,
+        evidence=[{
+            "source":"wikipedia",
+            "title":"Attention",
+            "abstract":"attention uses query",
+            "harness_relevance":"DIRECT",
+            "identifier":"1",
+        }],
+    )
+    state = AgentToolLoop(Reasoner(), ToolExecutor()).run(state)
+    edge = graph.edges[("attention","query","used_in")]
+    assert edge.evidence_refs[0]["index"] == 0
