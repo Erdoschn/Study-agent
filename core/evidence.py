@@ -56,7 +56,7 @@ class EvidenceEngine:
     def _tokens(text: str) -> set[str]:
         stopwords = {"a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or", "in", "on", "for", "with", "uses", "use", "used", "by"}
         tokens = set()
-        for token in re.findall(r"[A-Za-z0-9_]+|[\\u4e00-\\u9fff]+", text or ""):
+        for token in re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+", text or ""):
             token = token.lower()
             if re.fullmatch(r"[\u4e00-\u9fff]+", token):
                 if len(token) >= 2:
