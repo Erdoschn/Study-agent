@@ -452,15 +452,51 @@ class AgentToolLoop:
                     state.evidence_relevance = decision.evidence_relevance
                 if decision.knowledge_relations and state.knowledge_graph is not None:
                     for relation in decision.knowledge_relations:
+                        source = relation["source"]
+                        target = relation["target"]
+                        evidence_refs = relation.get("evidence_refs", [])
+                        valid_refs = [
+                            ref for ref in evidence_refs
+                            if isinstance(ref, int)
+                            and 0 <= ref < len(state.evidence)
+                            and isinstance(state.evidence[ref], dict)
+                            and str(state.evidence[ref].get("harness_relevance", "UNCERTAIN")).upper()
+                            in {"DIRECT", "PARTIAL"}
+                        ]
+                        source_id = state.knowledge_graph._id(source)
+                        target_id = state.knowledge_graph._id(target)
+                        existing_supported = (
+                            source_id in state.knowledge_graph.nodes
+                            and target_id in state.knowledge_graph.nodes
+                            and state.knowledge_graph.nodes[source_id].node_type == "concept"
+                            and state.knowledge_graph.nodes[target_id].node_type == "concept"
+                        )
+                        if not existing_supported and not valid_refs:
+                            debug.log(
+                                "AgentToolLoop",
+                                f"KNOWLEDGE RELATION SKIP → unsupported endpoints: {source!r} -[{relation['relation']}]-> {target!r}",
+                            )
+                            continue
+                        evidence_payload = [
+                            {
+                                "index": ref,
+                                "source": state.evidence[ref].get("source"),
+                                "title": state.evidence[ref].get("title"),
+                                "identifier": state.evidence[ref].get("identifier"),
+                                "harness_relevance": state.evidence[ref].get("harness_relevance", "UNCERTAIN"),
+                            }
+                            for ref in valid_refs
+                        ]
                         state.knowledge_graph.add_relation(
-                            relation["source"],
-                            relation["target"],
+                            source,
+                            target,
                             relation["relation"],
                             relation["confidence"],
+                            evidence=evidence_payload,
                         )
                         debug.log(
                             "AgentToolLoop",
-                            f"KNOWLEDGE RELATION → {relation['source']} -[{relation['relation']}]-> {relation['target']} confidence={relation['confidence']:.2f}",
+                            f"KNOWLEDGE RELATION → {source} -[{relation['relation']}]-> {target} confidence={relation['confidence']:.2f}, evidence_refs={valid_refs}",
                         )
                 if decision.student_model_update:
                     state.student.apply_mind_update(decision.student_model_update)
