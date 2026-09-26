@@ -148,3 +148,10 @@ def test_failure_streak_resets_after_success(monkeypatch):
     third = registry.get("model-a").cooldown_until
     assert third - 100.0 == 5.0
     assert registry.get("model-a").failures == 3
+
+
+def test_malformed_model_extra_is_ignored_safely():
+    data = config()
+    data["models"]["model-a"]["extra"] = ["not", "a", "dict"]
+    registry = ModelRegistry(data)
+    assert registry.get("model-a").extra == {}
