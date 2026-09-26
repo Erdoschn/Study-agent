@@ -347,3 +347,36 @@ def test_assess_filters_invalid_relations_and_keeps_valid_assessment():
     )
     assert result["status"] == "ASSESSMENT_PENDING"
     assert state.pending_assessment["relations"] == [["attention", "query", "depends_on"]]
+
+
+
+def test_goal_matcher_ignores_generic_learning_words():
+    from core.goal import GoalMatcher
+
+    matched = GoalMatcher.context_for(
+        "理解 attention",
+        "解决当前问题",
+        ["理解 transformer", "理解 attention dimensions"],
+    )
+    assert matched == ["理解 attention dimensions"]
+
+
+def test_knowledge_graph_node_limit_does_not_return_missing_node():
+    from core.knowledge_graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    graph.MAX_NODES = 1
+    assert graph.add_concept("first") == "first"
+    assert graph.add_concept("second") == ""
+    graph.update_learner("second", True)
+    assert "second" not in graph.nodes
+
+
+def test_assessment_deduplicates_same_concept_within_one_recording():
+    from core.knowledge_graph import KnowledgeGraph
+
+    graph = KnowledgeGraph()
+    graph.record_assessment(["attention", "attention"], True, difficulty="graduate")
+    state = graph.nodes["attention"].learner
+    assert state.exposure_count == 1
+    assert state.successful_count == 1
