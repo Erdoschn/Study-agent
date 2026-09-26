@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any
 import time
 
+from .__debug__ import debug
+
 LEARNING_STAGES = {"unknown", "new", "learning", "familiar", "mastered", "weak"}
 RELATIONS = {"is_a", "part_of", "related_to", "used_in", "depends_on", "alias_of"}
 
@@ -147,6 +149,10 @@ class KnowledgeGraph:
             state.learning_stage = "familiar"
         else:
             state.learning_stage = "learning"
+        debug.log(
+            "KnowledgeGraph",
+            f"ASSESS → stage={state.learning_stage}, correct={correct}, difficulty={level}/{difficulty:.2f}, accuracy={accuracy:.2f}, familiarity={state.familiarity:.2f}",
+        )
 
     @staticmethod
     def difficulty_policy() -> dict[str, float]:
@@ -155,6 +161,10 @@ class KnowledgeGraph:
     def update_learner(self, concept: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
         node_id = self.add_concept(concept)
         if node_id:
+            debug.log(
+                "KnowledgeGraph",
+                f"LEARNER UPDATE → concept={concept!r}, correct={bool(correct)}, difficulty={difficulty!r}",
+            )
             self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
 
     def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
