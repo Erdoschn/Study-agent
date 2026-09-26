@@ -197,6 +197,8 @@ class ToolExecutor:
                 f"calculate 表达式过长，最多允许 {self.MAX_CALCULATE_EXPRESSION_LENGTH} 个字符。"
             )
         result = self._safe_calculate(expression)
+        if isinstance(result, float) and not __import__("math").isfinite(result):
+            raise ValueError("calculate 结果不是有限数值。")
         if isinstance(result, int):
             result_size = max(1, int(result.bit_length() * 0.30103) + 1)
         else:
@@ -482,6 +484,10 @@ class AgentToolLoop:
                     error = f"{error_type}: {exc}"
                     observation = {"status": "ERROR", "error_type": error_type, "error": str(exc)}
                     success = False
+                    debug.log(
+                        "AgentToolLoop",
+                        f"ACT FAILED → action={decision.action}, tool={tool}, error={error_type}: {exc}",
+                    )
 
                 state.add_step(AgentStep(
                     step_id=step_id, action=decision.action, model=decision.model,
@@ -512,6 +518,10 @@ class AgentToolLoop:
                         "verification_status": observation.get("verification_status", "UNCERTAIN"),
                         "matched_evidence": observation.get("matched_evidence", []),
                     })
+                debug.log(
+                    "AgentToolLoop",
+                    f"OBSERVE → action={decision.action}, success={success}, error_type={error_type or 'none'}",
+                )
                 state.last_observation = observation
                 state.last_error_type = error_type if not success else ""
                 if not success:
