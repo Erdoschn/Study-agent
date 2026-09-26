@@ -186,7 +186,9 @@ class EvidenceEngine:
         for item in evidence:
             if item.get("harness_relevance") in {"DIRECT", "PARTIAL"}:
                 relevant.append(item)
-                covered |= q & cls._tokens(f"{item.get('title', '')} {item.get('abstract', '')}")
+                covered |= q & cls._tokens(
+                    f"{item.get('title', '')} {item.get('abstract', '')} {item.get('notes', '')}"
+                )
         if not q:
             status = "UNKNOWN"
         elif not relevant:
