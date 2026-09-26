@@ -380,3 +380,34 @@ def test_assessment_deduplicates_same_concept_within_one_recording():
     state = graph.nodes["attention"].learner
     assert state.exposure_count == 1
     assert state.successful_count == 1
+
+
+
+def test_calculate_rejects_excessive_power():
+    executor = ToolExecutor()
+    try:
+        executor._calculate({"expression": "10**1001"})
+    except ValueError as exc:
+        assert "指数过大" in str(exc)
+    else:
+        raise AssertionError("excessive power should be rejected")
+
+
+def test_calculate_rejects_excessive_expression_size():
+    executor = ToolExecutor()
+    try:
+        executor._calculate({"expression": "1+" + "1+" * 100})
+    except ValueError as exc:
+        assert "表达式过长" in str(exc) or "嵌套过深" in str(exc)
+    else:
+        raise AssertionError("oversized expression should be rejected")
+
+
+def test_calculate_rejects_boolean_constant():
+    executor = ToolExecutor()
+    try:
+        executor._calculate({"expression": "True"})
+    except ValueError as exc:
+        assert "布尔值" in str(exc) or "不允许" in str(exc)
+    else:
+        raise AssertionError("boolean constants should be rejected")
