@@ -31,7 +31,7 @@ class AssessmentEvaluator:
             "AssessmentEvaluator",
             f"EVALUATE → expected={expected[:80]!r}, score={score:.3f}, correct={correct}, confidence={confidence_value:.3f}",
         )
-        return {"correct": correct, "score": round(score, 3), "confidence": round(confidence_value, 3), "evaluation_reason": "答案满足核心评分要求。" if correct else "答案未满足全部核心评分要求。"}
+        return {"correct": correct, "score": score, "confidence": confidence_value, "evaluation_reason": "答案满足核心评分要求。" if correct else "答案未满足全部核心评分要求。"}
 
     @classmethod
     def _score(cls, answer: str, expected: str, rubric: list[Any]) -> float:
