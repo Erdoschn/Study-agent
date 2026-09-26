@@ -174,15 +174,30 @@ class TaskAnalyzer:
         if not isinstance(gaps, list):
             gaps = []
 
+        def clean_list(items, limit=12):
+            cleaned = []
+            for item in items:
+                text = str(item).strip()
+                if text and text not in cleaned:
+                    cleaned.append(text)
+            return cleaned[:limit]
+
+        raw_external = data.get("external_facts_needed", False)
+        if isinstance(raw_external, bool):
+            external_facts_needed = raw_external
+        elif isinstance(raw_external, (int, float)):
+            external_facts_needed = bool(raw_external)
+        else:
+            external_text = str(raw_external).strip().lower()
+            external_facts_needed = external_text in {"true", "1", "yes", "y", "on"}
+
         return TaskAnalysis(
             task_type=task_type,
             domain=str(data.get("domain", "general")).strip() or "general",
-            goal=str(data.get("goal", "")),
-            issues=[str(x) for x in issues],
-            knowledge_gaps=[str(x) for x in gaps],
+            goal=str(data.get("goal", "")).strip(),
+            issues=clean_list(issues),
+            knowledge_gaps=clean_list(gaps),
             required_tools=tools,
-            external_facts_needed=bool(
-                data.get("external_facts_needed", False)
-            ),
-            answer_strategy=str(data.get("answer_strategy", "")),
+            external_facts_needed=external_facts_needed,
+            answer_strategy=str(data.get("answer_strategy", "")).strip(),
         )
