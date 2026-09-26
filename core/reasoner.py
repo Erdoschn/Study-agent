@@ -174,21 +174,40 @@ STOP：无法继续时停止并说明原因。
 
     @staticmethod
     def _serialize_observation(observation):
-        """Preserve Harness metadata when list-compatible observations enter JSON prompts."""
+        """Compact tool observations before they enter the Reasoner prompt."""
         if hasattr(observation, "get") and hasattr(observation, "coverage"):
+            raw_results = observation.get("results", []) or []
+            compact_results = []
+            for item in raw_results[:8]:
+                if not isinstance(item, dict):
+                    continue
+                compact_results.append({
+                    "source": item.get("source"),
+                    "title": item.get("title"),
+                    "identifier": item.get("identifier"),
+                    "abstract": str(item.get("abstract", ""))[:500],
+                    "harness_relevance": item.get("harness_relevance", "UNCERTAIN"),
+                    "harness_recency": item.get("harness_recency", "UNKNOWN"),
+                })
             return {
-                "results": observation.get("results", []),
+                "results": compact_results,
                 "coverage": observation.get("coverage", {}),
+            }
+        if isinstance(observation, dict):
+            return {
+                key: (str(value)[:1000] if isinstance(value, str) else value)
+                for key, value in observation.items()
             }
         return observation
 
     def _build_prompt(self, state, tool_specs):
+        recent_steps = state.steps[-8:]
         observations = [
             {"step": s.step_id, "action": s.action, "model": s.model, "tool": s.tool,
              "arguments": s.arguments, "reasoning_summary": s.reasoning_summary,
              "observation": self._serialize_observation(s.observation),
              "success": s.success, "error": s.error}
-            for s in state.steps
+            for s in recent_steps
         ]
         analysis = state.task_analysis
         payload = {
@@ -216,7 +235,12 @@ STOP：无法继续时停止并说明原因。
             "step_count": state.step_count,
             "pending_assessment": getattr(state, "pending_assessment", None),
         }
-        return json.dumps(payload, ensure_ascii=False, indent=2)
+        prompt = json.dumps(payload, ensure_ascii=False, indent=2)
+        debug.log(
+            "AgentReasoner",
+            f"PROMPT → chars={len(prompt)}, recent_steps={len(recent_steps)}/{len(state.steps)}, evidence={len(state.evidence)}, claims={len(state.claims)}",
+        )
+        return prompt
 
     @staticmethod
     def _strip_think(raw: str) -> str:
