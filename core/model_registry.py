@@ -15,6 +15,7 @@ class ModelInfo:
     calls: int = 0
     successes: int = 0
     failures: int = 0
+    failure_streak: int = 0
     cooldown_until: float = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -80,6 +81,7 @@ class ModelRegistry:
         model = self.get(name)
         model.calls += 1
         model.successes += 1
+        model.failure_streak = 0
         model.cooldown_until = 0.0
         if capability:
             self._update_capability(model, capability, True)
@@ -93,14 +95,15 @@ class ModelRegistry:
         model = self.get(name)
         model.calls += 1
         model.failures += 1
-        failures = max(1, model.failures)
-        cooldown = min(self.MAX_COOLDOWN_SECONDS, self.BASE_COOLDOWN_SECONDS * (2 ** min(failures - 1, 5)))
+        model.failure_streak += 1
+        streak = max(1, model.failure_streak)
+        cooldown = min(self.MAX_COOLDOWN_SECONDS, self.BASE_COOLDOWN_SECONDS * (2 ** min(streak - 1, 5)))
         model.cooldown_until = time.time() + cooldown
         if capability:
             self._update_capability(model, capability, False)
         debug.log(
             "ModelRegistry",
-            f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, cooldown={cooldown:.1f}s",
+            f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, cooldown={cooldown:.1f}s",
         )
 
     @staticmethod
