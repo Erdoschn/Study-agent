@@ -189,10 +189,23 @@ class ToolExecutor:
         return SearchObservation(normalized, coverage)
 
     def _calculate(self, arguments):
-        expression = str(arguments.get("expression", ""))
+        expression = str(arguments.get("expression", "")).strip()
         if not expression:
             raise ValueError("calculate 缺少 expression。")
-        return self._safe_calculate(expression)
+        if len(expression) > self.MAX_CALCULATE_EXPRESSION_LENGTH:
+            raise ValueError(
+                f"calculate 表达式过长，最多允许 {self.MAX_CALCULATE_EXPRESSION_LENGTH} 个字符。"
+            )
+        result = self._safe_calculate(expression)
+        if isinstance(result, int):
+            result_size = max(1, int(result.bit_length() * 0.30103) + 1)
+        else:
+            result_size = len(str(result))
+        debug.log(
+            "ToolExecutor",
+            f"CALCULATE → expression={expression!r}, result_type={type(result).__name__}, result_size≈{result_size}",
+        )
+        return result
 
     def _assess(self, arguments, state=None):
         from .knowledge_graph import normalize_difficulty
@@ -241,8 +254,8 @@ class ToolExecutor:
             evidence = []
         return self.evidence_engine.verify(claim, evidence)
 
-    @staticmethod
-    def _safe_calculate(expression):
+    @classmethod
+    def _safe_calculate(cls, expression):
         import ast
         import operator
         operators = {
@@ -251,6 +264,7 @@ class ToolExecutor:
             ast.Mod: operator.mod, ast.Pow: operator.pow, ast.USub: operator.neg,
             ast.UAdd: operator.pos,
         }
+
         def evaluate(node, depth=0):
             if depth > cls.MAX_CALCULATE_AST_DEPTH:
                 raise ValueError("calculate 表达式嵌套过深。")
@@ -282,11 +296,13 @@ class ToolExecutor:
                         )
                 return fn(left, right)
             raise ValueError("表达式包含不允许的内容。")
+
         try:
             tree = ast.parse(expression, mode="eval")
         except SyntaxError as exc:
             raise ValueError(f"calculate 表达式语法错误：{exc.msg}") from exc
         return evaluate(tree.body)
+
 
 
 class AgentToolLoop:
