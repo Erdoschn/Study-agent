@@ -65,3 +65,79 @@ def test_identical_tool_call_cannot_loop_forever():
     assert state.error == "Agent 检测到重复工具调用，已停止。"
     assert state.steps[-1].action == "STOP"
     assert len(state.steps) == 2
+
+
+def test_answer_requires_verification_for_current_claims():
+    class Reasoner:
+        def __init__(self):
+            self.n = 0
+
+        def decide(self, state):
+            self.n += 1
+            if self.n == 1:
+                return ReasoningDecision(
+                    action="SEARCH",
+                    reasoning_summary="获取证据",
+                    tool="search",
+                    arguments={"query": "attention"},
+                )
+            if self.n == 2:
+                return ReasoningDecision(
+                    action="VERIFY",
+                    reasoning_summary="核查第一个陈述",
+                    tool="verify",
+                    arguments={"claim": "attention uses query"},
+                )
+            if self.n == 3:
+                return ReasoningDecision(
+                    action="ANSWER",
+                    reasoning_summary="尝试回答另一个未经核查的陈述",
+                    answer="暂定答案",
+                    claims=[{"claim": "attention uses values"}],
+                )
+            if self.n == 4:
+                return ReasoningDecision(
+                    action="VERIFY",
+                    reasoning_summary="核查当前回答陈述",
+                    tool="verify",
+                    arguments={"claim": "attention uses values"},
+                )
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="当前陈述已有对应核查",
+                answer="最终答案",
+                claims=[{"claim": "attention uses values"}],
+            )
+
+    class Executor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, tool, arguments):
+            self.calls.append((tool, arguments))
+            if tool == "search":
+                return [{
+                    "source": "wikipedia",
+                    "title": "Attention",
+                    "abstract": "attention uses query, key, and values",
+                    "identifier": "attention-1",
+                    "harness_relevance": "DIRECT",
+                }]
+            return {
+                "claim": arguments["claim"],
+                "verification_status": "MATCHED",
+                "matched_evidence": [0],
+            }
+
+    executor = Executor()
+    state = AgentToolLoop(Reasoner(), executor).run(
+        AgentState(question="attention", max_steps=8)
+    )
+
+    assert executor.calls == [
+        ("search", {"query": "attention"}),
+        ("verify", {"claim": "attention uses query"}),
+        ("verify", {"claim": "attention uses values"}),
+    ]
+    assert state.final_answer == "最终答案"
+    assert state.finished is True
