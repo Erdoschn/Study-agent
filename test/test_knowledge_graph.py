@@ -126,3 +126,26 @@ def test_relation_confidence_is_sanitized_at_graph_boundary():
 
     graph.add_relation("attention", "transformer", "related_to", confidence=2)
     assert graph.edges[("attention", "transformer", "related_to")].confidence == 1.0
+
+
+
+def test_graph_context_resolves_concepts_from_compound_question():
+    graph = KnowledgeGraph()
+    graph.add_concept("attention")
+    graph.add_concept("transformer")
+    graph.add_relation("attention", "transformer", "part_of", confidence=0.8)
+
+    context = graph.context_for("解释 Transformer attention 的工作方式")
+
+    assert "attention" in context["matched_concepts"]
+    assert "transformer" in context["matched_concepts"]
+    assert any(
+        item["name"] == "transformer" and item["relation"] == "part_of"
+        for item in context["neighbors"]
+    )
+    assert "learning_stage" in context["learner_context"]["status"]
+
+
+def test_normalize_difficulty_handles_nonfinite_values():
+    assert normalize_difficulty(float("nan"))[1] == 0.70
+    assert normalize_difficulty(float("inf"))[1] == 0.70
