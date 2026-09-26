@@ -58,7 +58,7 @@ class EvidenceEngine:
         tokens = set()
         for token in re.findall(r"[A-Za-z0-9_]+|[\\u4e00-\\u9fff]+", text or ""):
             token = token.lower()
-            if re.fullmatch(r"[\\u4e00-\\u9fff]+", token):
+            if re.fullmatch(r"[\u4e00-\u9fff]+", token):
                 if len(token) >= 2:
                     tokens.add(token)
                     tokens.update(token[i:i + 2] for i in range(len(token) - 1))
