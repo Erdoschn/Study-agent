@@ -40,3 +40,18 @@ def test_nonfinite_confidence_falls_back_to_score():
         confidence=float("nan"),
     )
     assert result["confidence"] == result["score"]
+
+
+
+def test_technical_single_letter_tokens_are_scored():
+    assessment = {
+        "concepts": ["multi-head attention"],
+        "question": "What are Q, K and V?",
+        "expected_answer": "Q K V",
+    }
+    full = AssessmentEvaluator().evaluate(assessment, "Q K V")
+    partial = AssessmentEvaluator().evaluate(assessment, "Q K")
+    assert full["correct"] is True
+    assert full["score"] == 1.0
+    assert partial["score"] == 2 / 3
+    assert partial["correct"] is False
