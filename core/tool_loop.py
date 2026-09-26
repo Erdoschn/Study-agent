@@ -286,6 +286,36 @@ class AgentToolLoop:
             for s in state.steps
         )
 
+    @staticmethod
+    def _claim_key(claim):
+        import re
+        return re.sub(r"[^a-z0-9\\u4e00-\\u9fff]+", "", str(claim or "").strip().lower())
+
+    @classmethod
+    def _verified_claim_keys(cls, state):
+        verified = set()
+        for step in state.steps:
+            if step.action != "VERIFY" or not step.success or not isinstance(step.observation, dict):
+                continue
+            if step.observation.get("verification_status") != "MATCHED":
+                continue
+            key = cls._claim_key(step.observation.get("claim", ""))
+            if key:
+                verified.add(key)
+        return verified
+
+    @classmethod
+    def _claims_verified(cls, state):
+        claims = [
+            cls._claim_key(item.get("claim", "") if isinstance(item, dict) else item)
+            for item in state.claims
+        ]
+        claims = [claim for claim in claims if claim]
+        if not claims:
+            return True
+        verified = cls._verified_claim_keys(state)
+        return all(claim in verified for claim in claims)
+
     def _decide(self, state):
         import inspect
         decide = self.reasoner.decide
@@ -349,13 +379,7 @@ class AgentToolLoop:
                 step_id = state.step_count + 1
                 if decision.action in {"ANSWER", "STOP"}:
                     if decision.action == "ANSWER":
-                        verified = any(
-                            step.action == "VERIFY"
-                            and step.success
-                            and isinstance(step.observation, dict)
-                            and step.observation.get("verification_status") == "MATCHED"
-                            for step in state.steps
-                        )
+                        verified = self._claims_verified(state)
                         if state.evidence and state.claims and not verified:
                             state.last_error_type = "VERIFY_REQUIRED"
                             state.recovery_count += 1
