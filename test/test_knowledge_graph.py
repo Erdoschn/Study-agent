@@ -107,3 +107,12 @@ def test_knowledge_graph_stores_directed_semantic_relation():
     assert edge.relation == "part_of"
     assert edge.confidence == 0.8
     assert graph.related_concepts("attention") == ["transformer"]
+
+
+
+def test_invalid_learner_confidence_does_not_poison_state():
+    graph = KnowledgeGraph()
+    graph.record_assessment(["attention"], True, confidence=float("nan"), difficulty="graduate")
+    state = graph.nodes["attention"].learner
+    assert state.assessment_history[-1]["confidence"] is None
+    assert state.confidence == 0.25
