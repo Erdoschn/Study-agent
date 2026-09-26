@@ -66,9 +66,14 @@ class ModelRegistry:
                 continue
             raw_extra = item.get("extra", {})
             extra = dict(raw_extra) if isinstance(raw_extra, dict) else {}
-            capabilities = item.get("capabilities", extra.get("capabilities", {}))
-            if isinstance(capabilities, dict):
-                extra["capabilities"] = dict(capabilities)
+            if "capabilities" in item:
+                capabilities = item.get("capabilities")
+                if isinstance(capabilities, dict):
+                    extra["capabilities"] = dict(capabilities)
+                else:
+                    extra.pop("capabilities", None)
+            elif isinstance(extra.get("capabilities"), dict):
+                extra["capabilities"] = dict(extra["capabilities"])
             else:
                 extra.pop("capabilities", None)
             self.models[name] = ModelInfo(
