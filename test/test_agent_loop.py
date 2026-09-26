@@ -500,3 +500,16 @@ def test_reasoner_prompt_compacts_search_history():
     assert len(payload["previous_steps"]) == 8
     assert len(payload["previous_steps"][0]["observation"]["results"]) == 8
     assert len(payload["previous_steps"][0]["observation"]["results"][0]["abstract"]) == 500
+
+
+
+def test_reasoner_drops_empty_claims():
+    from core.reasoner import AgentReasoner
+
+    decision = AgentReasoner._parse(
+        '{"action":"ANSWER","reasoning_summary":"answer",'
+        '"claims":[{},{"claim":""},"attention uses query","   "]}'
+    )
+    assert decision.claims == [
+        {"claim": "attention uses query"}
+    ]
