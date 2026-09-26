@@ -475,7 +475,10 @@ def test_tool_loop_persists_reasoner_knowledge_relations():
                 }],
             )
 
-    state = AgentState(question="attention", knowledge_graph=KnowledgeGraph())
+    graph = KnowledgeGraph()
+    graph.add_concept("attention")
+    graph.add_concept("transformer")
+    state = AgentState(question="attention", knowledge_graph=graph)
     state = AgentToolLoop(
         Reasoner(),
         ToolExecutor(),
