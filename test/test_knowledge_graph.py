@@ -212,3 +212,23 @@ def test_assessment_rejects_non_boolean_correct():
         assert "布尔值" in str(exc)
     else:
         raise AssertionError("non-boolean assessment result should be rejected")
+
+
+def test_mastery_survives_one_wrong_answer():
+    graph = KnowledgeGraph()
+    for _ in range(5):
+        graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+
+    graph.record_assessment(["attention"], False, difficulty="postgraduate_plus")
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+
+
+def test_mastery_survives_one_easy_correct_answer():
+    graph = KnowledgeGraph()
+    for _ in range(5):
+        graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+
+    graph.record_assessment(["attention"], True, difficulty="basic")
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
