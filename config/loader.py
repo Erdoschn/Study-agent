@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core.__debug__ import debug
+
 
 CONFIG_PATH = (
     Path(__file__).resolve().parent
@@ -20,12 +22,19 @@ def load_config() -> dict[str, Any]:
             "r",
             encoding="utf-8",
         ) as file:
-            return json.load(file)
-
+            config = json.load(file)
     except json.JSONDecodeError as exc:
         raise ValueError(
             f"providers.json 格式错误：{exc}"
         ) from exc
+
+    if not isinstance(config, dict):
+        raise ValueError("providers.json 顶层必须是 JSON 对象。")
+    debug.log(
+        "ConfigLoader",
+        f"CONFIG → providers={len(config.get('providers', {}) if isinstance(config.get('providers', {}), dict) else {})}, models={len(config.get('models', {}) if isinstance(config.get('models', {}), dict) else {})}, debug={bool(config.get('debug', False))}",
+    )
+    return config
 
 
 def setup_debug(
@@ -53,11 +62,14 @@ def get_model_config(
         {},
     )
 
+    if not isinstance(models, dict):
+        raise ValueError("models 配置必须是对象。")
+
     model = models.get(
         model_name
     )
 
-    if not model:
+    if not isinstance(model, dict):
         raise KeyError(
             f"找不到模型：{model_name}"
         )
@@ -79,11 +91,14 @@ def get_model_config(
         {},
     )
 
+    if not isinstance(providers, dict):
+        raise ValueError("providers 配置必须是对象。")
+
     provider = providers.get(
         provider_name
     )
 
-    if not provider:
+    if not isinstance(provider, dict):
         raise KeyError(
             f"找不到 Provider："
             f"{provider_name}"
@@ -102,7 +117,11 @@ def get_model_config(
         "provider": provider_name,
         "base_url": provider["base_url"],
         "api_key": provider["api_key"],
-        "headers": dict(provider.get("headers", {})),
+        "headers": (
+            dict(provider.get("headers", {}))
+            if isinstance(provider.get("headers", {}), dict)
+            else {}
+        ),
         "timeout": int(provider.get("timeout", 120)),
         "model": model["model"],
         "paid": model.get(
