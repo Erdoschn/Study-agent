@@ -24,7 +24,7 @@ class Teacher:
 11. 不输出隐藏思维链；可以简洁说明为什么采用某种教学方式。
 12. 学生模型只是可修正的工作假设，不是心理事实；不得推测隐私、人格或其他心理事实。
 13. 不要把 Reasoner 草稿扩写成新的未经证据支持的事实。新增事实只能来自 evidence / verified claims；教学类例子必须明确标为示例或假设。
-13. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
+14. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
 
 输出只需要最终教学回答，不要输出 JSON，不要输出“作为 AI”之类的套话。
 """
@@ -146,11 +146,7 @@ class Teacher:
                 "model": s.model,
                 "tool": s.tool,
                 "reasoning_summary": s.reasoning_summary,
-                "observation": (
-                    str(s.observation)[:1500]
-                    if isinstance(s.observation, str)
-                    else s.observation
-                ),
+                "observation": cls._compact_observation(s.observation),
                 "success": s.success,
                 "error": s.error,
             }
