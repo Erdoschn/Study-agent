@@ -40,7 +40,7 @@ class WikipediaSearchProvider(SearchProvider):
             if response.error.stage == "validation":
                 raise ValueError(response.error.message)
             if response.error.stage == "timeout":
-                raise SearchTimeoutError(response.error.message)
+                raise SearchTimeoutError(response.error.message, attempts=response.error.attempts)
             raise RuntimeError(response.error.message)
         return response.results
 
