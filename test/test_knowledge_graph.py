@@ -59,7 +59,8 @@ def test_student_state_sync_uses_assessed_stage_only():
     student.sync_from_knowledge_graph(graph)
 
     assert "attention" in student.known_topics
-    assert "transformer" in student.weak_topics
+    assert "transformer" in student.learning_topics
+    assert "transformer" not in student.weak_topics
     assert "unassessed concept" not in student.known_topics
 
 
