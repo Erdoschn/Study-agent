@@ -29,7 +29,7 @@ class AssessmentEvaluator:
                 confidence_value = score
         debug.log(
             "AssessmentEvaluator",
-            f"EVALUATE → score={score:.3f}, correct={correct}, confidence={confidence_value:.3f}",
+            f"EVALUATE → expected={expected[:80]!r}, score={score:.3f}, correct={correct}, confidence={confidence_value:.3f}",
         )
         return {"correct": correct, "score": round(score, 3), "confidence": round(confidence_value, 3), "evaluation_reason": "答案满足核心评分要求。" if correct else "答案未满足全部核心评分要求。"}
 
@@ -41,8 +41,15 @@ class AssessmentEvaluator:
         criteria = [cls._normalize(x) for x in rubric if str(x).strip()]
         if criteria:
             return sum(1 for item in criteria if item and item in a) / len(criteria)
-        tokens = [x for x in re.findall(r"[a-z0-9\u4e00-\u9fff]+", e) if len(x) > 1]
-        return sum(1 for token in tokens if token in a) / len(tokens) if tokens else 0.0
+        tokens = [
+            x for x in re.findall(r"[a-z0-9_\u4e00-\u9fff]+", str(expected).lower())
+            if x not in {"a", "i"}
+        ]
+        normalized_answer = a
+        return (
+            sum(1 for token in tokens if cls._normalize(token) in normalized_answer) / len(tokens)
+            if tokens else 0.0
+        )
 
     @staticmethod
     def _normalize(value: str) -> str:
