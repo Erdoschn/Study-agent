@@ -315,8 +315,6 @@ STOP：无法继续时停止并说明原因。
             data.get("knowledge_relations", [])
         )
         answer = str(data.get("answer", "")).strip() if data.get("answer") is not None else ""
-        if action == "ANSWER" and not answer:
-            raise RuntimeError("ANSWER 必须提供非空 answer。")
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
         allowed_recency = {"DATED", "UNDATED", "UNKNOWN", "NEWER", "OLDER", "SAME"}
         normalized = []
