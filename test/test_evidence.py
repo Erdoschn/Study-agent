@@ -61,3 +61,4 @@ def test_evidence_engine_matches_chinese_compound_terms():
         }],
     )
     assert results[0]["harness_relevance"] == "DIRECT"
+\n\ndef test_evidence_verify_rejects_bare_topic_as_claim():\n    evidence = EvidenceEngine.normalize(\n        "attention",\n        [{\n            "source": "wikipedia",\n            "title": "Attention",\n            "abstract": "attention mechanisms in machine learning",\n            "identifier": "1",\n        }],\n    )\n    verification = EvidenceEngine.verify("attention", evidence)\n    assert verification["verification_status"] == "UNCERTAIN"\n    assert verification["matched_evidence"] == []\n
