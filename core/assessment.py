@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -19,7 +20,13 @@ class AssessmentEvaluator:
             raise ValueError("assessment 缺少 expected_answer，无法进行安全评分。")
         score = self._score(answer, expected, rubric)
         correct = score >= 0.8
-        confidence_value = score if confidence is None else max(0.0, min(1.0, float(confidence)))
+        confidence_value = score
+        if confidence is not None:
+            try:
+                candidate = float(confidence)
+                confidence_value = max(0.0, min(1.0, candidate)) if math.isfinite(candidate) else score
+            except (TypeError, ValueError):
+                confidence_value = score
         debug.log(
             "AssessmentEvaluator",
             f"EVALUATE → score={score:.3f}, correct={correct}, confidence={confidence_value:.3f}",
