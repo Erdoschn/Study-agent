@@ -410,6 +410,18 @@ class AgentToolLoop:
                     state.claims = decision.claims
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
+                if decision.knowledge_relations and state.knowledge_graph is not None:
+                    for relation in decision.knowledge_relations:
+                        state.knowledge_graph.add_relation(
+                            relation["source"],
+                            relation["target"],
+                            relation["relation"],
+                            relation["confidence"],
+                        )
+                        debug.log(
+                            "AgentToolLoop",
+                            f"KNOWLEDGE RELATION → {relation['source']} -[{relation['relation']}]-> {relation['target']} confidence={relation['confidence']:.2f}",
+                        )
                 if decision.student_model_update:
                     state.student.apply_mind_update(decision.student_model_update)
                 if decision.belief_revisions:
