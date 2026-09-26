@@ -187,3 +187,18 @@ def test_search_query_node_is_not_a_learner_concept():
     assert graph.nodes["transformer_attention_definition"].node_type == "search_query"
     context = graph.context_for("transformer attention definition")
     assert "transformer attention definition" not in context["matched_concepts"]
+
+
+def test_learner_context_separates_weak_learning_and_unknown():
+    graph = KnowledgeGraph()
+    graph.add_concept("attention")
+    graph.add_relation("attention", "transformer", "related_to", confidence=0.5)
+    graph.add_relation("attention", "optimization", "related_to", confidence=0.4)
+
+    graph.record_assessment(["attention"], True, difficulty="graduate")
+    graph.record_assessment(["transformer"], True, difficulty="graduate")
+
+    context = graph.context_for("attention")
+    assert "transformer" in context["learner_context"]["learning_concepts"]
+    assert "optimization" in context["learner_context"]["unassessed_concepts"]
+    assert "transformer" not in context["learner_context"]["weak_concepts"]
