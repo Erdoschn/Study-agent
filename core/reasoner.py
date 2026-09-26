@@ -313,6 +313,9 @@ STOP：无法继续时停止并说明原因。
         knowledge_relations = AgentReasoner._normalize_knowledge_relations(
             data.get("knowledge_relations", [])
         )
+        answer = str(data.get("answer", "")).strip() if data.get("answer") is not None else ""
+        if action == "ANSWER" and not answer:
+            raise RuntimeError("ANSWER 必须提供非空 answer。")
         allowed_relevance = {"DIRECT", "PARTIAL", "TANGENTIAL", "IRRELEVANT", "UNCERTAIN"}
         allowed_recency = {"DATED", "UNDATED", "UNKNOWN", "NEWER", "OLDER", "SAME"}
         normalized = []
@@ -332,7 +335,7 @@ STOP：无法继续时停止并说明原因。
             reasoning_summary=str(data.get("reasoning_summary", "")),
             tool=tool,
             arguments=arguments,
-            answer=str(data["answer"]) if data.get("answer") is not None else None,
+            answer=answer or None,
             goal=str(data.get("goal", "")),
             task_type=str(data.get("task_type", "")),
             domain=str(data.get("domain", "")),
@@ -431,12 +434,18 @@ STOP：无法继续时停止并说明原因。
                 confidence = 0.5
             if not source or not target or source == target or relation not in RELATIONS:
                 continue
-            normalized.append({
+            normalized_item = {
                 "source": source,
                 "target": target,
                 "relation": relation,
                 "confidence": round(confidence, 3),
-            })
+            }
+            refs = item.get("evidence_refs")
+            if isinstance(refs, list):
+                normalized_item["evidence_refs"] = [
+                    x for x in refs if isinstance(x, int) and x >= 0
+                ][:8]
+            normalized.append(normalized_item)
         return normalized[:12]
 
     @staticmethod
