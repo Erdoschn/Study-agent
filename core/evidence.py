@@ -130,11 +130,14 @@ class EvidenceEngine:
     def verify(cls, claim: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
         """Structural text matching only; this does not establish factual truth."""
         claim_tokens = cls._tokens(claim)
-        if not claim_tokens or not evidence:
+        # VERIFY should check a concrete statement, not a bare topic label.
+        # Requiring at least two substantive tokens prevents a single keyword
+        # such as "attention" from being treated as a verified claim.
+        if len(claim_tokens) < 2 or not evidence:
             return {
                 "claim": claim, "verification_status": "UNCERTAIN",
                 "matched_evidence": [],
-                "verification_note": "缺少足够输入，Harness 无法进行结构化文本匹配。",
+                "verification_note": "claim 过于简短或缺少证据，Harness 无法进行有意义的结构化文本匹配。",
             }
         matched = []
         for index, item in enumerate(evidence):
