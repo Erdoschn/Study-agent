@@ -408,6 +408,11 @@ class KnowledgeGraph:
             "known_concepts": known_concepts,
             "neighbors": neighbors[:limit],
             "learner_context": {
+                "status": (
+                    self.nodes[matched_ids[0]].learner.as_dict()
+                    if matched_ids and self.nodes.get(matched_ids[0])
+                    else {"learning_stage": "unknown"}
+                ),
                 "matched_concepts": matched_names,
                 "weak_concepts": weak[:limit],
             },
