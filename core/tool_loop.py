@@ -50,6 +50,10 @@ class ToolExecutor:
     MAX_CALCULATE_AST_DEPTH = 32
     MAX_CALCULATE_LITERAL_DIGITS = 100
     MAX_CALCULATE_POWER_EXPONENT = 1000
+    MAX_CALCULATE_EXPRESSION_LENGTH = 200
+    MAX_CALCULATE_AST_DEPTH = 32
+    MAX_CALCULATE_LITERAL_DIGITS = 100
+    MAX_CALCULATE_POWER_EXPONENT = 1000
 
     def __init__(self, search_router=None, evidence_engine=None):
         self.search_router = search_router
