@@ -38,6 +38,18 @@ from .model_factory import (
     ModelClientFactory,
 )
 
+
+from .assessment import AssessmentEvaluator
+from .goal import GoalMatcher
+from .knowledge_graph import (
+    KnowledgeEdge,
+    KnowledgeGraph,
+    KnowledgeNode,
+    LearnerState,
+    normalize_difficulty,
+)
+
+
 __all__ = [
     "StudyAgent",
     "EvidenceEngine",
@@ -67,13 +79,3 @@ __all__ = [
     "LearnerState",
     "normalize_difficulty",
 ]
-
-from .assessment import AssessmentEvaluator
-from .goal import GoalMatcher
-from .knowledge_graph import (
-    KnowledgeEdge,
-    KnowledgeGraph,
-    KnowledgeNode,
-    LearnerState,
-    normalize_difficulty,
-)
