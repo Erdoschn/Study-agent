@@ -384,13 +384,11 @@ class AgentToolLoop:
                             str((decision.arguments or {}).get("query", "")),
                             search_results,
                         )
-                elif decision.action == "SEARCH" and not success and error_type == "SEARCH_EMPTY":
+                elif decision.action == "SEARCH" and not success:
                     if isinstance(observation, dict):
                         observation["search_strategy"] = SearchStrategy.guidance(
-                            state.steps + [AgentStep(
-                                step_id=step_id, action="SEARCH",
-                                arguments=decision.arguments or {}, success=False, error=error,
-                            )]
+                            state.steps,
+                            error_type=error_type,
                         )
 
                 if decision.action == "VERIFY" and success and isinstance(observation, dict):
