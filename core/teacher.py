@@ -72,6 +72,11 @@ class Teacher:
 
     @staticmethod
     def _verified_claims(state):
+        current = {
+            str(item.get("claim", "")).strip()
+            for item in state.claims
+            if isinstance(item, dict) and str(item.get("claim", "")).strip()
+        }
         claims = []
         for step in state.steps:
             if (
@@ -81,7 +86,7 @@ class Teacher:
                 and step.observation.get("verification_status") == "MATCHED"
             ):
                 claim = str(step.observation.get("claim", "")).strip()
-                if claim and claim not in claims:
+                if claim and claim in current and claim not in claims:
                     claims.append(claim)
         return claims[:12]
 
