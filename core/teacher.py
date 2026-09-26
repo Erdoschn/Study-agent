@@ -73,7 +73,40 @@ class Teacher:
     def _build_payload(cls, state, draft_answer: str | None = None) -> dict:
         strategy = cls._derive_strategy(state)
         analysis = state.task_analysis
-        return {
+        recent_steps = state.steps[-8:]
+        evidence = []
+        for item in state.evidence[-20:]:
+            if not isinstance(item, dict):
+                continue
+            evidence.append({
+                "source": item.get("source"),
+                "title": item.get("title"),
+                "url": item.get("url"),
+                "identifier": item.get("identifier"),
+                "abstract": str(item.get("abstract", ""))[:600],
+                "published": item.get("published"),
+                "updated": item.get("updated"),
+                "harness_relevance": item.get("harness_relevance", "UNCERTAIN"),
+                "harness_recency": item.get("harness_recency", "UNKNOWN"),
+            })
+        steps = [
+            {
+                "step": s.step_id,
+                "action": s.action,
+                "model": s.model,
+                "tool": s.tool,
+                "reasoning_summary": s.reasoning_summary,
+                "observation": (
+                    str(s.observation)[:1500]
+                    if isinstance(s.observation, str)
+                    else s.observation
+                ),
+                "success": s.success,
+                "error": s.error,
+            }
+            for s in recent_steps
+        ]
+        payload = {
             "question": state.question,
             "draft_answer": draft_answer if draft_answer is not None else state.final_answer,
             "task_analysis": analysis.__dict__ if analysis else None,
@@ -88,27 +121,22 @@ class Teacher:
                 "misconceptions": list(state.student.misconceptions),
                 "mind_bdi": state.student.mind.as_dict(),
             },
-            "steps": [
-                {
-                    "step": s.step_id,
-                    "action": s.action,
-                    "model": s.model,
-                    "tool": s.tool,
-                    "reasoning_summary": s.reasoning_summary,
-                    "observation": s.observation,
-                    "success": s.success,
-                    "error": s.error,
-                }
-                for s in state.steps
-            ],
-            "evidence": list(state.evidence),
-            "evidence_relevance": list(state.evidence_relevance),
-            "claims": list(state.claims),
+            "steps": steps,
+            "evidence": evidence,
+            "evidence_relevance": list(state.evidence_relevance)[-20:],
+            "claims": list(state.claims)[-12:],
         }
+        debug.log(
+            "Teacher",
+            f"PROMPT DATA → steps={len(steps)}/{len(state.steps)}, evidence={len(evidence)}/{len(state.evidence)}, claims={len(payload['claims'])}",
+        )
+        return payload
 
     @classmethod
     def _build_prompt(cls, state, draft_answer: str | None = None) -> str:
-        return json.dumps(cls._build_payload(state, draft_answer), ensure_ascii=False, indent=2)
+        prompt = json.dumps(cls._build_payload(state, draft_answer), ensure_ascii=False, indent=2)
+        debug.log("Teacher", f"PROMPT → chars={len(prompt)}")
+        return prompt
 
     def _call_model(self, model, state, prompt) -> str:
         debug.log("Teacher", f"CALL LLM → {model.name}")
