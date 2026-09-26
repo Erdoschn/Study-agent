@@ -59,4 +59,21 @@ __all__ = [
     "ModelRouter",
     "ModelSelection",
     "ModelClientFactory",
+    "AssessmentEvaluator",
+    "GoalMatcher",
+    "KnowledgeEdge",
+    "KnowledgeGraph",
+    "KnowledgeNode",
+    "LearnerState",
+    "normalize_difficulty",
 ]
+
+from .assessment import AssessmentEvaluator
+from .goal import GoalMatcher
+from .knowledge_graph import (
+    KnowledgeEdge,
+    KnowledgeGraph,
+    KnowledgeNode,
+    LearnerState,
+    normalize_difficulty,
+)
