@@ -1,4 +1,4 @@
-from core.knowledge_graph import KnowledgeGraph, POSTGRADUATE_THRESHOLD
+from core.knowledge_graph import KnowledgeGraph, POSTGRADUATE_THRESHOLD, normalize_difficulty
 
 
 def test_easy_correct_cannot_master():
