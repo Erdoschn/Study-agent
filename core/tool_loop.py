@@ -333,6 +333,23 @@ class AgentToolLoop:
                 step_id = state.step_count + 1
                 if decision.action in {"ANSWER", "STOP"}:
                     if decision.action == "ANSWER":
+                        verified = any(
+                            step.action == "VERIFY"
+                            and step.success
+                            and isinstance(step.observation, dict)
+                            and step.observation.get("verification_status") == "MATCHED"
+                            for step in state.steps
+                        )
+                        if state.evidence and not verified:
+                            state.last_error_type = "VERIFY_REQUIRED"
+                            state.recovery_count += 1
+                            state.add_step(AgentStep(
+                                step_id=step_id, action="ANSWER_BLOCKED", model=decision.model,
+                                reasoning_summary="已有外部证据但尚未完成有效 VERIFY，Harness 阻止直接回答。",
+                                success=False,
+                                error="VERIFY_REQUIRED: 有外部证据时必须先完成至少一次 MATCHED VERIFY。",
+                            ))
+                            continue
                         state.final_answer = decision.answer
                     else:
                         state.error = decision.finish_reason or decision.reasoning_summary
@@ -343,7 +360,6 @@ class AgentToolLoop:
                     ))
                     state.finished = True
                     break
-
                 tool = decision.tool or decision.action.lower()
                 if self._repeated_tool(state, decision):
                     state.error = "Agent 检测到重复工具调用，已停止。"
