@@ -42,14 +42,9 @@ def setup_debug(
 ) -> None:
     from core.__debug__ import debug
 
-    debug.set_enabled(
-        bool(
-            config.get(
-                "debug",
-                False,
-            )
-        )
-    )
+    enabled = bool(config.get("debug", False))
+    debug.set_enabled(enabled)
+    debug.log("ConfigLoader", f"DEBUG → {'ON' if enabled else 'OFF'}")
 
 
 def get_model_config(
