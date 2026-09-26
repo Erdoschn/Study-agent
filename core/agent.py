@@ -18,6 +18,7 @@ class StudyAgent:
         self.knowledge_graph = KnowledgeGraph()
         self.assessment_evaluator = AssessmentEvaluator()
         self.last_state = None
+        self.pending_assessment_state = None
 
     def _teach_final_answer(self, state) -> None:
         """在 Reasoner 决定 ANSWER 后进入教学层；Teacher 失败时保留 Reasoner 草稿。"""
@@ -84,6 +85,12 @@ class StudyAgent:
             else:
                 try:
                     state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
+                    if state.pending_assessment:
+                        self.pending_assessment_state = state
+                        debug.log(
+                            "StudyAgent",
+                            "ASSESSMENT PENDING → preserved interactive state",
+                        )
                     if state.final_answer is not None and state.steps and state.steps[-1].action == "ANSWER":
                         self._teach_final_answer(state)
                 except Exception as exc:
@@ -92,7 +99,12 @@ class StudyAgent:
 
             debug.log("StudyAgent", f"LOOP FINISHED → steps={state.step_count}")
 
-            if state.final_answer is None and state.error:
+            if state.pending_assessment:
+                debug.log(
+                    "StudyAgent",
+                    "RUN PAUSED → waiting for assessment answer",
+                )
+            elif state.final_answer is None and state.error:
                 state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
             elif state.final_answer is None:
                 state.error = "Agent 在没有产生最终 ANSWER 的情况下结束。"
@@ -106,9 +118,13 @@ class StudyAgent:
 
     def submit_assessment_answer(self, answer: str, confidence: float | None = None) -> dict:
         """Evaluate the pending assessment and update the persistent learner graph."""
-        state = self.last_state
+        state = self.pending_assessment_state or self.last_state
         if state is None or not state.pending_assessment:
             raise ValueError("当前没有待作答的测试题。")
+        debug.log(
+            "StudyAgent",
+            "ASSESSMENT SUBMIT → evaluating pending answer",
+        )
         answer = str(answer or "").strip()
         if not answer:
             raise ValueError("测试答案不能为空。")
@@ -138,6 +154,12 @@ class StudyAgent:
         result["assessment"] = assessment
         state.student.sync_from_knowledge_graph(self.knowledge_graph)
         state.pending_assessment = None
+        if self.pending_assessment_state is state:
+            self.pending_assessment_state = None
+        debug.log(
+            "StudyAgent",
+            "ASSESSMENT COMPLETE → learner graph updated and pending state cleared",
+        )
         return result
 
     def _update_student_model(self, state) -> None:
