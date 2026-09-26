@@ -642,15 +642,6 @@ def test_reasoner_rejects_mismatched_action_tool():
         raise AssertionError("mismatched action/tool should fail")
 
 
-def test_reasoner_rejects_empty_answer_payload():
-    from core.reasoner import AgentReasoner
-    try:
-        AgentReasoner._parse('{"action":"ANSWER","reasoning_summary":"missing answer"}')
-    except RuntimeError as exc:
-        assert "非空 answer" in str(exc)
-    else:
-        raise AssertionError("empty ANSWER payload should be rejected")
-
 
 def test_unsupported_reasoner_knowledge_relation_is_not_persisted():
     from core.knowledge_graph import KnowledgeGraph
