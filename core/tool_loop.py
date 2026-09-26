@@ -340,7 +340,7 @@ class AgentToolLoop:
                             and step.observation.get("verification_status") == "MATCHED"
                             for step in state.steps
                         )
-                        if state.evidence and not verified:
+                        if state.evidence and state.claims and not verified:
                             state.last_error_type = "VERIFY_REQUIRED"
                             state.recovery_count += 1
                             state.add_step(AgentStep(
