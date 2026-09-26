@@ -706,3 +706,22 @@ def test_reasoner_knowledge_relation_can_use_relevant_evidence():
     state = AgentToolLoop(Reasoner(), ToolExecutor()).run(state)
     edge = graph.edges[("attention","query","used_in")]
     assert edge.evidence_refs[0]["index"] == 0
+
+
+def test_tool_loop_rejects_empty_answer_from_manual_reasoner():
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="invalid empty answer",
+                answer=" ",
+            )
+
+    state = AgentToolLoop(Reasoner(), ToolExecutor()).run(
+        AgentState(question="attention")
+    )
+
+    assert state.finished is True
+    assert state.final_answer is None
+    assert state.steps[-1].action == "ANSWER_BLOCKED"
+    assert "EMPTY_ANSWER" in state.steps[-1].error
