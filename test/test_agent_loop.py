@@ -142,9 +142,17 @@ def test_qualitative_relevance_is_fed_into_state():
                     arguments={"query": "attention"},
                     evidence_relevance=[],
                 )
+            if self.n == 2:
+                return ReasoningDecision(
+                    action="VERIFY",
+                    reasoning_summary="核查当前陈述",
+                    tool="verify",
+                    arguments={"claim": "attention mechanism"},
+                )
             return ReasoningDecision(
                 action="ANSWER",
                 reasoning_summary="answer",
+                claims=[{"claim": "attention mechanism"}],
                 evidence_relevance=[
                     {
                         "step": 1,
@@ -159,9 +167,15 @@ def test_qualitative_relevance_is_fed_into_state():
 
     class Executor:
         def execute(self, tool, arguments):
-            return [{"title": "Attention", "abstract": "attention mechanism"}]
+            if tool == "search":
+                return [{"title": "Attention", "abstract": "attention mechanism"}]
+            return {
+                "claim": arguments["claim"],
+                "verification_status": "MATCHED",
+                "matched_evidence": [0],
+            }
 
-    state = AgentState(question="attention", max_steps=3)
+    state = AgentState(question="attention", max_steps=4)
     state = AgentToolLoop(Reasoner(), Executor()).run(state)
 
     assert state.evidence_relevance[0]["relevance"] == "DIRECT"
