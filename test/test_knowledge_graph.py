@@ -202,3 +202,13 @@ def test_learner_context_separates_weak_learning_and_unknown():
     assert "transformer" in context["learner_context"]["learning_concepts"]
     assert "optimization" in context["learner_context"]["unassessed_concepts"]
     assert "transformer" not in context["learner_context"]["weak_concepts"]
+
+
+def test_assessment_rejects_non_boolean_correct():
+    graph = KnowledgeGraph()
+    try:
+        graph.record_assessment(["attention"], "false")
+    except ValueError as exc:
+        assert "布尔值" in str(exc)
+    else:
+        raise AssertionError("non-boolean assessment result should be rejected")
