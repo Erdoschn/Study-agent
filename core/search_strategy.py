@@ -36,6 +36,18 @@ class SearchStrategy:
             }
         empty = [s for s in searches if not getattr(s, "success", True)
                  and "SEARCH_EMPTY" in str(getattr(s, "error", ""))]
+        failed = [s for s in searches if not getattr(s, "success", True)]
+        if failed and not empty:
+            last_failed = failed[-1]
+            last_query = str(
+                (getattr(last_failed, "arguments", {}) or {}).get("query", "")
+            ).strip()
+            return {
+                "stage": "error",
+                "required_change": "new_query_or_source",
+                "suggested_query": cls.core_query(last_query) if last_query else None,
+                "instruction": "搜索后端请求失败；下一轮必须改变搜索源或明显修改查询，不要重复相同请求。",
+            }
         if not empty:
             return {"stage": "initial", "required_change": "none",
                     "instruction": "先使用最直接的核心查询。"}
