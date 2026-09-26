@@ -459,3 +459,44 @@ def test_tool_loop_persists_reasoner_knowledge_relations():
 
     edge = state.knowledge_graph.edges[("attention", "transformer", "part_of")]
     assert edge.confidence == 0.8
+
+
+
+def test_reasoner_prompt_compacts_search_history():
+    import json
+    from core.reasoner import AgentReasoner
+    from core.tool_loop import SearchObservation
+
+    state = AgentState(question="attention")
+    state.steps = [
+        AgentStep(
+            step_id=i,
+            action="SEARCH",
+            tool="search",
+            arguments={"query": f"q{i}"},
+            observation=SearchObservation(
+                [{
+                    "source": "wikipedia",
+                    "title": f"Result {i}",
+                    "identifier": str(i),
+                    "abstract": "x" * 1000,
+                    "harness_relevance": "DIRECT",
+                    "harness_recency": "UNKNOWN",
+                }] * 8,
+                {"status": "PARTIAL", "relevant_count": 8, "uncovered_terms": []},
+            ),
+            success=True,
+        )
+        for i in range(1, 11)
+    ]
+    state.last_observation = state.steps[-1].observation
+    prompt = AgentReasoner._build_prompt(
+        AgentReasoner.__new__(AgentReasoner),
+        state,
+        [],
+    )
+    payload = json.loads(prompt)
+
+    assert len(payload["previous_steps"]) == 8
+    assert len(payload["previous_steps"][0]["observation"]["results"]) == 8
+    assert len(payload["previous_steps"][0]["observation"]["results"][0]["abstract"]) == 500
