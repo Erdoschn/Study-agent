@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from .__debug__ import debug
+
 
 @dataclass
 class BDIState:
@@ -143,6 +145,10 @@ class StudentState:
                 weak.add(node.name)
         self.known_topics = known
         self.weak_topics = weak - known
+        debug.log(
+            "StudentState",
+            f"SYNC → known={sorted(self.known_topics)}, weak={sorted(self.weak_topics)}",
+        )
 
 
 @dataclass
