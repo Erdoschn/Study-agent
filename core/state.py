@@ -207,6 +207,10 @@ class AgentState:
         self.last_action = step.action
         self.last_observation = step.observation
         self.action_counts[step.action] = self.action_counts.get(step.action, 0) + 1
+        debug.log(
+            "AgentState",
+            f"STEP → id={step.step_id}, action={step.action}, tool={step.tool or 'none'}, success={step.success}, error={step.error or 'none'}",
+        )
 
     def observations(self) -> list[Any]:
         return [step.observation for step in self.steps if step.observation is not None]
