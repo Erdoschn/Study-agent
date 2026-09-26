@@ -149,3 +149,25 @@ def test_graph_context_resolves_concepts_from_compound_question():
 def test_normalize_difficulty_handles_nonfinite_values():
     assert normalize_difficulty(float("nan"))[1] == 0.70
     assert normalize_difficulty(float("inf"))[1] == 0.70
+
+
+
+def test_document_node_is_promoted_when_later_assessed_as_concept():
+    graph = KnowledgeGraph()
+    graph.learn_from_search(
+        "transformer",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "identifier": "doc-1",
+        }],
+    )
+    assert graph.nodes["attention"].node_type == "document"
+
+    graph.record_assessment(
+        ["attention"],
+        True,
+        difficulty="postgraduate_plus",
+    )
+    assert graph.nodes["attention"].node_type == "concept"
+    assert graph.nodes["attention"].learner.exposure_count == 1
