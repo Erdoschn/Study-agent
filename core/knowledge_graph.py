@@ -120,6 +120,7 @@ class KnowledgeGraph:
         return node_id
 
     def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+        previous_stage = state.learning_stage
         level, difficulty = normalize_difficulty(difficulty)
         state.exposure_count += 1
         if correct:
@@ -153,7 +154,18 @@ class KnowledgeGraph:
         state.confidence = max(0.0, min(1.0, 0.75 * state.confidence + 0.25 * float(observed_conf)))
         state.last_seen = time.time()
         n = len(state.assessment_history)
-        if n < 2:
+        if previous_stage == "mastered":
+            recent_wrong = sum(
+                1 for x in state.assessment_history[-3:]
+                if not x.get("correct")
+            )
+            # Mastery is sticky: one wrong or one easier question is not enough
+            # to revoke stronger prior evidence. Require sustained counter-evidence.
+            if recent_wrong >= 2 and accuracy < 0.5:
+                state.learning_stage = "weak"
+            else:
+                state.learning_stage = "mastered"
+        elif n < 2:
             state.learning_stage = "new"
         elif n < 3:
             state.learning_stage = "learning" if accuracy >= 0.5 else "new"
