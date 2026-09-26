@@ -43,3 +43,33 @@ def test_lower_difficulty_does_not_reduce_previous_evidence_cap():
     before = state.max_familiarity
     graph.record_assessment(["attention"], True, difficulty="undergraduate")
     assert state.max_familiarity >= before
+
+
+def test_student_state_sync_uses_assessed_stage_only():
+    from core.state import StudentState
+
+    graph = KnowledgeGraph()
+    graph.add_concept("attention")
+    graph.add_concept("transformer")
+    for _ in range(5):
+        graph.record_assessment(["attention"], True, difficulty="postgraduate_plus")
+    graph.record_assessment(["transformer"], False, difficulty="graduate")
+
+    student = StudentState()
+    student.sync_from_knowledge_graph(graph)
+
+    assert "attention" in student.known_topics
+    assert "transformer" in student.weak_topics
+    assert "unassessed concept" not in student.known_topics
+
+
+def test_search_provenance_is_not_a_learner_weak_concept():
+    graph = KnowledgeGraph()
+    graph.learn_from_search("attention", [{
+        "source": "wikipedia",
+        "title": "Attention mechanism",
+        "identifier": "1",
+    }])
+
+    context = graph.context_for("attention")
+    assert "Attention mechanism" not in context["learner_context"]["weak_concepts"]
