@@ -138,8 +138,10 @@ class StudyAgent:
         return result
 
     def _update_student_model(self, state) -> None:
-        if state.domain:
-            state.student.known_topics.add(state.domain)
+        # Task exposure is not mastery. Learner-facing topic status comes from
+        # explicit assessment evidence stored in the persistent knowledge graph.
+        if state.knowledge_graph is not None:
+            state.student.sync_from_knowledge_graph(state.knowledge_graph)
 
     def record_assessment(self, concepts, correct: bool, confidence: float | None = None, relation=None, difficulty="graduate") -> None:
         """Update the persistent learner graph from an explicit quiz/exercise result."""
