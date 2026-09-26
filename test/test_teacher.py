@@ -174,3 +174,36 @@ def test_teacher_payload_compacts_search_observations():
     assert len(observation["results"]) == 8
     assert len(observation["results"][0]["abstract"]) == 500
     assert observation["coverage"]["status"] == "COVERED"
+
+
+
+def test_teacher_only_receives_verified_current_claims():
+    from core.state import AgentStep
+
+    state = AgentState(question="attention")
+    state.claims = [{"claim": "current claim"}]
+    state.steps = [
+        AgentStep(
+            step_id=1,
+            action="VERIFY",
+            observation={
+                "claim": "old claim",
+                "verification_status": "MATCHED",
+                "matched_evidence": [0],
+            },
+            success=True,
+        ),
+        AgentStep(
+            step_id=2,
+            action="VERIFY",
+            observation={
+                "claim": "current claim",
+                "verification_status": "MATCHED",
+                "matched_evidence": [0],
+            },
+            success=True,
+        ),
+    ]
+
+    payload = Teacher._build_payload(state)
+    assert payload["verified_claims"] == ["current claim"]
