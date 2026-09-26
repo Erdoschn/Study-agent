@@ -124,3 +124,34 @@ def test_evidence_verify_allows_unrelated_negation_in_same_evidence():
     verification = EvidenceEngine.verify("attention uses query", evidence)
     assert verification["verification_status"] == "MATCHED"
     assert verification["matched_evidence"] == [0]
+
+
+def test_evidence_verify_preserves_qkv_tokens():
+    evidence = EvidenceEngine.normalize(
+        "Q K V matrices",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "Q, K and V are matrices used in attention.",
+            "identifier": "1",
+        }],
+    )
+    verification = EvidenceEngine.verify(
+        "Q K V are matrices",
+        evidence,
+    )
+    assert verification["verification_status"] == "MATCHED"
+
+
+def test_evidence_verify_allows_positive_clause_after_local_negation():
+    evidence = EvidenceEngine.normalize(
+        "attention uses query",
+        [{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "Attention does not use fixed weights, but it uses query values.",
+            "identifier": "1",
+        }],
+    )
+    verification = EvidenceEngine.verify("attention uses query", evidence)
+    assert verification["verification_status"] == "MATCHED"
