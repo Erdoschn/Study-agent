@@ -411,3 +411,48 @@ def test_calculate_rejects_boolean_constant():
         assert "布尔值" in str(exc) or "不允许" in str(exc)
     else:
         raise AssertionError("boolean constants should be rejected")
+
+
+
+def test_reasoner_parses_and_sanitizes_knowledge_relations():
+    from core.reasoner import AgentReasoner
+
+    decision = AgentReasoner._parse(
+        '{"action":"ANSWER","reasoning_summary":"answer",'
+        '"knowledge_relations":['
+        '{"source":"attention","target":"transformer","relation":"part_of","confidence":0.8},'
+        '{"source":"bad","target":"x","relation":"not_allowed","confidence":2},'
+        '{"source":"same","target":"same","relation":"related_to","confidence":-1}'
+        ']}'
+    )
+
+    assert decision.knowledge_relations == [{
+        "source": "attention",
+        "target": "transformer",
+        "relation": "part_of",
+        "confidence": 0.8,
+    }]
+
+
+def test_tool_loop_persists_reasoner_knowledge_relations():
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="answer",
+                answer="ok",
+                knowledge_relations=[{
+                    "source": "attention",
+                    "target": "transformer",
+                    "relation": "part_of",
+                    "confidence": 0.8,
+                }],
+            )
+
+    state = AgentToolLoop(
+        Reasoner(),
+        ToolExecutor(),
+    ).run(AgentState(question="attention"))
+
+    edge = state.knowledge_graph.edges[("attention", "transformer", "part_of")]
+    assert edge.confidence == 0.8
