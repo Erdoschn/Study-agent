@@ -380,9 +380,17 @@ class AgentToolLoop:
                 if decision.action in {"ANSWER", "STOP"}:
                     if decision.action == "ANSWER":
                         verified = self._claims_verified(state)
+                        debug.log(
+                            "AgentToolLoop",
+                            f"ANSWER GATE → evidence={len(state.evidence)}, claims={len(state.claims)}, verified={verified}",
+                        )
                         if state.evidence and state.claims and not verified:
                             state.last_error_type = "VERIFY_REQUIRED"
                             state.recovery_count += 1
+                            debug.log(
+                                "AgentToolLoop",
+                                "ANSWER BLOCKED → VERIFY_REQUIRED",
+                            )
                             state.add_step(AgentStep(
                                 step_id=step_id, action="ANSWER_BLOCKED", model=decision.model,
                                 reasoning_summary="已有外部证据但尚未完成有效 VERIFY，Harness 阻止直接回答。",
