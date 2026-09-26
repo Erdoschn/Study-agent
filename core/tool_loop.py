@@ -97,7 +97,7 @@ class ToolExecutor:
                         "expected_answer": {"type": "string"},
                         "rubric": {"type": "array", "items": {"type": "string"}},
                     },
-                    "required": ["concepts", "question"],
+                    "required": ["concepts", "question", "expected_answer"],
                 },
                 self._assess,
             )
@@ -196,16 +196,32 @@ class ToolExecutor:
         question = str(arguments.get("question", "")).strip()
         if not isinstance(concepts, list) or not concepts or not question:
             raise ValueError("assess 需要 concepts 和 question。")
+        clean_concepts = [str(x).strip() for x in concepts if str(x).strip()][:8]
+        expected_answer = str(arguments.get("expected_answer", "")).strip()
+        if not clean_concepts:
+            raise ValueError("assess 至少需要一个非空 concept。")
+        if not expected_answer:
+            raise ValueError("assess 必须提供 expected_answer，否则无法评分。")
+        from .knowledge_graph import RELATIONS
+        raw_relations = arguments.get("relations", [])
+        relations = []
+        if isinstance(raw_relations, list):
+            for relation in raw_relations[:8]:
+                if not isinstance(relation, (list, tuple)) or len(relation) != 3:
+                    continue
+                source, target, rel = (str(x).strip() for x in relation)
+                if source and target and rel in RELATIONS:
+                    relations.append([source, target, rel])
         level, score = normalize_difficulty(arguments.get("difficulty", "graduate"))
         rubric = arguments.get("rubric", [])
         pending = {
-            "concepts": [str(x).strip() for x in concepts if str(x).strip()][:8],
-            "relations": arguments.get("relations", []),
+            "concepts": clean_concepts,
+            "relations": relations,
             "difficulty": score,
             "difficulty_level": level,
             "question_type": str(arguments.get("question_type", "open_ended")),
             "question": question,
-            "expected_answer": str(arguments.get("expected_answer", "")).strip(),
+            "expected_answer": expected_answer,
             "rubric": [str(x).strip() for x in rubric if str(x).strip()][:8] if isinstance(rubric, list) else [],
         }
         if state is not None:
