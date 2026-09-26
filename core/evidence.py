@@ -77,9 +77,16 @@ class EvidenceEngine:
         q = cls._tokens(query)
         title = cls._tokens(str(result.get("title", "")))
         body = cls._tokens(f"{result.get('abstract', '')} {result.get('notes', '')}")
+        combined_text = f"{result.get('title', '')} {result.get('abstract', '')} {result.get('notes', '')}".lower()
+        query_text = str(query or "").strip().lower()
+        chinese_direct = bool(
+            query_text
+            and re.search(r"[\\u4e00-\\u9fff]", query_text)
+            and query_text in combined_text
+        )
         if not q or not (title or body):
             relevance = "UNCERTAIN"
-        elif q.issubset(title | body):
+        elif chinese_direct or q.issubset(title | body):
             relevance = "DIRECT"
         elif q & title:
             relevance = "PARTIAL"
