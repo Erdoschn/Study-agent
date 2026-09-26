@@ -207,3 +207,11 @@ def test_teacher_only_receives_verified_current_claims():
 
     payload = Teacher._build_payload(state)
     assert payload["verified_claims"] == ["current claim"]
+
+
+def test_strategy_prioritizes_new_learning_before_known_topics():
+    state = AgentState(question="attention")
+    state.student.learning_topics.add("attention")
+    state.student.known_topics.add("transformer")
+    strategy = Teacher._derive_strategy(state)
+    assert strategy["mode"] == "新知巩固"
