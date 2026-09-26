@@ -116,3 +116,13 @@ def test_invalid_learner_confidence_does_not_poison_state():
     state = graph.nodes["attention"].learner
     assert state.assessment_history[-1]["confidence"] is None
     assert state.confidence == 0.25
+
+
+
+def test_relation_confidence_is_sanitized_at_graph_boundary():
+    graph = KnowledgeGraph()
+    graph.add_relation("attention", "transformer", "related_to", confidence=float("nan"))
+    assert graph.edges[("attention", "transformer", "related_to")].confidence == 0.0
+
+    graph.add_relation("attention", "transformer", "related_to", confidence=2)
+    assert graph.edges[("attention", "transformer", "related_to")].confidence == 1.0
