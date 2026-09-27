@@ -13,79 +13,112 @@ CONFIG_PATH = (
 
 
 
-def _refresh_aihubmix_models(config: dict[str, Any]) -> None:
-    """Refresh the AIHubMix model catalog once when configuration is loaded."""
+def _refresh_provider_models(config: dict[str, Any]) -> None:
+    """Refresh model catalogs for every enabled provider that exposes /models.
+
+    providers.json remains the source of provider credentials and local policy.
+    The live /models response is used only to discover which model IDs currently
+    exist. Existing model metadata (including paid/capabilities) is preserved.
+    """
     providers = config.get("providers", {})
     models = config.get("models", {})
     if not isinstance(providers, dict) or not isinstance(models, dict):
         return
 
-    provider_name = next(
-        (name for name in providers if str(name).strip().lower() == "aihubmix"),
-        None,
-    )
-    if provider_name is None:
-        return
-    provider = providers.get(provider_name)
-    if not isinstance(provider, dict) or not provider.get("enabled", False):
-        return
+    for provider_name, provider in providers.items():
+        if not isinstance(provider, dict) or not provider.get("enabled", False):
+            continue
+        if str(provider.get("type", "openai_compatible")).lower() != "openai_compatible":
+            continue
 
-    base_url = str(provider.get("base_url", "")).rstrip("/")
-    if not base_url:
-        return
-    headers = {"Accept": "application/json"}
-    if isinstance(provider.get("headers"), dict):
-        headers.update({str(k): str(v) for k, v in provider["headers"].items()})
-    if "Authorization" not in headers and provider.get("api_key"):
-        headers["Authorization"] = f"Bearer {provider['api_key']}"
+        base_url = str(provider.get("base_url", "")).rstrip("/")
+        if not base_url:
+            continue
 
-    request = urllib.request.Request(
-        f"{base_url}/models", method="GET", headers=headers
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        debug.log(
-            "ConfigLoader",
-            f"AIHUBMIX REFRESH FAILED → {type(exc).__name__}: {exc}; keeping local models",
+        headers = {"Accept": "application/json"}
+        raw_headers = provider.get("headers", {})
+        if isinstance(raw_headers, dict):
+            headers.update({str(k): str(v) for k, v in raw_headers.items()})
+        if "Authorization" not in headers and provider.get("api_key"):
+            headers["Authorization"] = f"Bearer {provider['api_key']}"
+
+        request = urllib.request.Request(
+            f"{base_url}/models",
+            method="GET",
+            headers=headers,
         )
-        return
+        timeout = min(max(int(provider.get("timeout", 30)), 5), 30)
 
-    data = payload.get("data", []) if isinstance(payload, dict) else []
-    live_ids = {
-        str(item.get("id", "")).strip()
-        for item in data
-        if isinstance(item, dict) and str(item.get("id", "")).strip()
-    }
-    if not live_ids:
-        debug.log("ConfigLoader", "AIHUBMIX REFRESH → empty catalog; keeping local models")
-        return
-
-    for name, item in list(models.items()):
-        if not isinstance(item, dict) or item.get("provider") != provider_name:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            debug.log(
+                "ConfigLoader",
+                f"MODEL REFRESH SKIP → provider={provider_name}, "
+                f"{type(exc).__name__}: {exc}; keeping local models",
+            )
             continue
-        model_id = str(item.get("model", name)).strip()
-        if model_id not in live_ids:
-            item["enabled"] = False
 
-    for model_id in live_ids:
-        existing = models.get(model_id)
-        if isinstance(existing, dict) and existing.get("provider") == provider_name:
-            existing["model"] = model_id
-            existing["enabled"] = True
+        data = payload.get("data", []) if isinstance(payload, dict) else []
+        live_ids = {
+            str(item.get("id", "")).strip()
+            for item in data
+            if isinstance(item, dict) and str(item.get("id", "")).strip()
+        }
+        if not live_ids:
+            debug.log(
+                "ConfigLoader",
+                f"MODEL REFRESH SKIP → provider={provider_name}, empty catalog",
+            )
             continue
-        models[model_id] = {
-            "provider": provider_name,
-            "model": model_id,
-            "enabled": True,
-            "paid": not model_id.lower().endswith("-free"),
+
+        provider_models = {
+            name: item
+            for name, item in models.items()
+            if isinstance(item, dict) and item.get("provider") == provider_name
         }
 
-    debug.log(
-        "ConfigLoader",
-        f"AIHUBMIX REFRESH → live={len(live_ids)}, total_models={len(models)}",
-    )
+        # Disable models no longer advertised by the provider, but never delete
+        # them: this preserves local capability/paid metadata and makes fallback
+        # possible if discovery is temporarily unavailable.
+        for name, item in provider_models.items():
+            model_id = str(item.get("model", name)).strip()
+            if model_id not in live_ids:
+                item["enabled"] = False
+
+        for model_id in live_ids:
+            # Prefer an existing exact model-id entry. Otherwise reuse an existing
+            # entry pointing at this provider/model before creating a new entry.
+            existing = models.get(model_id)
+            if not (isinstance(existing, dict) and existing.get("provider") == provider_name):
+                existing = next(
+                    (
+                        item for item in provider_models.values()
+                        if str(item.get("model", "")).strip() == model_id
+                    ),
+                    None,
+                )
+
+            if isinstance(existing, dict):
+                existing["model"] = model_id
+                existing["enabled"] = True
+                continue
+
+            # New entries get conservative policy defaults. Paid status is only
+            # inferred for newly discovered models; explicit local settings win.
+            models[model_id] = {
+                "provider": provider_name,
+                "model": model_id,
+                "enabled": True,
+                "paid": not model_id.lower().endswith("-free"),
+            }
+
+        debug.log(
+            "ConfigLoader",
+            f"MODEL REFRESH → provider={provider_name}, "
+            f"live={len(live_ids)}, configured={len(provider_models)}",
+        )
 
 
 def load_config() -> dict[str, Any]:
@@ -107,7 +140,7 @@ def load_config() -> dict[str, Any]:
 
     if not isinstance(config, dict):
         raise ValueError("providers.json 顶层必须是 JSON 对象。")
-    _refresh_aihubmix_models(config)
+    _refresh_provider_models(config)
     debug.log(
         "ConfigLoader",
         f"CONFIG → providers={len(config.get('providers', {}) if isinstance(config.get('providers', {}), dict) else {})}, models={len(config.get('models', {}) if isinstance(config.get('models', {}), dict) else {})}, debug={bool(config.get('debug', False))}",
