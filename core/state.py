@@ -151,25 +151,24 @@ class StudentMind:
         del self.recent_decisions[:-12]
 
     def revise_beliefs(self, revisions: list[dict[str, Any]], evidence: list[dict[str, Any]] | None = None) -> None:
-        """Apply explicit belief replacements/retractions with a small audit trail."""
+        """Apply belief revisions with evidence gates for long-term memory."""
         if not isinstance(revisions, list):
             return
+
         for item in revisions:
             if not isinstance(item, dict):
                 continue
+
             old = str(item.get("old", "")).strip()
             new = str(item.get("new", "")).strip()
             horizon = str(item.get("horizon", "short_term")).strip()
             status = str(item.get("status", "REVISED")).upper()
             reason = str(item.get("reason", "")).strip()
             evidence_refs = item.get("evidence_refs", [])
+
             if not old or horizon not in {"short_term", "long_term"}:
                 continue
-            target = getattr(self, horizon).beliefs
-            if old in target:
-                target.remove(old)
-            if new and status in {"REVISED", "CONFIRMED"} and new not in target:
-                target.append(new)
+
             valid_refs = []
             for ref in evidence_refs if isinstance(evidence_refs, list) else []:
                 if not isinstance(ref, int) or evidence is None or ref < 0 or ref >= len(evidence):
@@ -185,27 +184,55 @@ class StudentMind:
                     )
                     continue
                 valid_refs.append({
-                    "index": ref, "source": item_ref.get("source"),
-                    "title": item_ref.get("title"), "identifier": item_ref.get("identifier"),
+                    "index": ref,
+                    "source": item_ref.get("source"),
+                    "title": item_ref.get("title"),
+                    "identifier": item_ref.get("identifier"),
                     "harness_relevance": relevance,
                 })
-            if new and status in {"REVISED", "CONFIRMED"} and valid_refs:
+
+            # Long-term memory cannot be mutated by an unsupported LLM proposal.
+            long_term_requires_support = horizon == "long_term" and status in {
+                "REVISED", "CONFIRMED", "RETRACTED"
+            }
+            blocked = long_term_requires_support and not valid_refs
+
+            target = getattr(self, horizon).beliefs
+            applied_status = status if status in {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"} else "UNCERTAIN"
+
+            if blocked:
+                debug.log(
+                    "StudentMind",
+                    f"BELIEF REVISION BLOCKED → horizon={horizon}, status={status}, reason=no DIRECT/PARTIAL evidence",
+                )
+                applied_status = "UNCERTAIN"
+            elif old in target:
+                target.remove(old)
+                if new and status in {"REVISED", "CONFIRMED"} and new not in target:
+                    target.append(new)
+            elif new and status in {"REVISED", "CONFIRMED"}:
+                target.append(new)
+
+            if horizon == "long_term" and new and status in {"REVISED", "CONFIRMED"} and not blocked:
                 self.belief_support[new] = valid_refs
-            elif new and status in {"REVISED", "CONFIRMED"} and new not in self.belief_support:
-                self.belief_support[new] = []
-            if status == "RETRACTED":
+            elif horizon == "long_term" and status == "RETRACTED" and not blocked:
                 self.belief_support.pop(old, None)
+
             debug.log(
                 "StudentMind",
-                f"BELIEF REVISION → status={status}, horizon={horizon}, evidence_refs={len(valid_refs)}",
+                f"BELIEF REVISION → status={applied_status}, horizon={horizon}, evidence_refs={len(valid_refs)}",
             )
             self.belief_history.append({
-                "horizon": horizon, "old": old, "new": new,
-                "status": status if status in {"REVISED", "CONFIRMED", "RETRACTED", "UNCERTAIN"} else "UNCERTAIN",
-                "reason": reason, "evidence_refs": valid_refs,
+                "horizon": horizon,
+                "old": old,
+                "new": new,
+                "status": applied_status,
+                "reason": reason,
+                "evidence_refs": valid_refs,
+                "applied": not blocked,
             })
-        del self.belief_history[:-20]
 
+        del self.belief_history[:-20]
 
 @dataclass
 class StudentState:
