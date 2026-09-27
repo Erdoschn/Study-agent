@@ -179,7 +179,7 @@ STOP：无法继续时停止并说明原因。
         if hasattr(observation, "get") and hasattr(observation, "coverage"):
             raw_results = observation.get("results", []) or []
             compact_results = []
-            for item in raw_results[:8]:
+            for item in raw_results[:12]:
                 if not isinstance(item, dict):
                     continue
                 compact_results.append({
@@ -228,7 +228,7 @@ STOP：无法继续时停止并说明原因。
             },
             "available_tools": tool_specs,
             "previous_steps": observations,
-            "evidence": EvidenceStore(state.evidence).prompt_view(),
+            "evidence": EvidenceStore(state.evidence).prompt_view(max_items=12),
             "claims": state.claims,
             "evidence_relevance": state.evidence_relevance,
             "action_counts": state.action_counts,
