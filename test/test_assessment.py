@@ -55,3 +55,28 @@ def test_technical_single_letter_tokens_are_scored():
     assert full["score"] == 1.0
     assert partial["score"] == 2 / 3
     assert partial["correct"] is False
+
+
+
+def test_negated_answer_does_not_pass_by_token_overlap():
+    result = AssessmentEvaluator().evaluate(
+        _assessment(),
+        "attention does not map a query to relevant values",
+    )
+    assert result["score"] == 0.0
+    assert result["correct"] is False
+
+
+def test_rubric_matching_respects_token_boundaries():
+    assessment = {
+        "concepts": ["attention"],
+        "question": "What is attention?",
+        "expected_answer": "query relevant values",
+        "rubric": ["query", "relevant", "values"],
+    }
+    result = AssessmentEvaluator().evaluate(
+        assessment,
+        "antiquery relevant values",
+    )
+    assert result["score"] == 2 / 3
+    assert result["correct"] is False
