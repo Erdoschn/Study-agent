@@ -16,7 +16,17 @@ class EvidenceStore:
 
     @staticmethod
     def _key(item: dict[str, Any]) -> tuple[str, str]:
-        return (str(item.get("source", "")), str(item.get("identifier") or item.get("url") or item.get("title") or ""))
+        identity = (
+            item.get("identifier")
+            or item.get("url")
+            or item.get("title")
+            or str(item.get("abstract", "")).strip()
+            or str(item.get("notes", "")).strip()
+        )
+        # Do not collapse unrelated anonymous results from the same provider.
+        if not str(identity).strip():
+            identity = repr(sorted((str(k), str(v)) for k, v in item.items()))
+        return (str(item.get("source", "")), str(identity))
 
     def add_many(self, items: list[dict[str, Any]]) -> int:
         seen = {self._key(item) for item in self.items}
