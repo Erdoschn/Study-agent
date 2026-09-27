@@ -150,10 +150,16 @@ def test_stream_chat_completion_separates_status_and_answer():
         completion_ids = {payload["id"] for payload in payloads}
         assert len(completion_ids) == 1
 
-        status_delta = payloads[0]["choices"][0]["delta"]
+        role_delta = payloads[0]["choices"][0]["delta"]
+        status_delta = next(
+            payload["choices"][0]["delta"]
+            for payload in payloads
+            if "reasoning_content" in payload["choices"][0]["delta"]
+        )
         answer_delta = payloads[-2]["choices"][0]["delta"]
         finish = payloads[-1]["choices"][0]["finish_reason"]
 
+        assert role_delta == {"role": "assistant"}
         assert "reasoning_content" in status_delta
         assert "content" not in status_delta
         assert answer_delta == {"role": "assistant", "content": "最终答案"}
