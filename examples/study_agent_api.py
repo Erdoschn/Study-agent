@@ -195,6 +195,8 @@ class Handler(BaseHTTPRequestHandler):
         def log_hook(module: str, message: str) -> None:
             text = f"[{module}] {message}"
             events.append(text)
+            # Keep a live terminal monitor even when the caller is Open WebUI.
+            print(text, flush=True)
             emit(text)
 
         # DebugTracer is global in the current project. Serialize runs so this
@@ -203,12 +205,16 @@ class Handler(BaseHTTPRequestHandler):
             original_log = debug.log
             debug.log = log_hook
             try:
-                emit("🤔 Study Agent 正在分析任务...")
+                status = "🤔 Study Agent 正在分析任务..."
+                print(status, flush=True)
+                emit(status)
                 result = self.server.agent.run(question)
-                emit(
+                status = (
                     f"✓ Agent 完成：steps={result.step_count}, "
                     f"evidence={len(result.evidence)}, claims={len(result.claims)}"
                 )
+                print(status, flush=True)
+                emit(status)
                 return result
             finally:
                 debug.log = original_log
@@ -231,6 +237,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = self._run_agent(question, emit)
                 events.put(("result", result))
             except Exception as exc:
+                print(f"❌ Agent 执行失败：{type(exc).__name__}: {exc}", flush=True)
                 events.put(("error", exc))
             finally:
                 events.put(("done", sentinel))
