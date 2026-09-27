@@ -147,4 +147,9 @@ class ModelRouter:
             runtime_fit - self.UNKNOWN_CAPABILITY_PRIOR
         ) * confidence
 
+        if not model.capabilities:
+            # Preserve the cold-start contract: with no static metadata, runtime
+            # evidence is the only signal and unseen models remain exactly neutral.
+            return runtime_adjusted
+
         return self.STATIC_WEIGHT * static_fit + self.RUNTIME_WEIGHT * runtime_adjusted
