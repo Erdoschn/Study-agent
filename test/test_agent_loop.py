@@ -739,7 +739,7 @@ def test_tool_executor_rejects_non_object_arguments():
 
 
 
-def test_repeated_blocked_answer_does_not_loop_forever():
+def test_answer_with_evidence_but_no_claims_is_allowed():
     class Reasoner:
         def __init__(self):
             self.calls = 0
@@ -748,7 +748,7 @@ def test_repeated_blocked_answer_does_not_loop_forever():
             self.calls += 1
             return ReasoningDecision(
                 action="ANSWER",
-                reasoning_summary="same blocked answer",
+                reasoning_summary="answer without explicit claims",
                 answer="ok",
             )
 
@@ -765,10 +765,11 @@ def test_repeated_blocked_answer_does_not_loop_forever():
     state = AgentToolLoop(reasoner, ToolExecutor()).run(graph_state)
 
     assert state.finished is True
-    assert state.final_answer is None
-    assert reasoner.calls == 2
-    assert state.steps[-1].action == "STOP"
-    assert "重复且持续被 Harness 拒绝" in state.error
+    assert state.final_answer is not None
+    assert state.final_answer.startswith("ok")
+    assert "没有提交可逐条核查的 claims" in state.final_answer
+    assert reasoner.calls == 1
+    assert state.steps[-1].action == "ANSWER"
 
 
 
