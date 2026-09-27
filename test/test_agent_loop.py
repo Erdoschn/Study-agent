@@ -191,7 +191,7 @@ def test_search_uses_larger_default_candidate_pool():
     executor = ToolExecutor(search_router=router)
     executor._search({"query": "attention"})
 
-    assert provider.calls[0].max_results == 10
+    assert provider.calls[0].max_results == 15
 
 
 def test_failed_exact_tool_call_is_not_retried():
