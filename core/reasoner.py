@@ -126,7 +126,7 @@ STOP：无法继续时停止并说明原因。
 - D=学习目标，I=行动计划；recent_decisions 单独记录。
 - short_term 记录近期工作假设；long_term 仅记录稳定、重复或明确表达的信息。
 - 只记录有对话依据的学习信息。
-- belief_revisions 仅在已有 belief 与明确证据或用户明确纠正冲突时提出。
+- belief_revisions 仅在已有 belief 与明确证据或用户明确纠正冲突时提出；对 long_term belief 的 REVISED/CONFIRMED/RETRACTED 必须提供当前 evidence 的 evidence_refs，Harness 会拒绝无证据的长期记忆修改。
 - revision 字段：old/new/horizon/status/reason/evidence_refs；status 只能为 REVISED/CONFIRMED/RETRACTED/UNCERTAIN。
 
 必须只输出 JSON，且 JSON 中包含单词 JSON：
