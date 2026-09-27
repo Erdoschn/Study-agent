@@ -129,6 +129,14 @@ The root entry point delegates to the Study Agent CLI:
 python main.py
 ```
 
+For offline module diagnostics (no LLM API and no network), run the single smoke suite:
+
+```bash
+python examples/module_demos.py
+```
+
+It prints each module's key output and ends with `ALL MODULE DEMOS PASSED` when all deterministic checks succeed. Use `pytest -q` separately for the full regression suite.
+
 Copy `config/providers.example.json` to `config/providers.json` and fill in the required provider credentials.
 
 Set `"debug": true` in `providers.json` to enable execution tracing. Debug output records model routing, search fallback, evidence assessment, verification gates, learner-state updates, knowledge-graph changes, and Teacher context sizes.
