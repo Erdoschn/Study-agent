@@ -568,41 +568,24 @@ class AgentToolLoop:
                             state.finished = True
                             break
                         verified = self._claims_verified(state)
-                        claims_required = bool(state.evidence)
-                        debug.log(
-                            "AgentToolLoop",
-                            f"ANSWER GATE → evidence={len(state.evidence)}, claims={len(state.claims)}, verified={verified}, claims_required={claims_required}",
-                        )
-                        if claims_required and not state.claims:
-                            state.last_error_type = "CLAIMS_REQUIRED"
-                            state.recovery_count += 1
+                        # Evidence and claims are guidance for auditability, not a
+                        # hard lock on ordinary study answers. VERIFY is optional:
+                        # a lexical matcher can reject a valid claim merely because
+                        # the evidence is in another language or uses different
+                        # terminology. The Reasoner may still answer with the
+                        # available evidence and should state uncertainty when needed.
+                        if state.evidence and state.claims and not verified:
                             debug.log(
                                 "AgentToolLoop",
-                                "ANSWER BLOCKED → CLAIMS_REQUIRED",
+                                "ANSWER EVIDENCE NOTE → claims not fully MATCHED; "
+                                "allowing answer with available evidence",
                             )
-                            state.add_step(AgentStep(
-                                step_id=step_id, action="ANSWER_BLOCKED", model=decision.model,
-                                reasoning_summary="使用了外部证据，但当前 ANSWER 未提供需要核查的 claims。",
-                                success=False,
-                                error="CLAIMS_REQUIRED: 使用外部证据时必须显式提交当前 ANSWER 的 claims。",
-                            ))
-                            last_blocked_answer = self._answer_fingerprint(decision)
-                            continue
-                        if claims_required and not verified:
-                            state.last_error_type = "VERIFY_REQUIRED"
-                            state.recovery_count += 1
+                        elif state.evidence and not state.claims:
                             debug.log(
                                 "AgentToolLoop",
-                                "ANSWER BLOCKED → VERIFY_REQUIRED",
+                                "ANSWER EVIDENCE NOTE → no explicit claims; "
+                                "allowing ordinary study answer",
                             )
-                            state.add_step(AgentStep(
-                                step_id=step_id, action="ANSWER_BLOCKED", model=decision.model,
-                                reasoning_summary="已有外部证据但尚未完成有效 VERIFY，Harness 阻止直接回答。",
-                                success=False,
-                                error="VERIFY_REQUIRED: 有外部证据时必须先完成至少一次 MATCHED VERIFY。",
-                            ))
-                            last_blocked_answer = self._answer_fingerprint(decision)
-                            continue
                         state.final_answer = decision.answer
                     else:
                         state.error = decision.finish_reason or decision.reasoning_summary
