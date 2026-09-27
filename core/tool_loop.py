@@ -505,16 +505,13 @@ class AgentToolLoop:
                         ]
                         source_id = state.knowledge_graph._id(source)
                         target_id = state.knowledge_graph._id(target)
-                        existing_supported = (
-                            source_id in state.knowledge_graph.nodes
-                            and target_id in state.knowledge_graph.nodes
-                            and state.knowledge_graph.nodes[source_id].node_type == "concept"
-                            and state.knowledge_graph.nodes[target_id].node_type == "concept"
-                        )
-                        if not existing_supported and not valid_refs:
+                        edge_key = (source_id, target_id, relation["relation"])
+                        existing_relation = edge_key in state.knowledge_graph.edges
+                        if not existing_relation and not valid_refs:
                             debug.log(
                                 "AgentToolLoop",
-                                f"KNOWLEDGE RELATION SKIP → unsupported endpoints: {source!r} -[{relation['relation']}]-> {target!r}",
+                                f"KNOWLEDGE RELATION SKIP → new relation lacks DIRECT/PARTIAL evidence: "
+                                f"{source!r} -[{relation['relation']}]-> {target!r}",
                             )
                             continue
                         evidence_payload = [
