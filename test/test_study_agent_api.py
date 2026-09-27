@@ -142,6 +142,7 @@ def test_stream_chat_completion_separates_status_and_answer():
         conn.close()
 
         assert response.status == 200
+        assert response.getheader("Connection") == "close"
         assert "text/event-stream" in response.getheader("Content-Type", "")
         frames = [line[6:] for line in raw.splitlines() if line.startswith("data: ")]
         assert frames[-1] == "[DONE]"
