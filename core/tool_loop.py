@@ -574,19 +574,36 @@ class AgentToolLoop:
                         # the evidence is in another language or uses different
                         # terminology. The Reasoner may still answer with the
                         # available evidence and should state uncertainty when needed.
+                        answer_text = str(decision.answer or "").strip()
                         if state.evidence and state.claims and not verified:
+                            # Never block an answer. Instead, make unsupported
+                            # external claims visible to the learner.
+                            uncertain = []
+                            verified_keys = self._verified_claim_keys(state)
+                            for item in state.claims:
+                                claim = str(item.get("claim", "") if isinstance(item, dict) else item).strip()
+                                if claim and self._claim_key(claim) not in verified_keys:
+                                    uncertain.append(claim)
+                            if uncertain:
+                                answer_text += (
+                                    "\n\n【证据说明】以下内容未获得当前检索证据的直接 MATCHED 支持，"
+                                    "请将其视为基于模型知识的解释，而非已被本轮证据直接证实：\n"
+                                    + "\n".join(f"- {claim}" for claim in uncertain)
+                                )
                             debug.log(
                                 "AgentToolLoop",
-                                "ANSWER EVIDENCE NOTE → claims not fully MATCHED; "
-                                "allowing answer with available evidence",
+                                f"ANSWER EVIDENCE NOTE → {len(uncertain)} claim(s) lack direct MATCHED evidence; allowing answer",
                             )
                         elif state.evidence and not state.claims:
+                            answer_text += (
+                                "\n\n【证据说明】本回答使用了检索结果，但当前没有提交可逐条核查的 claims；"
+                                "因此不能把回答中的具体事实视为已被本轮证据直接证实。"
+                            )
                             debug.log(
                                 "AgentToolLoop",
-                                "ANSWER EVIDENCE NOTE → no explicit claims; "
-                                "allowing ordinary study answer",
+                                "ANSWER EVIDENCE NOTE → no explicit claims; allowing answer with uncertainty notice",
                             )
-                        state.final_answer = decision.answer
+                        state.final_answer = answer_text
                     else:
                         state.error = decision.finish_reason or decision.reasoning_summary
                     state.add_step(AgentStep(
