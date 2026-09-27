@@ -99,6 +99,7 @@ class ToolExecutor:
                     "type": "object",
                     "properties": {
                         "concepts": {"type": "array", "items": {"type": "string"}},
+                        "primary_concept": {"type": "string"},
                         "relations": {"type": "array"},
                         "difficulty": {"type": "string", "enum": ["basic", "undergraduate", "graduate", "postgraduate", "postgraduate_plus"]},
                         "question_type": {"type": "string"},
