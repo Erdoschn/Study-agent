@@ -74,6 +74,8 @@ class ModelRouter:
 
         total_weight = sum(requested.values()) or 1.0
         capability_score = sum(caps.get(k, 0.5) * w for k, w in requested.items()) / total_weight
-        reliability = model.successes / max(model.calls, 1)
+        # Reliability is capability-specific. Global success rate can be misleading
+        # when a model is strong at teaching but repeatedly fails at reasoning.
+        reliability = model.capability_stats.get(capability, 0.5)
         exploration = 0.05 if model.calls == 0 else min(model.calls, 10) * 0.005
         return capability_score * 0.70 + reliability * 0.25 + exploration
