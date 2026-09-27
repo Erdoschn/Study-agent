@@ -43,75 +43,41 @@ def config():
 
 def test_registry_filters_disabled_provider():
     registry = ModelRegistry(config())
-
-    models = registry.available()
-
-    names = {model.name for model in models}
-
+    names = {model.name for model in registry.available()}
     assert names == {"model-a"}
 
 
 def test_paid_model_blocked_by_default():
     registry = ModelRegistry(config())
-
-    models = registry.available(
-        allow_paid=False
-    )
-
-    assert all(
-        not model.paid
-        for model in models
-    )
+    assert all(not model.paid for model in registry.available(allow_paid=False))
 
 
 def test_paid_model_can_be_allowed():
     registry = ModelRegistry(config())
-
-    models = registry.available(
-        allow_paid=True
-    )
-
-    names = {
-        model.name
-        for model in models
-    }
-
-    assert names == {
-        "model-a",
-        "model-b",
-    }
+    names = {model.name for model in registry.available(allow_paid=True)}
+    assert names == {"model-a", "model-b"}
 
 
 def test_router_selects_available_model():
     registry = ModelRegistry(config())
     router = ModelRouter(registry)
-
-    selection = router.select(
-        "reasoning"
-    )
-
+    selection = router.select("reasoning")
     assert selection.model.name == "model-a"
 
 
 def test_router_learns_capability():
     registry = ModelRegistry(config())
-
-    registry.record_success(
-        "model-a",
-        "reasoning",
-    )
-
-    score = registry.get(
-        "model-a"
-    ).capability_stats["reasoning"]
-
+    registry.record_success("model-a", "reasoning")
+    score = registry.get("model-a").capability_stats["reasoning"]
     assert score > 0.5
+    assert registry.get("model-a").capability_successes["reasoning"] == 1
+    assert registry.get("model-a").capability_failures.get("reasoning", 0) == 0
+
 
 def test_registry_failure_puts_model_on_cooldown(monkeypatch):
     registry = ModelRegistry(config())
     monkeypatch.setattr("time.time", lambda: 100.0)
     registry.record_failure("model-a", "reasoning")
-
     assert registry.get("model-a").cooldown_until > 100.0
     assert registry.available() == []
 
@@ -121,29 +87,23 @@ def test_registry_success_clears_cooldown(monkeypatch):
     monkeypatch.setattr("time.time", lambda: 100.0)
     registry.record_failure("model-a", "reasoning")
     assert registry.available() == []
-
     registry.record_success("model-a", "reasoning")
     assert registry.get("model-a").cooldown_until == 0.0
     assert registry.available()[0].name == "model-a"
 
 
-
 def test_failure_streak_resets_after_success(monkeypatch):
     registry = ModelRegistry(config())
     monkeypatch.setattr("time.time", lambda: 100.0)
-
     registry.record_failure("model-a", "reasoning")
     first = registry.get("model-a").cooldown_until
     registry.get("model-a").cooldown_until = 0.0
-
     registry.record_failure("model-a", "reasoning")
     second = registry.get("model-a").cooldown_until
     assert second - 100.0 > first - 100.0
-
     registry.get("model-a").cooldown_until = 0.0
     registry.record_success("model-a", "reasoning")
     assert registry.get("model-a").failure_streak == 0
-
     registry.record_failure("model-a", "reasoning")
     third = registry.get("model-a").cooldown_until
     assert third - 100.0 == 5.0
@@ -157,21 +117,35 @@ def test_malformed_model_extra_is_ignored_safely():
     assert registry.get("model-a").extra == {}
 
 
-
 def test_router_uses_capability_specific_reliability():
     registry = ModelRegistry(config())
     model = registry.get("model-a")
-    model.calls = 20
-    model.successes = 10
-    model.capability_stats = {
-        "teaching": 1.0,
-        "reasoning": 0.0,
-    }
+    model.capability_successes = {"teaching": 1}
+    model.capability_failures = {"reasoning": 1}
+    model.capability_stats = {"teaching": 2 / 3, "reasoning": 1 / 3}
     router = ModelRouter(registry)
 
     reasoning_score = router._score(model, "reasoning")
     teaching_score = router._score(model, "teaching")
 
     assert reasoning_score < teaching_score
-    import pytest
-    assert reasoning_score == pytest.approx(0.4)
+
+
+def test_unknown_capability_is_neutral_not_artificially_inflated():
+    registry = ModelRegistry(config())
+    router = ModelRouter(registry)
+    assert router._score(registry.get("model-a"), "reasoning") == 0.5
+
+
+def test_runtime_evidence_is_confidence_weighted():
+    registry = ModelRegistry(config())
+    model = registry.get("model-a")
+    for _ in range(1):
+        registry.record_success("model-a", "reasoning")
+    router = ModelRouter(registry)
+    assert router._score(model, "reasoning") == 0.5333333333333333
+
+    for _ in range(4):
+        model.cooldown_until = 0.0
+        registry.record_success("model-a", "reasoning")
+    assert router._score(model, "reasoning") > 0.6
