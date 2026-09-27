@@ -1,4 +1,5 @@
 import json
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,82 @@ CONFIG_PATH = (
     Path(__file__).resolve().parent
     / "providers.json"
 )
+
+
+
+def _refresh_aihubmix_models(config: dict[str, Any]) -> None:
+    """Refresh the AIHubMix model catalog once when configuration is loaded."""
+    providers = config.get("providers", {})
+    models = config.get("models", {})
+    if not isinstance(providers, dict) or not isinstance(models, dict):
+        return
+
+    provider_name = next(
+        (name for name in providers if str(name).strip().lower() == "aihubmix"),
+        None,
+    )
+    if provider_name is None:
+        return
+    provider = providers.get(provider_name)
+    if not isinstance(provider, dict) or not provider.get("enabled", False):
+        return
+
+    base_url = str(provider.get("base_url", "")).rstrip("/")
+    if not base_url:
+        return
+    headers = {"Accept": "application/json"}
+    if isinstance(provider.get("headers"), dict):
+        headers.update({str(k): str(v) for k, v in provider["headers"].items()})
+    if "Authorization" not in headers and provider.get("api_key"):
+        headers["Authorization"] = f"Bearer {provider['api_key']}"
+
+    request = urllib.request.Request(
+        f"{base_url}/models", method="GET", headers=headers
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        debug.log(
+            "ConfigLoader",
+            f"AIHUBMIX REFRESH FAILED → {type(exc).__name__}: {exc}; keeping local models",
+        )
+        return
+
+    data = payload.get("data", []) if isinstance(payload, dict) else []
+    live_ids = {
+        str(item.get("id", "")).strip()
+        for item in data
+        if isinstance(item, dict) and str(item.get("id", "")).strip()
+    }
+    if not live_ids:
+        debug.log("ConfigLoader", "AIHUBMIX REFRESH → empty catalog; keeping local models")
+        return
+
+    for name, item in list(models.items()):
+        if not isinstance(item, dict) or item.get("provider") != provider_name:
+            continue
+        model_id = str(item.get("model", name)).strip()
+        if model_id not in live_ids:
+            item["enabled"] = False
+
+    for model_id in live_ids:
+        existing = models.get(model_id)
+        if isinstance(existing, dict) and existing.get("provider") == provider_name:
+            existing["model"] = model_id
+            existing["enabled"] = True
+            continue
+        models[model_id] = {
+            "provider": provider_name,
+            "model": model_id,
+            "enabled": True,
+            "paid": not model_id.lower().endswith("-free"),
+        }
+
+    debug.log(
+        "ConfigLoader",
+        f"AIHUBMIX REFRESH → live={len(live_ids)}, total_models={len(models)}",
+    )
 
 
 def load_config() -> dict[str, Any]:
@@ -30,6 +107,7 @@ def load_config() -> dict[str, Any]:
 
     if not isinstance(config, dict):
         raise ValueError("providers.json 顶层必须是 JSON 对象。")
+    _refresh_aihubmix_models(config)
     debug.log(
         "ConfigLoader",
         f"CONFIG → providers={len(config.get('providers', {}) if isinstance(config.get('providers', {}), dict) else {})}, models={len(config.get('models', {}) if isinstance(config.get('models', {}), dict) else {})}, debug={bool(config.get('debug', False))}",
