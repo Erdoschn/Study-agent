@@ -10,6 +10,7 @@ from .__debug__ import debug
 from .evidence import EvidenceStore
 from .state import StudentMind
 from .search_strategy import SearchStrategy
+from .goal import GoalMatcher
 
 
 @dataclass
@@ -96,6 +97,8 @@ class AgentReasoner:
 - 不要重复任何已经执行过的完全相同工具调用；失败后必须真正改变 query、source 或参数。
 - SEARCH 的 source 由你在每轮决定；TaskAnalyzer 的 search_sources 只是参考，不是强制路由。
 - 搜索失败后的策略由 Harness 提供 search_strategy。必须遵守 required_change：查询过长时缩短；中文连续无结果时改用英文核心关键词；连续失败后只用 1~2 个核心词并可更换来源。
+- 如果 search_strategy 的 stage=evidence_sufficient 且 prefer_action=ANSWER，默认应结束当前已覆盖子问题的搜索；只有存在明确尚未解决的用户子问题时，才针对那个子问题进行新的搜索。
+- task_goals 是 Harness 从用户原问题中机械拆出的显式子问题，不是模型推断出的用户事实。逐项判断哪些已处理、哪些仍待处理，避免只围绕一个子问题无限搜索。
 - SEARCH 的 source 必须是可用搜索源（通常为 arxiv、wikipedia 或 auto）；不要输出“学术数据库”等自然语言来源名。
 - query 必须是搜索关键词，而不是把用户问题整句复制进去。
 - VERIFY 只表示结构化文本核查结果，不表示事实概率或证明。MATCHED 不是 ANSWER 的硬性前置条件；NOT_MATCHED 后可以换证据、改写 claim，或直接基于现有证据作带限定的教学回答。
@@ -216,7 +219,8 @@ STOP：无法继续时停止并说明原因。
             "task_analysis": analysis.__dict__ if analysis else None,
             "plan": [{"action": s.action, "purpose": s.purpose, "tool": s.tool} for s in state.plan.steps] if state.plan else [],
             "current_plan_step": state.current_plan_step,
-            "goal": state.goal, "goal_context": list(state.goal_context), "task_type": state.task_type, "domain": state.domain,
+            "goal": state.goal, "goal_context": list(state.goal_context), "task_goals": GoalMatcher.extract_goals(state.question),
+            "task_type": state.task_type, "domain": state.domain,
             "search_strategy": {**SearchStrategy.guidance(state.steps, state.last_error_type), "sources_hint": state.search_sources, "sort_by_hint": state.search_sort_by, "routing_authority": "Reasoner"},
             "knowledge_graph": state.knowledge_graph.context_for(state.question) if state.knowledge_graph is not None else {},
             "student_state": {
