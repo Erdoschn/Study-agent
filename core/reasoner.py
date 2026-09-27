@@ -92,13 +92,13 @@ class AgentReasoner:
 - 只选择一个下一步行动。
 - 工具由 Harness 执行；不要假设工具成功。
 - SEARCH 的 HTTP 成功不代表证据有效。优先参考 Harness 提供的 relevance、recency 和 coverage。
-- 证据不足或存在关键缺口时继续行动；证据足够时 ANSWER。
+- 证据不足或存在关键缺口时继续行动；证据足够时 ANSWER。VERIFY 是可选的核查工具，不应因为结构化匹配失败而阻止普通教学回答。
 - 不要重复任何已经执行过的完全相同工具调用；失败后必须真正改变 query、source 或参数。
 - SEARCH 的 source 由你在每轮决定；TaskAnalyzer 的 search_sources 只是参考，不是强制路由。
 - 搜索失败后的策略由 Harness 提供 search_strategy。必须遵守 required_change：查询过长时缩短；中文连续无结果时改用英文核心关键词；连续失败后只用 1~2 个核心词并可更换来源。
 - SEARCH 的 source 必须是可用搜索源（通常为 arxiv、wikipedia 或 auto）；不要输出“学术数据库”等自然语言来源名。
 - query 必须是搜索关键词，而不是把用户问题整句复制进去。
-- VERIFY 只表示结构化文本核查结果，不表示事实概率或证明。
+- VERIFY 只表示结构化文本核查结果，不表示事实概率或证明。MATCHED 不是 ANSWER 的硬性前置条件；NOT_MATCHED 后可以换证据、改写 claim，或直接基于现有证据作带限定的教学回答。
 - 不输出隐藏思维链；reasoning_summary 只写简短、可审计的行动理由。
 - knowledge_relations 用来显式记录概念之间的知识关系；只有当前问题、证据或已有知识图谱直接支持的关系才填写，不要凭关键词臆测层级。
 
