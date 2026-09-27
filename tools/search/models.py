@@ -9,7 +9,9 @@ class SearchQuery:
     query: str
     source: str = "arxiv"
     categories: list[str] = field(default_factory=list)
-    max_results: int = 10
+    # Give the agent a wider default evidence pool; callers can still request
+    # a smaller/larger value explicitly (provider caps remain authoritative).
+    max_results: int = 15
     sort_by: str = "relevance"
     sort_order: str = "descending"
     source_preferences: list[str] = field(default_factory=list)
