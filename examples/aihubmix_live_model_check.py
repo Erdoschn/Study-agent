@@ -110,7 +110,10 @@ def main() -> None:
         description="实时查询 AIHubMix 模型列表，并可用 1+1=? 探测实际可调用性。"
     )
     parser.add_argument("--probe", action="store_true", help="对模型逐个发送最小请求。")
-    parser.add_argument("--free-only", action="store_true", help="只显示模型 ID 以 -free 结尾的模型。")
+    parser.add_argument(
+        "--free-only", "--free", dest="free_only", action="store_true",
+        help="只显示模型 ID 以 -free 结尾的模型。"
+    )
     args = parser.parse_args()
 
     config = load_config()
