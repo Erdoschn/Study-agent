@@ -825,3 +825,22 @@ def test_reasoner_can_update_existing_knowledge_relation_without_new_evidence():
     loop.run(state)
 
     assert graph.edges[("transformer", "attention", "depends_on")].confidence == 0.9
+
+
+def test_assessment_marks_primary_concept_explicitly():
+    executor = ToolExecutor()
+    state = AgentState(question="attention")
+    result = executor.execute(
+        "assess",
+        {
+            "concepts": ["attention", "softmax"],
+            "question": "Explain attention.",
+            "expected_answer": "attention maps queries to values",
+            "rubric": ["attention", "queries", "values"],
+            "difficulty": "postgraduate_plus",
+        },
+        state,
+    )
+    assert result["status"] == "ASSESSMENT_PENDING"
+    assert state.pending_assessment["primary_concept"] == "attention"
+    assert state.pending_assessment["supporting_concepts"] == ["softmax"]
