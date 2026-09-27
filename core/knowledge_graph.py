@@ -202,20 +202,54 @@ class KnowledgeGraph:
             )
             self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
 
-    def record_assessment(self, concepts: list[str], correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
+    def record_assessment(
+        self,
+        concepts: list[str],
+        correct: bool,
+        confidence: float | None = None,
+        difficulty: float = 1.0,
+        primary_concept: str | None = None,
+    ) -> None:
+        """Record concept-level assessment evidence.
+
+        When an assessment explicitly names multiple concepts, the primary
+        concept receives the full difficulty signal. Supporting concepts only
+        receive capped/basic evidence, so one composite question cannot
+        accidentally certify advanced mastery of every concept it mentions.
+        The legacy behavior is preserved when primary_concept is omitted.
+        """
         if not isinstance(correct, bool):
             raise ValueError("assessment correct 必须是布尔值。")
         seen = set()
+        clean = []
         for concept in concepts:
             name = str(concept or "").strip()
             node_id = self._id(name)
             if not name or not node_id or node_id in seen:
                 continue
             seen.add(node_id)
-            self.update_learner(name, correct, confidence, difficulty)
+            clean.append((name, node_id))
+
+        primary_id = self._id(primary_concept) if primary_concept else None
+        primary_seen = False
+        for name, node_id in clean:
+            is_primary = primary_id is None or node_id == primary_id
+            if is_primary:
+                primary_seen = True
+                self.update_learner(name, correct, confidence, difficulty)
+            else:
+                # Supporting concepts are only incidental evidence. They can
+                # become familiar/learning, but cannot gain postgraduate-level
+                # mastery from a composite assessment alone.
+                support_difficulty = min(
+                    normalize_difficulty(difficulty)[1],
+                    DIFFICULTY_LEVELS["undergraduate"],
+                )
+                self.update_learner(name, correct, confidence, support_difficulty)
+
         debug.log(
             "KnowledgeGraph",
-            f"RECORD ASSESSMENT → concepts={len(seen)}, correct={bool(correct)}, difficulty={difficulty!r}",
+            f"RECORD ASSESSMENT → concepts={len(clean)}, primary={primary_concept!r}, primary_seen={primary_seen}, correct={bool(correct)}, difficulty={difficulty!r}",
         )
 
     def update_relation_learner(self, source: str, target: str, relation: str, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
