@@ -142,6 +142,7 @@ class StudyAgent:
             result["correct"],
             result["confidence"],
             assessment["difficulty"],
+            primary_concept=assessment.get("primary_concept"),
         )
         relations = assessment.get("relations", [])
         for relation in relations if isinstance(relations, list) else []:
