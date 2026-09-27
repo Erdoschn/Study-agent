@@ -89,6 +89,32 @@ class KnowledgeGraph:
         self.nodes: dict[str, KnowledgeNode] = {}
         self.edges: dict[tuple[str, str, str], KnowledgeEdge] = {}
 
+    def bootstrap_query_context(self, query: str) -> list[str]:
+        """Seed only deterministic semantic anchors for an unambiguous query."""
+        text = str(query or "").lower()
+        llm_terms = (
+            "上下文缓存", "context caching", "context cache",
+            "prompt caching", "prompt cache", "kv cache", "kv-cache",
+            "kvcache", "kv缓存",
+        )
+        cpu_terms = (
+            "cpu缓存", "cpu cache", "cache line", "缓存行",
+            "l1 cache", "l2 cache", "l3 cache",
+            "一级缓存", "二级缓存", "三级缓存",
+            "cache coherence", "缓存一致性",
+        )
+        has_llm = any(term in text for term in llm_terms)
+        has_cpu = any(term in text for term in cpu_terms)
+        if not has_llm or has_cpu:
+            return []
+        self.add_concept("上下文缓存", alias="context caching")
+        self.add_concept("大语言模型", alias="LLM")
+        self.add_concept("LLM推理", alias="LLM inference")
+        self.add_relation("上下文缓存", "大语言模型", "used_in", confidence=0.95)
+        self.add_relation("上下文缓存", "LLM推理", "used_in", confidence=0.95)
+        debug.log("KnowledgeGraph", "BOOTSTRAP → LLM context caching semantic scope")
+        return ["上下文缓存", "大语言模型", "LLM推理"]
+
     @staticmethod
     def _id(text: str) -> str:
         import re
