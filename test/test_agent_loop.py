@@ -779,6 +779,7 @@ def test_reasoner_cannot_create_new_knowledge_relation_from_existing_nodes_witho
     state = AgentState(question="attention", knowledge_graph=graph)
     decision = ReasoningDecision(
         action="ANSWER",
+        reasoning_summary="test blocked unsupported relation",
         answer="ok",
         knowledge_relations=[{
             "source": "Transformer",
@@ -805,6 +806,7 @@ def test_reasoner_can_update_existing_knowledge_relation_without_new_evidence():
     state = AgentState(question="attention", knowledge_graph=graph)
     decision = ReasoningDecision(
         action="ANSWER",
+        reasoning_summary="test update existing relation",
         answer="ok",
         knowledge_relations=[{
             "source": "Transformer",
