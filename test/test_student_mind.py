@@ -2,9 +2,9 @@ from core.reasoner import AgentReasoner
 from core.state import StudentState, StudentMind
 
 
-def test_student_mind_tracks_short_and_long_term_bdi():
+def test_student_mind_tracks_short_and_promotes_long_term_bdi_after_repeated_interactions():
     student = StudentState()
-    student.apply_mind_update({
+    update = {
         "short_term": {
             "beliefs": ["QK^T measures pairwise compatibility"],
             "desires": ["understand attention"],
@@ -16,13 +16,19 @@ def test_student_mind_tracks_short_and_long_term_bdi():
             "intentions": ["test each subsystem"],
         },
         "recent_decisions": ["derive QK^T before asking for code"],
-    })
+    }
+
+    for _ in range(3):
+        student.mind.begin_interaction()
+        student.apply_mind_update(update)
 
     assert student.mind.short_term.beliefs == ["QK^T measures pairwise compatibility"]
     assert student.mind.short_term.desires == ["understand attention"]
     assert student.mind.short_term.intentions == ["derive the dimensions by hand"]
+    assert student.mind.long_term.beliefs == ["I learn better when I derive before coding"]
     assert student.mind.long_term.desires == ["build a reliable study agent"]
-    assert student.mind.recent_decisions == ["derive QK^T before asking for code"]
+    assert student.mind.long_term.intentions == ["test each subsystem"]
+    assert student.mind.recent_decisions[-1] == "derive QK^T before asking for code"
 
 
 def test_student_mind_deduplicates_and_bounds_recent_memory():
@@ -156,3 +162,40 @@ def test_student_mind_rejects_irrelevant_evidence_as_belief_support():
 
     assert mind.belief_support["new belief"] == []
     assert mind.belief_history[-1]["evidence_refs"] == []
+
+
+
+def test_student_mind_does_not_promote_repeated_updates_within_one_interaction():
+    mind = StudentMind()
+    mind.begin_interaction()
+    update = {"long_term": {"desires": ["build a reliable study agent"]}}
+
+    mind.apply_update(update)
+    mind.apply_update(update)
+    mind.apply_update(update)
+
+    assert mind.long_term.desires == []
+    assert mind.long_term_candidates["desires:build a reliable study agent"]["confirmations"] == 1
+
+
+def test_student_mind_promotes_after_three_distinct_interactions():
+    mind = StudentMind()
+
+    for _ in range(2):
+        mind.begin_interaction()
+        mind.apply_update({"long_term": {"beliefs": ["derive before coding"]}})
+        assert mind.long_term.beliefs == []
+
+    mind.begin_interaction()
+    mind.apply_update({"long_term": {"beliefs": ["derive before coding"]}})
+
+    assert mind.long_term.beliefs == ["derive before coding"]
+    assert "beliefs:derive before coding" not in mind.long_term_candidates
+
+
+def test_student_mind_allows_explicit_long_term_confirmation():
+    mind = StudentMind()
+    mind.confirm_long_term("desires", ["build a reliable study agent"])
+
+    assert mind.long_term.desires == ["build a reliable study agent"]
+    assert not mind.long_term_candidates
