@@ -246,6 +246,8 @@ class ToolExecutor:
         if not isinstance(concepts, list) or not concepts or not question:
             raise ValueError("assess 需要 concepts 和 question。")
         clean_concepts = [str(x).strip() for x in concepts if str(x).strip()][:8]
+        if not clean_concepts:
+            raise ValueError("assessment 至少需要一个非空 concept。")
         primary_concept = str(arguments.get("primary_concept", "")).strip() or clean_concepts[0]
         if primary_concept not in clean_concepts:
             primary_concept = clean_concepts[0]
