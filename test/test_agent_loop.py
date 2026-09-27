@@ -759,3 +759,57 @@ def test_repeated_blocked_answer_does_not_loop_forever():
     assert reasoner.calls == 2
     assert state.steps[-1].action == "STOP"
     assert "重复且持续被 Harness 拒绝" in state.error
+
+
+
+def test_reasoner_cannot_create_new_knowledge_relation_from_existing_nodes_without_evidence():
+    graph = KnowledgeGraph()
+    graph.add_concept("Transformer")
+    graph.add_concept("Attention")
+    state = AgentState(question="attention", knowledge_graph=graph)
+    decision = ReasoningDecision(
+        action="ANSWER",
+        answer="ok",
+        knowledge_relations=[{
+            "source": "Transformer",
+            "target": "Attention",
+            "relation": "depends_on",
+            "confidence": 1.0,
+            "evidence_refs": [],
+        }],
+    )
+
+    class FixedReasoner:
+        def decide(self, _state):
+            return decision
+
+    loop = AgentToolLoop(FixedReasoner(), ToolExecutor())
+    loop.run(state)
+
+    assert ("transformer", "attention", "depends_on") not in graph.edges
+
+
+def test_reasoner_can_update_existing_knowledge_relation_without_new_evidence():
+    graph = KnowledgeGraph()
+    graph.add_relation("Transformer", "Attention", "depends_on", confidence=0.4)
+    state = AgentState(question="attention", knowledge_graph=graph)
+    decision = ReasoningDecision(
+        action="ANSWER",
+        answer="ok",
+        knowledge_relations=[{
+            "source": "Transformer",
+            "target": "Attention",
+            "relation": "depends_on",
+            "confidence": 0.9,
+            "evidence_refs": [],
+        }],
+    )
+
+    class FixedReasoner:
+        def decide(self, _state):
+            return decision
+
+    loop = AgentToolLoop(FixedReasoner(), ToolExecutor())
+    loop.run(state)
+
+    assert graph.edges[("transformer", "attention", "depends_on")].confidence == 0.9
