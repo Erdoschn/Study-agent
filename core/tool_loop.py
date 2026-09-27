@@ -358,6 +358,22 @@ class AgentToolLoop:
         import json
         return action, tool, json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True, default=str)
 
+    @staticmethod
+    def _answer_fingerprint(decision):
+        import json
+        return (
+            "ANSWER",
+            json.dumps(
+                {
+                    "answer": str(decision.answer or "").strip(),
+                    "claims": decision.claims or [],
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ),
+        )
+
     def _repeated_tool(self, state, decision):
         if decision.action not in {"SEARCH", "CALCULATE", "VERIFY", "ASSESS"}:
             return False
@@ -423,6 +439,7 @@ class AgentToolLoop:
 
     def run(self, state):
         evidence_store = EvidenceStore(state.evidence)
+        last_blocked_answer = None
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
                 if state.max_steps is not None and state.step_count >= state.max_steps:
@@ -441,6 +458,25 @@ class AgentToolLoop:
                 debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
                 decision = self._decide(state)
                 debug.log("AgentToolLoop", f"DECISION → {decision.action}")
+
+                if decision.action != "ANSWER":
+                    last_blocked_answer = None
+                elif last_blocked_answer is not None and self._answer_fingerprint(decision) == last_blocked_answer:
+                    state.error = "Agent 检测到重复且持续被 Harness 拒绝的 ANSWER，已停止。"
+                    state.add_step(AgentStep(
+                        step_id=state.step_count + 1,
+                        action="STOP",
+                        model=decision.model,
+                        reasoning_summary="同一 ANSWER 在 Harness 拒绝后再次重复，停止以避免无限循环。",
+                        success=False,
+                        error=state.error,
+                    ))
+                    state.finished = True
+                    debug.log(
+                        "AgentToolLoop",
+                        "ANSWER LOOP GUARD → repeated blocked ANSWER",
+                    )
+                    break
 
                 if decision.goal:
                     state.goal = decision.goal
@@ -543,6 +579,7 @@ class AgentToolLoop:
                                 success=False,
                                 error="CLAIMS_REQUIRED: 使用外部证据时必须显式提交当前 ANSWER 的 claims。",
                             ))
+                            last_blocked_answer = self._answer_fingerprint(decision)
                             continue
                         if claims_required and not verified:
                             state.last_error_type = "VERIFY_REQUIRED"
@@ -557,6 +594,7 @@ class AgentToolLoop:
                                 success=False,
                                 error="VERIFY_REQUIRED: 有外部证据时必须先完成至少一次 MATCHED VERIFY。",
                             ))
+                            last_blocked_answer = self._answer_fingerprint(decision)
                             continue
                         state.final_answer = decision.answer
                     else:
