@@ -146,7 +146,7 @@ class TaskAnalyzer:
         llm_terms = (
             "上下文缓存", "context caching", "context cache",
             "prompt caching", "prompt cache", "kv cache", "kv-cache",
-            "kvcache", "大语言模型", "llm", "language model",
+            "kvcache", "kv缓存", "大语言模型", "llm", "language model",
             "transformer", "token cache",
         )
         cpu_terms = (
