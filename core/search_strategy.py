@@ -49,6 +49,25 @@ class SearchStrategy:
                 "instruction": "搜索后端请求失败；下一轮必须改变搜索源或明显修改查询，不要重复相同请求。",
             }
         if not empty:
+            last_search = searches[-1] if searches else None
+            observation = getattr(last_search, "observation", None) if last_search is not None else None
+            coverage = observation.get("coverage", {}) if isinstance(observation, dict) else None
+            if coverage is None and observation is not None and hasattr(observation, "get"):
+                coverage = observation.get("coverage", {})
+            if isinstance(coverage, dict) and str(coverage.get("status", "")).upper() == "COVERED":
+                relevant_count = int(coverage.get("relevant_count", 0) or 0)
+                return {
+                    "stage": "evidence_sufficient",
+                    "required_change": "prefer_answer",
+                    "prefer_action": "ANSWER",
+                    "evidence_status": "COVERED",
+                    "relevant_count": relevant_count,
+                    "instruction": (
+                        "最近一次搜索已经达到 Harness 的 COVERED 状态。不要为了继续搜索而重复相近查询；"
+                        "优先回答当前已经覆盖的子问题。如果用户还有其他明确子问题，只针对尚未覆盖的子问题搜索。"
+                        "COVERED 只是词法覆盖，不等于事实证明；回答时仍应对没有直接证据支持的内容作不确定性标注。"
+                    ),
+                }
             return {"stage": "initial", "required_change": "none",
                     "instruction": "先使用最直接的核心查询。"}
 
