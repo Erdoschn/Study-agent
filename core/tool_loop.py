@@ -169,11 +169,21 @@ class ToolExecutor:
         if not isinstance(categories, list):
             categories = []
         try:
-            max_results = int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS))
+            requested_max_results = int(arguments.get("max_results", self.DEFAULT_SEARCH_RESULTS))
         except (TypeError, ValueError) as exc:
             raise ValueError("search max_results 必须是整数。") from exc
-        if not 1 <= max_results <= 50:
+        if not 1 <= requested_max_results <= 50:
             raise ValueError("search max_results 必须在 1~50 之间。")
+        # The Reasoner often emits a conservative value such as 5. Keep the
+        # Harness default as a real floor for agent searches so weak ranking
+        # does not starve the evidence pool. Providers still cap at their own
+        # supported maximum.
+        max_results = max(requested_max_results, self.DEFAULT_SEARCH_RESULTS)
+        if max_results != requested_max_results:
+            debug.log(
+                "ToolExecutor",
+                f"SEARCH RESULT FLOOR → requested={requested_max_results}, using={max_results}",
+            )
 
         sort_by = str(
             arguments.get("sort_by", "")
