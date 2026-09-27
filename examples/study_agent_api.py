@@ -77,14 +77,23 @@ def sse_event(data: dict[str, Any]) -> bytes:
     return ("data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8")
 
 
-def chunk(*, content: str | None = None, reasoning: str | None = None, finish: str | None = None) -> dict[str, Any]:
+def chunk(
+    *,
+    content: str | None = None,
+    reasoning: str | None = None,
+    finish: str | None = None,
+    completion_id: str | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
     delta: dict[str, Any] = {}
+    if role is not None:
+        delta["role"] = role
     if content is not None:
         delta["content"] = content
     if reasoning is not None:
         delta["reasoning_content"] = reasoning
     return {
-        "id": "chatcmpl-" + uuid.uuid4().hex,
+        "id": completion_id or "chatcmpl-" + uuid.uuid4().hex,
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": MODEL_ID,
@@ -224,10 +233,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
         events: queue.Queue[tuple[str, Any]] = queue.Queue()
         sentinel = object()
+        completion_id = "chatcmpl-" + uuid.uuid4().hex
 
         def emit(status: str) -> None:
             events.put(("status", status))
@@ -249,17 +261,22 @@ class Handler(BaseHTTPRequestHandler):
             if kind == "status":
                 # OpenAI-compatible reasoning_content is kept separate from the
                 # final answer. Open WebUI can render it as progress/status.
-                self.wfile.write(sse_event(chunk(reasoning=value)))
+                self.wfile.write(sse_event(chunk(reasoning=value, completion_id=completion_id)))
                 self.wfile.flush()
             elif kind == "result":
-                answer = value.final_answer or ""
-                self.wfile.write(sse_event(chunk(content=answer)))
-                self.wfile.write(sse_event(chunk(finish="stop")))
+                answer = str(value.final_answer or "").strip()
+                print(f"✓ FINAL ANSWER → {len(answer)} chars", flush=True)
+                if not answer:
+                    raise RuntimeError("StudyAgent 完成但 final_answer 为空")
+                self.wfile.write(sse_event(
+                    chunk(content=answer, completion_id=completion_id, role="assistant")
+                ))
+                self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
             elif kind == "error":
-                self.wfile.write(sse_event(chunk(reasoning=f"❌ Agent 执行失败：{value}")))
-                self.wfile.write(sse_event(chunk(finish="stop")))
+                self.wfile.write(sse_event(chunk(reasoning=f"❌ Agent 执行失败：{value}", completion_id=completion_id)))
+                self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
             elif kind == "done" and value is sentinel:
