@@ -155,3 +155,22 @@ def test_malformed_model_extra_is_ignored_safely():
     data["models"]["model-a"]["extra"] = ["not", "a", "dict"]
     registry = ModelRegistry(data)
     assert registry.get("model-a").extra == {}
+
+
+
+def test_router_uses_capability_specific_reliability():
+    registry = ModelRegistry(config())
+    model = registry.get("model-a")
+    model.calls = 20
+    model.successes = 10
+    model.capability_stats = {
+        "teaching": 1.0,
+        "reasoning": 0.0,
+    }
+    router = ModelRouter(registry)
+
+    reasoning_score = router._score(model, "reasoning")
+    teaching_score = router._score(model, "teaching")
+
+    assert reasoning_score < teaching_score
+    assert reasoning_score == 0.4
