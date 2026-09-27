@@ -12,6 +12,8 @@ class ModelInfo:
     enabled: bool = True
     paid: bool = True
     capability_stats: dict[str, float] = field(default_factory=dict)
+    capability_successes: dict[str, int] = field(default_factory=dict)
+    capability_failures: dict[str, int] = field(default_factory=dict)
     calls: int = 0
     successes: int = 0
     failures: int = 0
@@ -21,7 +23,7 @@ class ModelInfo:
 
     @property
     def capabilities(self) -> dict[str, float]:
-        """Return static capability priors; runtime reliability is tracked separately."""
+        """Return optional static capability priors; runtime evidence is tracked separately."""
         base = self.extra.get("capabilities", {})
         if not isinstance(base, dict):
             base = {}
@@ -35,6 +37,12 @@ class ModelInfo:
                 continue
             result[str(key)] = max(0.0, min(1.0, score))
         return result
+
+    def capability_observations(self, capability: str) -> int:
+        return (
+            int(self.capability_successes.get(capability, 0))
+            + int(self.capability_failures.get(capability, 0))
+        )
 
 
 class ModelRegistry:
@@ -136,6 +144,12 @@ class ModelRegistry:
 
     @staticmethod
     def _update_capability(model: ModelInfo, capability: str, success: bool) -> None:
-        old = model.capability_stats.get(capability, 0.5)
-        target = 1.0 if success else 0.0
-        model.capability_stats[capability] = old * 0.8 + target * 0.2
+        """Keep a Bayesian-smoothed capability estimate with an explicit observation count."""
+        if success:
+            model.capability_successes[capability] = model.capability_successes.get(capability, 0) + 1
+        else:
+            model.capability_failures[capability] = model.capability_failures.get(capability, 0) + 1
+
+        successes = model.capability_successes.get(capability, 0)
+        failures = model.capability_failures.get(capability, 0)
+        model.capability_stats[capability] = (successes + 1.0) / (successes + failures + 2.0)
