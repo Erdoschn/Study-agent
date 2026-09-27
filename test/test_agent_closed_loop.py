@@ -152,10 +152,14 @@ def test_answer_requires_verification_for_current_claims():
         AgentState(question="attention", max_steps=8)
     )
 
+    # ANSWER is no longer a hard verification gate. The Reasoner may
+    # choose to answer with an explicitly uncertain claim instead of VERIFY.
     assert executor.calls == [
         ("search", {"query": "attention"}),
         ("verify", {"claim": "attention uses query"}),
-        ("verify", {"claim": "attention uses values"}),
     ]
-    assert state.final_answer == "最终答案"
+    assert state.final_answer is not None
+    assert state.final_answer.startswith("暂定答案")
+    assert "attention uses values" in state.final_answer
+    assert "未获得当前检索证据的直接 MATCHED 支持" in state.final_answer
     assert state.finished is True
