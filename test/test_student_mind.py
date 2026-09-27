@@ -70,9 +70,15 @@ def test_reasoner_strips_think_block_before_json_parse():
     assert decision.action == "ANSWER"
     assert decision.answer == "done"
 
-def test_student_mind_revises_conflicting_belief_with_audit_trail():
+def test_student_mind_revises_conflicting_belief_with_supported_evidence():
     mind = StudentMind()
     mind.long_term.beliefs.append("attention uses one shared score for every head")
+    evidence = [{
+        "source": "wikipedia",
+        "title": "Multi-head attention",
+        "identifier": "1",
+        "harness_relevance": "DIRECT",
+    }]
 
     mind.revise_beliefs([{
         "old": "attention uses one shared score for every head",
@@ -80,10 +86,12 @@ def test_student_mind_revises_conflicting_belief_with_audit_trail():
         "horizon": "long_term",
         "status": "REVISED",
         "reason": "verified from the model definition",
-    }])
+        "evidence_refs": [0],
+    }], evidence)
 
     assert mind.long_term.beliefs == ["each attention head has its own projected Q K V parameters"]
     assert mind.belief_history[-1]["status"] == "REVISED"
+    assert mind.belief_history[-1]["applied"] is True
     assert mind.belief_history[-1]["old"].startswith("attention uses")
 
 
@@ -199,3 +207,38 @@ def test_student_mind_allows_explicit_long_term_confirmation():
 
     assert mind.long_term.desires == ["build a reliable study agent"]
     assert not mind.long_term_candidates
+
+
+
+def test_student_mind_blocks_unsupported_long_term_revision():
+    mind = StudentMind()
+    mind.long_term.beliefs.append("attention uses one shared score for every head")
+
+    mind.revise_beliefs([{
+        "old": "attention uses one shared score for every head",
+        "new": "each attention head has its own projected Q K V parameters",
+        "horizon": "long_term",
+        "status": "REVISED",
+        "reason": "model claimed it changed",
+    }], [])
+
+    assert mind.long_term.beliefs == ["attention uses one shared score for every head"]
+    assert mind.belief_history[-1]["status"] == "UNCERTAIN"
+    assert mind.belief_history[-1]["applied"] is False
+
+
+def test_student_mind_blocks_unsupported_long_term_retraction():
+    mind = StudentMind()
+    mind.long_term.beliefs.append("attention uses one shared score for every head")
+
+    mind.revise_beliefs([{
+        "old": "attention uses one shared score for every head",
+        "new": "",
+        "horizon": "long_term",
+        "status": "RETRACTED",
+        "reason": "model changed its mind",
+    }], [])
+
+    assert mind.long_term.beliefs == ["attention uses one shared score for every head"]
+    assert mind.belief_history[-1]["status"] == "UNCERTAIN"
+    assert mind.belief_history[-1]["applied"] is False
