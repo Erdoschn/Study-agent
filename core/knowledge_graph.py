@@ -276,10 +276,28 @@ class KnowledgeGraph:
         except (TypeError, ValueError):
             safe_confidence = 0.0
 
-        source_id = self.add_concept(source)
-        target_id = self.add_concept(target)
+        source_id = self._id(source)
+        target_id = self._id(target)
         if not source_id or not target_id or source_id == target_id:
             return
+
+        # Relations belong to the learner concept graph. Do not silently
+        # promote search_query/document provenance nodes into concepts just
+        # because a model emitted a relation endpoint.
+        source_node = self.nodes.get(source_id)
+        target_node = self.nodes.get(target_id)
+        if (
+            source_node is None
+            or target_node is None
+            or source_node.node_type != "concept"
+            or target_node.node_type != "concept"
+        ):
+            debug.log(
+                "KnowledgeGraph",
+                f"RELATION SKIP → endpoints must already be concepts: {source!r} -> {target!r}",
+            )
+            return
+
         key = (source_id, target_id, str(relation))
         edge = self.edges.get(key)
         if edge is None:
