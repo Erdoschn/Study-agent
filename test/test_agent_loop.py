@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from core.reasoner import ReasoningDecision
+from core.knowledge_graph import KnowledgeGraph
 from core.state import AgentState, AgentStep
 from core.tool_loop import AgentToolLoop, ToolExecutor
 from tools.search import SearchResult, SearchRouter
@@ -464,21 +465,30 @@ def test_tool_loop_persists_reasoner_knowledge_relations():
     class Reasoner:
         def decide(self, state):
             return ReasoningDecision(
-                action="ANSWER",
-                reasoning_summary="answer",
-                answer="ok",
+                action="STOP",
+                reasoning_summary="relation persisted",
                 knowledge_relations=[{
                     "source": "attention",
                     "target": "transformer",
                     "relation": "part_of",
                     "confidence": 0.8,
+                    "evidence_refs": [0],
                 }],
             )
 
     graph = KnowledgeGraph()
     graph.add_concept("attention")
     graph.add_concept("transformer")
-    state = AgentState(question="attention", knowledge_graph=graph)
+    state = AgentState(
+        question="attention",
+        knowledge_graph=graph,
+        evidence=[{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "attention is part of transformer",
+            "harness_relevance": "DIRECT",
+        }],
+    )
     state = AgentToolLoop(
         Reasoner(),
         ToolExecutor(),
