@@ -173,4 +173,5 @@ def test_router_uses_capability_specific_reliability():
     teaching_score = router._score(model, "teaching")
 
     assert reasoning_score < teaching_score
-    assert reasoning_score == 0.4
+    import pytest
+    assert reasoning_score == pytest.approx(0.4)
