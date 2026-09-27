@@ -844,3 +844,21 @@ def test_assessment_marks_primary_concept_explicitly():
     assert result["status"] == "ASSESSMENT_PENDING"
     assert state.pending_assessment["primary_concept"] == "attention"
     assert state.pending_assessment["supporting_concepts"] == ["softmax"]
+
+
+def test_assess_rejects_empty_concepts():
+    executor = ToolExecutor()
+    state = AgentState(question="attention")
+    try:
+        executor.execute(
+            "assess",
+            {
+                "concepts": [],
+                "question": "Explain attention.",
+                "expected_answer": "attention",
+            },
+            state,
+        )
+        assert False
+    except ValueError as exc:
+        assert "concept" in str(exc).lower()
