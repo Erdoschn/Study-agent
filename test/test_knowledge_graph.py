@@ -291,3 +291,12 @@ def test_composite_assessment_keeps_legacy_semantics_without_primary_concept():
         )
     assert graph.nodes["attention"].learner.learning_stage == "mastered"
     assert graph.nodes["softmax"].learner.learning_stage == "mastered"
+
+
+def test_record_assessment_rejects_non_collection_concepts():
+    graph = KnowledgeGraph()
+    try:
+        graph.record_assessment("attention", True)
+        assert False
+    except ValueError as exc:
+        assert "concepts" in str(exc).lower()
