@@ -26,7 +26,7 @@ class TaskAnalyzer:
 
 分析：
 - task_type：math / coding / conceptual / research / factual / comparison / troubleshooting / general
-- domain：尽可能具体的知识领域
+- domain：尽可能具体的知识领域。注意：上下文缓存 / context caching / prompt caching / KV cache 默认属于“大语言模型 / LLM 推理 / 模型服务”，只有明确出现 CPU cache、缓存行、L1/L2/L3、缓存一致性等术语时才归入计算机体系结构。
 - goal：用户真正要解决的目标
 - issues：问题中可能存在的概念、逻辑、前提或范围问题；没有则为空
 - knowledge_gaps：为了可靠回答仍缺少的关键知识
@@ -82,6 +82,7 @@ class TaskAnalyzer:
                         json_mode=True,
                     )
                     analysis = self._parse(raw)
+                    analysis.domain = self._normalize_domain(question, analysis.domain)
                     self.model_router.registry.record_success(
                         model.name,
                         "reasoning",
@@ -137,6 +138,35 @@ class TaskAnalyzer:
             except json.JSONDecodeError:
                 pass
         return text
+
+    @staticmethod
+    def _normalize_domain(question: str, domain: str) -> str:
+        """Resolve cache terminology before it reaches the learner knowledge graph."""
+        text = f"{question} {domain}".lower()
+        llm_terms = (
+            "上下文缓存", "context caching", "context cache",
+            "prompt caching", "prompt cache", "kv cache", "kv-cache",
+            "kvcache", "大语言模型", "llm", "language model",
+            "transformer", "token cache",
+        )
+        cpu_terms = (
+            "cpu缓存", "cpu cache", "cache line", "缓存行",
+            "l1 cache", "l2 cache", "l3 cache",
+            "一级缓存", "二级缓存", "三级缓存",
+            "cache coherence", "缓存一致性",
+            "计算机体系结构", "computer architecture",
+        )
+        has_llm = any(term in text for term in llm_terms)
+        has_cpu = any(term in text for term in cpu_terms)
+        if has_llm and not has_cpu:
+            if any(term in text for term in ("kv cache", "kv-cache", "kvcache", "kv缓存")):
+                return "LLM推理-KV Cache"
+            return "LLM推理-上下文缓存"
+        if has_cpu and not has_llm:
+            return "计算机体系结构-CPU缓存"
+        if has_llm and has_cpu:
+            return domain.strip() or "缓存机制-跨领域比较"
+        return domain.strip() or "general"
 
     @staticmethod
     def _parse(raw: str) -> TaskAnalysis:
