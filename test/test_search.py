@@ -52,7 +52,7 @@ def test_search_query():
     q = SearchQuery(query="transformer")
     assert q.query == "transformer"
     assert q.source == "arxiv"
-    assert q.max_results == 10
+    assert q.max_results == 15
 
 
 def test_arxiv_provider_structure():
