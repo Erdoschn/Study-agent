@@ -440,6 +440,8 @@ class AgentToolLoop:
     def run(self, state):
         evidence_store = EvidenceStore(state.evidence)
         last_blocked_answer = None
+        if hasattr(state.student.mind, "begin_interaction"):
+            state.student.mind.begin_interaction()
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
                 if state.max_steps is not None and state.step_count >= state.max_steps:
