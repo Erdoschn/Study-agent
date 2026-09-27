@@ -726,3 +726,36 @@ def test_tool_executor_rejects_non_object_arguments():
         assert "JSON 对象" in str(exc)
     else:
         raise AssertionError("non-object tool arguments should be rejected")
+
+
+
+def test_repeated_blocked_answer_does_not_loop_forever():
+    class Reasoner:
+        def __init__(self):
+            self.calls = 0
+
+        def decide(self, state):
+            self.calls += 1
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="same blocked answer",
+                answer="ok",
+            )
+
+    graph_state = AgentState(
+        question="attention",
+        evidence=[{
+            "source": "wikipedia",
+            "title": "Attention",
+            "abstract": "attention uses query",
+            "harness_relevance": "DIRECT",
+        }],
+    )
+    reasoner = Reasoner()
+    state = AgentToolLoop(reasoner, ToolExecutor()).run(graph_state)
+
+    assert state.finished is True
+    assert state.final_answer is None
+    assert reasoner.calls == 2
+    assert state.steps[-1].action == "STOP"
+    assert "重复且持续被 Harness 拒绝" in state.error
