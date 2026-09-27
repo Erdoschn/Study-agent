@@ -30,13 +30,18 @@ class BDIState:
 
 @dataclass
 class StudentMind:
-    """Two-timescale student model: short-term and long-term BDI."""
+    """Two-timescale student model: short-term hypotheses and promoted long-term memory."""
+
+    LONG_TERM_PROMOTION_CONFIRMATIONS = 3
+    MAX_LONG_TERM_CANDIDATES = 64
 
     short_term: BDIState = field(default_factory=BDIState)
     long_term: BDIState = field(default_factory=BDIState)
     recent_decisions: list[str] = field(default_factory=list)
     belief_history: list[dict[str, Any]] = field(default_factory=list)
     belief_support: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    long_term_candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    interaction_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,24 +50,97 @@ class StudentMind:
             "recent_decisions": list(self.recent_decisions),
             "belief_history": [dict(item) for item in self.belief_history],
             "belief_support": {key: [dict(ref) for ref in refs] for key, refs in self.belief_support.items()},
+            "long_term_candidates": {
+                key: {
+                    "category": value.get("category"),
+                    "text": value.get("text"),
+                    "confirmations": value.get("confirmations", 0),
+                }
+                for key, value in self.long_term_candidates.items()
+            },
         }
 
+    def begin_interaction(self) -> None:
+        """Advance the interaction epoch used to count independent confirmations."""
+        self.interaction_count += 1
+
+    @staticmethod
+    def _candidate_key(category: str, text: str) -> str:
+        return f"{category}:{text.casefold()}"
+
+    def _observe_long_term_candidate(self, category: str, text: str) -> None:
+        """Count a candidate at most once per interaction before promotion."""
+        if not text:
+            return
+        target = getattr(self.long_term, category)
+        if text in target:
+            return
+
+        key = self._candidate_key(category, text)
+        record = self.long_term_candidates.get(key)
+        if record is None:
+            record = {
+                "category": category,
+                "text": text,
+                "confirmations": 0,
+                "last_interaction": None,
+            }
+            self.long_term_candidates[key] = record
+
+        if record.get("last_interaction") != self.interaction_count:
+            record["confirmations"] = int(record.get("confirmations", 0)) + 1
+            record["last_interaction"] = self.interaction_count
+
+        if record["confirmations"] >= self.LONG_TERM_PROMOTION_CONFIRMATIONS:
+            target.append(text)
+            del self.long_term_candidates[key]
+            del target[:-30]
+            debug.log(
+                "StudentMind",
+                f"LONG_TERM PROMOTED → category={category}, text={text!r}, confirmations={self.LONG_TERM_PROMOTION_CONFIRMATIONS}",
+            )
+
+        if len(self.long_term_candidates) > self.MAX_LONG_TERM_CANDIDATES:
+            oldest_key = min(
+                self.long_term_candidates,
+                key=lambda item: int(self.long_term_candidates[item].get("last_interaction") or -1),
+            )
+            self.long_term_candidates.pop(oldest_key, None)
+
+    def confirm_long_term(self, category: str, items: list[str]) -> None:
+        """Explicitly promote user/application-confirmed stable memory."""
+        if category not in {"beliefs", "desires", "intentions"}:
+            return
+        target = getattr(self.long_term, category)
+        for item in items if isinstance(items, list) else []:
+            text = str(item).strip()
+            if not text:
+                continue
+            target.append(text)
+            del target[:-30]
+            self.long_term_candidates.pop(self._candidate_key(category, text), None)
+
     def apply_update(self, update: dict[str, Any]) -> None:
-        """Apply an LLM hypothesis after Harness-side schema validation."""
+        """Apply model hypotheses; long-term entries require repeated interaction-level confirmation."""
         if not isinstance(update, dict):
             return
 
-        for horizon, target, limit in (
-            ("short_term", self.short_term, 8),
-            ("long_term", self.long_term, 30),
-        ):
-            data = update.get(horizon)
-            if not isinstance(data, dict):
-                continue
+        short_term = update.get("short_term")
+        if isinstance(short_term, dict):
             for category in ("beliefs", "desires", "intentions"):
-                items = data.get(category, [])
+                items = short_term.get(category, [])
                 if isinstance(items, list):
-                    target.add(category, [str(x) for x in items], limit)
+                    self.short_term.add(category, [str(x) for x in items], 8)
+
+        long_term = update.get("long_term")
+        if isinstance(long_term, dict):
+            for category in ("beliefs", "desires", "intentions"):
+                items = long_term.get(category, [])
+                if isinstance(items, list):
+                    for item in items:
+                        text = str(item).strip()
+                        if text:
+                            self._observe_long_term_candidate(category, text)
 
         decisions = update.get("recent_decisions", [])
         if isinstance(decisions, list):
@@ -139,6 +217,9 @@ class StudentState:
 
     def apply_mind_update(self, update: dict[str, Any]) -> None:
         self.mind.apply_update(update)
+
+    def confirm_long_term_memory(self, category: str, items: list[str]) -> None:
+        self.mind.confirm_long_term(category, items)
 
     def sync_from_knowledge_graph(self, graph) -> None:
         """Synchronize explicit learner evidence into the fast teaching-facing state."""
