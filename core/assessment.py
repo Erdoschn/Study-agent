@@ -34,9 +34,9 @@ class AssessmentEvaluator:
         return {"correct": correct, "score": score, "confidence": confidence_value, "evaluation_reason": "答案满足核心评分要求。" if correct else "答案未满足全部核心评分要求。"}
 
     NEGATION_RE = re.compile(
-        r"\\b(?:does\\s+not|doesn't|do\\s+not|don't|did\\s+not|didn't|"
-        r"is\\s+not|isn't|are\\s+not|aren't|was\\s+not|wasn't|"
-        r"were\\s+not|weren't|cannot|can't|never|not)\\b"
+        r"(?:does\s+not|doesn't|do\s+not|don't|did\s+not|didn't|"
+        r"is\s+not|isn't|are\s+not|aren't|was\s+not|wasn't|"
+        r"were\s+not|weren't|cannot|can't|never|not)\b"
         r"|(?:不是|并非|不会|不能|没有|未|无|非)"
     )
 
@@ -44,7 +44,7 @@ class AssessmentEvaluator:
     def _tokens(value: str) -> list[str]:
         return [
             token for token in re.findall(
-                r"[a-z0-9_\\u4e00-\\u9fff]+",
+                r"[a-z0-9_\u4e00-\u9fff]+",
                 str(value).lower(),
             )
             if token not in {"a", "i"}
