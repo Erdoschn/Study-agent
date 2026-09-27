@@ -262,3 +262,32 @@ def test_relation_does_not_promote_search_provenance_nodes_to_concepts():
 
     assert graph.nodes["attention_is_all_you_need"].node_type == "document"
     assert ("attention_is_all_you_need", "attention", "related_to") not in graph.edges
+
+
+def test_composite_assessment_does_not_certify_supporting_concepts_at_advanced_level():
+    graph = KnowledgeGraph()
+    for _ in range(5):
+        graph.record_assessment(
+            ["attention", "softmax", "transformer"],
+            True,
+            confidence=1.0,
+            difficulty="postgraduate_plus",
+            primary_concept="attention",
+        )
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+    assert graph.nodes["softmax"].learner.learning_stage != "mastered"
+    assert graph.nodes["transformer"].learner.learning_stage != "mastered"
+    assert graph.nodes["softmax"].learner.highest_assessment_level < POSTGRADUATE_THRESHOLD
+
+
+def test_composite_assessment_keeps_legacy_semantics_without_primary_concept():
+    graph = KnowledgeGraph()
+    for _ in range(5):
+        graph.record_assessment(
+            ["attention", "softmax"],
+            True,
+            confidence=1.0,
+            difficulty="postgraduate_plus",
+        )
+    assert graph.nodes["attention"].learner.learning_stage == "mastered"
+    assert graph.nodes["softmax"].learner.learning_stage == "mastered"
