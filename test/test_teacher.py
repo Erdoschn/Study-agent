@@ -215,3 +215,24 @@ def test_strategy_prioritizes_new_learning_before_known_topics():
     state.student.known_topics.add("transformer")
     strategy = Teacher._derive_strategy(state)
     assert strategy["mode"] == "新知巩固"
+
+
+
+def test_teacher_recognizes_harness_verified_claim_with_normalized_text():
+    from core.state import AgentState, AgentStep
+
+    state = AgentState(question="attention")
+    state.claims = [{"claim": "Attention mechanism"}]
+    state.steps = [
+        AgentStep(
+            step_id=1,
+            action="VERIFY",
+            success=True,
+            observation={
+                "claim": "attention mechanism",
+                "verification_status": "MATCHED",
+            },
+        )
+    ]
+
+    assert Teacher._verified_claims(state) == ["attention mechanism"]
