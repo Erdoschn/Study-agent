@@ -9,6 +9,15 @@ evidence handling, goal matching, Teacher strategy, and the calculator
 harness.
 """
 
+import sys
+from pathlib import Path
+
+# This file lives under examples/. Add the repository root so it can be
+# executed directly with: python examples/module_demos.py
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from types import SimpleNamespace
 
 from core.task_analyzer import TaskAnalyzer
