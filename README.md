@@ -155,3 +155,26 @@ Paid models are disabled by default. Use `python main.py --allow-paid` only when
 - **Teacher**：在 Reasoner 最终答案之后做教学表达，并优先使用当前学生状态、知识图谱和已验证 claims。
 - **ModelRegistry / ModelRouter**：维护模型运行统计、连续失败冷却和能力路由；默认禁止付费模型。
 - **DebugTracer**：提供跨模块结构化执行轨迹。开启 `providers.json` 的 `debug` 后，可观察分析、决策、工具、搜索恢复、证据核查、学习状态、模型冷却和 Teacher 上下文。
+
+## Web UI / Open WebUI
+
+The repository can be exposed to Open WebUI without changing the Study Agent core. The API shell is an outer OpenAI-compatible adapter:
+
+```text
+Open WebUI -> /v1/chat/completions -> examples/study_agent_api.py -> StudyAgent
+```
+
+Start the API locally:
+
+```bash
+python examples/study_agent_api.py
+```
+
+It exposes:
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+Streaming keeps the final answer as a single content event while emitting Agent trace/status messages separately through `reasoning_content`. The existing ModelRegistry/ModelRouter, search, Teacher, KnowledgeGraph, StudentState, and Agent Loop remain the source of truth.
+
+Open WebUI can connect to `http://host.docker.internal:8000/v1` when Open WebUI runs in Docker and the API runs on the Windows host. Open WebUI requires `/v1/chat/completions` and recommends `/v1/models` for model discovery. See the official Open WebUI OpenAI-compatible connection guide.
