@@ -83,9 +83,15 @@ class ModelRouter:
         )
 
     def _requested_capabilities(self, capability: str, analysis: Any = None, plan: Any = None) -> dict[str, float]:
-        requested = {capability: 1.0}
         task_type = str(getattr(analysis, "task_type", "") or "").lower()
-        requested.update(self.TASK_WEIGHTS.get(task_type, {}))
+        requested = dict(self.TASK_WEIGHTS.get(task_type, {}))
+        # When TaskAnalysis identifies a concrete task, its capability profile
+        # is authoritative. The generic requested capability (usually
+        # "reasoning") must not override coding/research/math/etc. weights.
+        if not requested:
+            requested[capability] = 1.0
+        elif capability not in requested:
+            requested[capability] = 0.5
 
         required_tools = set(getattr(analysis, "required_tools", []) or [])
         if plan:
