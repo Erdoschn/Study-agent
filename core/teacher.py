@@ -75,13 +75,23 @@ class Teacher:
         return strategy
 
     @staticmethod
-    def _verified_claims(state):
+    def _claim_key(claim: str) -> str:
+        import re
+        return re.sub(
+            r"[^a-z0-9\u4e00-\u9fff]+",
+            "",
+            str(claim or "").strip().lower(),
+        )
+
+    @classmethod
+    def _verified_claims(cls, state):
         current = {
-            str(item.get("claim", "")).strip()
+            cls._claim_key(item.get("claim", ""))
             for item in state.claims
-            if isinstance(item, dict) and str(item.get("claim", "")).strip()
+            if isinstance(item, dict) and cls._claim_key(item.get("claim", ""))
         }
         claims = []
+        seen = set()
         for step in state.steps:
             if (
                 step.action == "VERIFY"
@@ -90,8 +100,10 @@ class Teacher:
                 and step.observation.get("verification_status") == "MATCHED"
             ):
                 claim = str(step.observation.get("claim", "")).strip()
-                if claim and claim in current and claim not in claims:
+                key = cls._claim_key(claim)
+                if key and key in current and key not in seen:
                     claims.append(claim)
+                    seen.add(key)
         return claims[:12]
 
     @staticmethod
