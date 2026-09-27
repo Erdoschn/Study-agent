@@ -213,8 +213,10 @@ class StudentMind:
             elif new and status in {"REVISED", "CONFIRMED"}:
                 target.append(new)
 
-            if horizon == "long_term" and new and status in {"REVISED", "CONFIRMED"} and not blocked:
-                self.belief_support[new] = valid_refs
+            if horizon == "long_term" and new and status in {"REVISED", "CONFIRMED"}:
+                # Keep an explicit empty support record when blocked so callers
+                # can distinguish "known but unsupported" from "never observed".
+                self.belief_support[new] = valid_refs if not blocked else []
             elif horizon == "long_term" and status == "RETRACTED" and not blocked:
                 self.belief_support.pop(old, None)
 
