@@ -286,15 +286,25 @@ class KnowledgeGraph:
         # because a model emitted a relation endpoint.
         source_node = self.nodes.get(source_id)
         target_node = self.nodes.get(target_id)
+
+        # Direct graph API calls may create missing concept endpoints. Existing
+        # provenance nodes, however, must never be promoted by add_relation().
+        if source_node is None:
+            source_id = self.add_concept(source, node_type="concept")
+            source_node = self.nodes.get(source_id)
+        if target_node is None:
+            target_id = self.add_concept(target, node_type="concept")
+            target_node = self.nodes.get(target_id)
+
         if (
-            source_node is None
-            or target_node is None
+            not source_node
+            or not target_node
             or source_node.node_type != "concept"
             or target_node.node_type != "concept"
         ):
             debug.log(
                 "KnowledgeGraph",
-                f"RELATION SKIP → endpoints must already be concepts: {source!r} -> {target!r}",
+                f"RELATION SKIP → provenance nodes cannot be relation endpoints: {source!r} -> {target!r}",
             )
             return
 
