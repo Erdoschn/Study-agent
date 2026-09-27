@@ -12,9 +12,8 @@ class ModelSelection:
 
 
 class ModelRouter:
-    """根据任务结构、模型能力、历史可靠性和预算动态排序。"""
+    """根据任务需求、可选能力先验、运行证据和预算动态排序。"""
 
-    # TaskAnalyzer 输出的是结构化 task_type，不依赖问题关键词。
     TASK_WEIGHTS = {
         "math": {"math": 1.0, "reasoning": 0.9},
         "coding": {"coding": 1.0, "reasoning": 0.8},
@@ -24,6 +23,10 @@ class ModelRouter:
         "verification": {"reasoning": 1.0, "research": 0.7},
         "general": {"general": 0.8, "reasoning": 0.6},
     }
+
+    STATIC_WEIGHT = 0.75
+    RUNTIME_WEIGHT = 0.25
+    RUNTIME_CONFIDENCE_OBSERVATIONS = 5
 
     def __init__(self, registry: ModelRegistry):
         self.registry = registry
@@ -39,43 +42,94 @@ class ModelRouter:
     ) -> list[ModelInfo]:
         with debug.scope("ModelRouter", f"SELECT CANDIDATES → capability={capability}, allow_paid={allow_paid}"):
             exclude = exclude or set()
-            candidates = [m for m in self.registry.available(allow_paid=allow_paid) if m.name not in exclude]
+            candidates = [
+                m for m in self.registry.available(allow_paid=allow_paid)
+                if m.name not in exclude
+            ]
             if not candidates:
                 return []
 
-            scores = [(m, self._score(m, capability, task_analysis, plan)) for m in candidates]
-            scores.sort(key=lambda x: x[1], reverse=True)
-            result = [m for m, _ in scores]
+            scored = [(m, self._score(m, capability, task_analysis, plan)) for m in candidates]
+            # A score is not allowed to fabricate precision. When models tie, prefer
+            # the least-used model so cold-start exploration does not distort quality.
+            scored.sort(key=lambda item: (-item[1], item[0].calls, item[0].name))
+            result = [m for m, _ in scored]
 
-            debug.log("ModelRouter", "ORDER → " + " → ".join(f"{m.name}({s:.3f})" for m, s in scores))
+            debug.log(
+                "ModelRouter",
+                "ORDER → " + " → ".join(f"{m.name}({s:.3f})" for m, s in scored),
+            )
             return result
 
-    def select(self, capability: str, allow_paid: bool = False, task_analysis: Any = None, plan: Any = None) -> ModelSelection:
-        candidates = self.select_candidates(capability, allow_paid=allow_paid, task_analysis=task_analysis, plan=plan)
+    def select(
+        self,
+        capability: str,
+        allow_paid: bool = False,
+        task_analysis: Any = None,
+        plan: Any = None,
+    ) -> ModelSelection:
+        candidates = self.select_candidates(
+            capability,
+            allow_paid=allow_paid,
+            task_analysis=task_analysis,
+            plan=plan,
+        )
         if not candidates:
             raise RuntimeError("没有可用模型。")
         selected = candidates[0]
-        return ModelSelection(selected, f"按任务结构、{capability}能力、历史可靠性和预算选择 {selected.name}")
+        return ModelSelection(
+            selected,
+            f"按任务需求、模型能力证据、历史可靠性和预算选择 {selected.name}",
+        )
 
-    def _score(self, model: ModelInfo, capability: str, analysis: Any = None, plan: Any = None) -> float:
-        caps = model.capabilities
+    def _requested_capabilities(self, capability: str, analysis: Any = None, plan: Any = None) -> dict[str, float]:
         requested = {capability: 1.0}
         task_type = str(getattr(analysis, "task_type", "") or "").lower()
         requested.update(self.TASK_WEIGHTS.get(task_type, {}))
 
-        # 工具需求来自分析/计划，而不是关键词匹配。
         required_tools = set(getattr(analysis, "required_tools", []) or [])
         if plan:
-            required_tools.update(s.tool for s in getattr(plan, "steps", []) if getattr(s, "tool", None))
+            required_tools.update(
+                step.tool for step in getattr(plan, "steps", [])
+                if getattr(step, "tool", None)
+            )
         if "search" in required_tools:
             requested["research"] = max(requested.get("research", 0), 0.7)
         if "calculate" in required_tools:
             requested["math"] = max(requested.get("math", 0), 0.7)
+        return requested
 
-        total_weight = sum(requested.values()) or 1.0
-        capability_score = sum(caps.get(k, 0.5) * w for k, w in requested.items()) / total_weight
-        # Reliability is capability-specific. Global success rate can be misleading
-        # when a model is strong at teaching but repeatedly fails at reasoning.
-        reliability = model.capability_stats.get(capability, 0.5)
-        exploration = 0.05 if model.calls == 0 else min(model.calls, 10) * 0.005
-        return capability_score * 0.70 + reliability * 0.25 + exploration
+    @staticmethod
+    def _weighted_known(values: dict[str, float], requested: dict[str, float]) -> float | None:
+        pairs = [(values[key], weight) for key, weight in requested.items() if key in values]
+        if not pairs:
+            return None
+        total = sum(weight for _, weight in pairs)
+        return sum(value * weight for value, weight in pairs) / total
+
+    def _runtime_fit(self, model: ModelInfo, requested: dict[str, float]) -> tuple[float, int]:
+        observed = {}
+        observations = 0
+        for key in requested:
+            count = model.capability_observations(key)
+            if count:
+                observed[key] = model.capability_stats.get(key, 0.5)
+                observations += count
+        fit = self._weighted_known(observed, requested)
+        return (0.5 if fit is None else fit), observations
+
+    def _score(self, model: ModelInfo, capability: str, analysis: Any = None, plan: Any = None) -> float:
+        requested = self._requested_capabilities(capability, analysis, plan)
+
+        static_fit = self._weighted_known(model.capabilities, requested)
+        runtime_fit, observations = self._runtime_fit(model, requested)
+
+        # Runtime evidence starts at a neutral prior and gains influence gradually.
+        confidence = min(1.0, observations / self.RUNTIME_CONFIDENCE_OBSERVATIONS)
+        runtime_adjusted = 0.5 + (runtime_fit - 0.5) * confidence
+
+        if static_fit is None:
+            # No static capability metadata: do not invent a model-specific capability score.
+            # The model is selected by learned evidence; unseen models remain neutral.
+            return runtime_adjusted
+        return self.STATIC_WEIGHT * static_fit + self.RUNTIME_WEIGHT * runtime_adjusted
