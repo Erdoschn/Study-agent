@@ -74,7 +74,11 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
 
 
 def sse_event(data: dict[str, Any]) -> bytes:
-    return ("data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8")
+    return (
+        "data: "
+        + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        + "\n\n"
+    ).encode("utf-8")
 
 
 def chunk(
@@ -109,7 +113,6 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Keep the terminal readable; Study Agent debug tracing remains available.
         return
 
     def _authorized(self) -> bool:
@@ -160,6 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path != "/v1/chat/completions":
             self._send_json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
+
             return
 
         try:
@@ -169,7 +173,9 @@ class Handler(BaseHTTPRequestHandler):
                 (
                     str(item.get("content", "")).strip()
                     for item in reversed(messages)
-                    if isinstance(item, dict) and item.get("role") == "user" and str(item.get("content", "")).strip()
+                    if isinstance(item, dict)
+                    and item.get("role") == "user"
+                    and str(item.get("content", "")).strip()
                 ),
                 "",
             )
@@ -180,8 +186,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_run(question)
             else:
                 result = self._run_agent(question, lambda _: None)
-                self._send_json(self._completion(result.final_answer or ""))
+                answer = str(result.final_answer or "").strip()
+                if not answer:
+                    raise RuntimeError("StudyAgent 完成但 final_answer 为空")
+                self._send_json(self._completion(answer))
         except Exception as exc:
+            # Streaming responses already sent their headers. _stream_run handles
+            # its own SSE errors; only ordinary JSON requests reach this branch.
             self._send_json({
                 "error": {
                     "message": f"{type(exc).__name__}: {exc}",
@@ -195,7 +206,11 @@ class Handler(BaseHTTPRequestHandler):
             "object": "chat.completion",
             "created": int(time.time()),
             "model": MODEL_ID,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": answer},
+                "finish_reason": "stop",
+            }],
         }
 
     def _run_agent(self, question: str, emit) -> Any:
@@ -204,12 +219,9 @@ class Handler(BaseHTTPRequestHandler):
         def log_hook(module: str, message: str) -> None:
             text = f"[{module}] {message}"
             events.append(text)
-            # Keep a live terminal monitor even when the caller is Open WebUI.
             print(text, flush=True)
             emit(text)
 
-        # DebugTracer is global in the current project. Serialize runs so this
-        # temporary hook cannot leak one user's events into another request.
         with _RUN_LOCK:
             original_log = debug.log
             debug.log = log_hook
@@ -259,24 +271,36 @@ class Handler(BaseHTTPRequestHandler):
         while True:
             kind, value = events.get()
             if kind == "status":
-                # OpenAI-compatible reasoning_content is kept separate from the
-                # final answer. Open WebUI can render it as progress/status.
                 self.wfile.write(sse_event(chunk(reasoning=value, completion_id=completion_id)))
                 self.wfile.flush()
             elif kind == "result":
                 answer = str(value.final_answer or "").strip()
                 print(f"✓ FINAL ANSWER → {len(answer)} chars", flush=True)
-                if not answer:
-                    raise RuntimeError("StudyAgent 完成但 final_answer 为空")
-                self.wfile.write(sse_event(
-                    chunk(content=answer, completion_id=completion_id, role="assistant")
-                ))
-                self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
+                if answer:
+                    self.wfile.write(sse_event(
+                        chunk(content=answer, completion_id=completion_id, role="assistant")
+                    ))
+                    self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
+                else:
+                    self.wfile.write(sse_event(chunk(
+                        reasoning="❌ StudyAgent 完成但 final_answer 为空",
+                        completion_id=completion_id,
+                    )))
+                    self.wfile.write(sse_event(chunk(
+                        finish="stop",
+                        completion_id=completion_id,
+                    )))
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
             elif kind == "error":
-                self.wfile.write(sse_event(chunk(reasoning=f"❌ Agent 执行失败：{value}", completion_id=completion_id)))
-                self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
+                self.wfile.write(sse_event(chunk(
+                    reasoning=f"❌ Agent 执行失败：{value}",
+                    completion_id=completion_id,
+                )))
+                self.wfile.write(sse_event(chunk(
+                    finish="stop",
+                    completion_id=completion_id,
+                )))
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
             elif kind == "done" and value is sentinel:
