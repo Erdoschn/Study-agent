@@ -244,3 +244,21 @@ def test_mastery_demotes_after_three_consecutive_advanced_failures():
     for _ in range(3):
         graph.record_assessment(["attention"], False, difficulty="postgraduate_plus")
     assert graph.nodes["attention"].learner.learning_stage == "weak"
+
+
+
+def test_relation_does_not_promote_search_provenance_nodes_to_concepts():
+    graph = KnowledgeGraph()
+    graph.learn_from_search("attention", [{
+        "source": "arxiv",
+        "title": "Attention Is All You Need",
+        "identifier": "1706.03762",
+        "url": "https://arxiv.org/abs/1706.03762",
+    }])
+
+    assert graph.nodes["attention_is_all_you_need"].node_type == "document"
+
+    graph.add_relation("attention_is_all_you_need", "attention", "related_to")
+
+    assert graph.nodes["attention_is_all_you_need"].node_type == "document"
+    assert ("attention_is_all_you_need", "attention", "related_to") not in graph.edges
