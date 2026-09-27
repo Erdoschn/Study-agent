@@ -33,6 +33,25 @@ class GoalMatcher:
         return tokens
 
     @classmethod
+    def extract_goals(cls, question: str) -> list[str]:
+        """Extract explicit user sub-questions without treating them as facts."""
+        text = str(question or "").strip()
+        if not text:
+            return []
+        parts = re.split(r"[？?！!。；;]+", text)
+        goals = []
+        for part in parts:
+            part = re.sub(r"^(然后|另外|还有|以及|并且|同时)\s*", "", part.strip())
+            if not part:
+                continue
+            # A single segment can contain two alternatives joined by a
+            # question-like contrast; keep the whole segment so the Reasoner
+            # sees the user's actual wording rather than an invented goal.
+            if part not in goals:
+                goals.append(part)
+        return goals[:8]
+
+    @classmethod
     def match(cls, current: str, saved_goals: list[str]) -> list[str]:
         """Return only directly relevant saved goals, preserving stored order."""
         current_tokens = cls._tokens(current)
