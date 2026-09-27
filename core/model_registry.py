@@ -21,7 +21,7 @@ class ModelInfo:
 
     @property
     def capabilities(self) -> dict[str, float]:
-        """静态能力先验 + 运行时学习结果。学习结果优先。"""
+        """Return static capability priors; runtime reliability is tracked separately."""
         base = self.extra.get("capabilities", {})
         if not isinstance(base, dict):
             base = {}
@@ -34,7 +34,6 @@ class ModelInfo:
             if score != score or score in {float("inf"), float("-inf")}:
                 continue
             result[str(key)] = max(0.0, min(1.0, score))
-        result.update(self.capability_stats)
         return result
 
 
