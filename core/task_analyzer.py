@@ -141,13 +141,17 @@ class TaskAnalyzer:
 
     @staticmethod
     def _normalize_domain(question: str, domain: str) -> str:
-        """Resolve cache terminology before it reaches the learner knowledge graph."""
-        text = f"{question} {domain}".lower()
-        llm_terms = (
+        """Normalize only explicit cache terminology in the user query.
+
+        The model's domain is the primary task scope. Semantic anchors such as
+        "transformer" must not be reclassified merely because the question
+        happens to be processed by the LLM/cache normalization rules.
+        """
+        text = str(question or "").lower()
+        llm_cache_terms = (
             "上下文缓存", "context caching", "context cache",
             "prompt caching", "prompt cache", "kv cache", "kv-cache",
-            "kvcache", "kv缓存", "大语言模型", "llm", "language model",
-            "transformer", "token cache",
+            "kvcache", "kv缓存",
         )
         cpu_terms = (
             "cpu缓存", "cpu cache", "cache line", "缓存行",
@@ -156,15 +160,15 @@ class TaskAnalyzer:
             "cache coherence", "缓存一致性",
             "计算机体系结构", "computer architecture",
         )
-        has_llm = any(term in text for term in llm_terms)
+        has_llm_cache = any(term in text for term in llm_cache_terms)
         has_cpu = any(term in text for term in cpu_terms)
-        if has_llm and not has_cpu:
+        if has_llm_cache and not has_cpu:
             if any(term in text for term in ("kv cache", "kv-cache", "kvcache", "kv缓存")):
                 return "LLM推理-KV Cache"
             return "LLM推理-上下文缓存"
-        if has_cpu and not has_llm:
+        if has_cpu and not has_llm_cache:
             return "计算机体系结构-CPU缓存"
-        if has_llm and has_cpu:
+        if has_llm_cache and has_cpu:
             return domain.strip() or "缓存机制-跨领域比较"
         return domain.strip() or "general"
 
