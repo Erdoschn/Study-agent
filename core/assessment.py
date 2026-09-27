@@ -50,31 +50,51 @@ class AssessmentEvaluator:
             if token not in {"a", "i"}
         ]
 
+    @staticmethod
+    def _token_compatible(left: str, right: str) -> bool:
+        left = str(left or "").lower()
+        right = str(right or "").lower()
+        if not left or not right:
+            return False
+        if left == right:
+            return True
+        # Cover simple inflection differences such as map/maps without
+        # turning arbitrary short tokens into fuzzy matches.
+        return len(left) >= 3 and len(right) >= 3 and (
+            left.startswith(right) or right.startswith(left)
+        )
+
     @classmethod
     def _negation_conflict(cls, answer: str, expected: str) -> bool:
-        """Detect direct polarity reversal instead of treating shared words as proof."""
+        """Detect a local polarity reversal instead of shared-word overlap."""
         expected_tokens = cls._tokens(expected)
         if not expected_tokens:
             return False
 
-        expected_lower = expected.lower()
-        # Do not treat a negative expected answer as a positive claim.
-        if cls.NEGATION_RE.search(expected_lower):
+        # A negative expected answer is not contradicted merely because it
+        # contains a negation marker.
+        if cls.NEGATION_RE.search(expected.lower()):
             return False
 
         answer_lower = answer.lower()
         for match in cls.NEGATION_RE.finditer(answer_lower):
-            before = answer_lower[max(0, match.start() - 80):match.start()]
-            after = answer_lower[match.end():match.end() + 120]
+            before_tokens = cls._tokens(answer_lower[max(0, match.start() - 80):match.start()])
+            after_tokens = cls._tokens(answer_lower[match.end():match.end() + 120])
 
-            first = expected_tokens[0]
-            if len(expected_tokens) == 1:
-                if first in after[:80] or first in before[-40:]:
-                    return True
+            if not before_tokens:
                 continue
 
-            second = expected_tokens[1]
-            if first in before and second in after:
+            first = expected_tokens[0]
+            subject_present = any(cls._token_compatible(first, token) for token in before_tokens)
+            if not subject_present:
+                continue
+
+            predicate_present = any(
+                cls._token_compatible(expected_token, token)
+                for expected_token in expected_tokens[1:]
+                for token in after_tokens
+            )
+            if predicate_present:
                 return True
 
         return False
