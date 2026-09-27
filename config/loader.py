@@ -14,11 +14,11 @@ CONFIG_PATH = (
 
 
 def _refresh_provider_models(config: dict[str, Any]) -> None:
-    """Refresh model catalogs for every enabled provider that exposes /models.
+    """Refresh only models explicitly configured in providers.json.
 
-    providers.json remains the source of provider credentials and local policy.
-    The live /models response is used only to discover which model IDs currently
-    exist. Existing model metadata (including paid/capabilities) is preserved.
+    Provider /models catalogs are used as a live availability check, not as a
+    source for expanding the Agent's model pool. New provider models are never
+    added automatically.
     """
     providers = config.get("providers", {})
     models = config.get("models", {})
@@ -29,6 +29,14 @@ def _refresh_provider_models(config: dict[str, Any]) -> None:
         if not isinstance(provider, dict) or not provider.get("enabled", False):
             continue
         if str(provider.get("type", "openai_compatible")).lower() != "openai_compatible":
+            continue
+
+        configured = {
+            name: item
+            for name, item in models.items()
+            if isinstance(item, dict) and item.get("provider") == provider_name
+        }
+        if not configured:
             continue
 
         base_url = str(provider.get("base_url", "")).rstrip("/")
@@ -56,7 +64,7 @@ def _refresh_provider_models(config: dict[str, Any]) -> None:
             debug.log(
                 "ConfigLoader",
                 f"MODEL REFRESH SKIP → provider={provider_name}, "
-                f"{type(exc).__name__}: {exc}; keeping local models",
+                f"{type(exc).__name__}: {exc}; keeping local model states",
             )
             continue
 
@@ -73,51 +81,14 @@ def _refresh_provider_models(config: dict[str, Any]) -> None:
             )
             continue
 
-        provider_models = {
-            name: item
-            for name, item in models.items()
-            if isinstance(item, dict) and item.get("provider") == provider_name
-        }
-
-        # Disable models no longer advertised by the provider, but never delete
-        # them: this preserves local capability/paid metadata and makes fallback
-        # possible if discovery is temporarily unavailable.
-        for name, item in provider_models.items():
+        for name, item in configured.items():
             model_id = str(item.get("model", name)).strip()
-            if model_id not in live_ids:
-                item["enabled"] = False
-
-        for model_id in live_ids:
-            # Prefer an existing exact model-id entry. Otherwise reuse an existing
-            # entry pointing at this provider/model before creating a new entry.
-            existing = models.get(model_id)
-            if not (isinstance(existing, dict) and existing.get("provider") == provider_name):
-                existing = next(
-                    (
-                        item for item in provider_models.values()
-                        if str(item.get("model", "")).strip() == model_id
-                    ),
-                    None,
-                )
-
-            if isinstance(existing, dict):
-                existing["model"] = model_id
-                existing["enabled"] = True
-                continue
-
-            # New entries get conservative policy defaults. Paid status is only
-            # inferred for newly discovered models; explicit local settings win.
-            models[model_id] = {
-                "provider": provider_name,
-                "model": model_id,
-                "enabled": True,
-                "paid": not model_id.lower().endswith("-free"),
-            }
+            item["enabled"] = model_id in live_ids
 
         debug.log(
             "ConfigLoader",
             f"MODEL REFRESH → provider={provider_name}, "
-            f"live={len(live_ids)}, configured={len(provider_models)}",
+            f"live={len(live_ids)}, checked={len(configured)}, added=0",
         )
 
 
