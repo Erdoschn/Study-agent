@@ -282,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
                     kind, value = events.get(timeout=self.SSE_HEARTBEAT_SECONDS)
                 except queue.Empty:
                     # Keep the SSE connection active during long model/search calls.
-                    self.wfile.write(b": keep-alive\\n\\n")
+                    self.wfile.write(b": keep-alive\n\n")
                     self.wfile.flush()
                     continue
 
@@ -306,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
                             finish="stop",
                             completion_id=completion_id,
                         )))
-                    self.wfile.write(b"data: [DONE]\\n\\n")
+                    self.wfile.write(b"data: [DONE]\n\n")
                     self.wfile.flush()
                 elif kind == "error":
                     self.wfile.write(sse_event(chunk(
