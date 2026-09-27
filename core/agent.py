@@ -61,6 +61,8 @@ class StudyAgent:
             state.student = self.student_state
             # Restore persistent learner evidence before TaskAnalyzer sees the student.
             state.student.sync_from_knowledge_graph(self.knowledge_graph)
+            # Seed deterministic semantic anchors before the model reasons/searches.
+            self.knowledge_graph.bootstrap_query_context(question)
 
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
@@ -216,4 +218,7 @@ class StudyAgent:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
         graph = state.knowledge_graph
         if graph is None: return
-        if state.domain: graph.add_concept(state.domain)
+        # TaskAnalyzer.domain is a scope label, not necessarily a learner concept.
+        # Do not pollute the concept graph with coarse labels.
+        if state.domain:
+            debug.log("StudyAgent", f"KNOWLEDGE GRAPH SCOPE → {state.domain}")
