@@ -220,6 +220,8 @@ class KnowledgeGraph:
         """
         if not isinstance(correct, bool):
             raise ValueError("assessment correct 必须是布尔值。")
+        if not isinstance(concepts, (list, tuple)):
+            raise ValueError("assessment concepts 必须是列表或元组。")
         seen = set()
         clean = []
         for concept in concepts:
