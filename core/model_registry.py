@@ -24,7 +24,7 @@ class ModelInfo:
 
     @property
     def capabilities(self) -> dict[str, float]:
-        """Return optional static capability priors; runtime evidence is tracked separately."""
+        """Legacy static capability metadata; no longer used as a routing score."""
         base = self.extra.get("capabilities", {})
         if not isinstance(base, dict):
             base = {}
@@ -38,6 +38,40 @@ class ModelInfo:
                 continue
             result[str(key)] = max(0.0, min(1.0, score))
         return result
+
+    @property
+    def reasoning_efforts(self) -> list[str]:
+        values = self.extra.get("reasoning_efforts", [])
+        if not isinstance(values, list):
+            return []
+        allowed = {"none", "low", "medium", "high", "xhigh", "max"}
+        return [str(value).lower() for value in values if str(value).lower() in allowed]
+
+    @property
+    def benchmark(self) -> dict[str, Any]:
+        value = self.extra.get("benchmark", {})
+        return dict(value) if isinstance(value, dict) else {}
+
+    @property
+    def benchmark_scores(self) -> dict[str, float]:
+        benchmark = self.benchmark
+        scores = benchmark.get("intelligence_index_by_effort", benchmark.get("scores_by_effort", {}))
+        if not isinstance(scores, dict):
+            return {}
+        result: dict[str, float] = {}
+        for effort, value in scores.items():
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                continue
+            if score == score and score not in {float("inf"), float("-inf")}:
+                result[str(effort).lower()] = score
+        return result
+
+    @property
+    def reasoning_effort_param(self) -> str | None:
+        value = self.extra.get("reasoning_effort_param")
+        return str(value).strip() if value else None
 
     @property
     def reliability_score(self) -> float:
@@ -57,6 +91,15 @@ class ModelInfo:
         # Cap the penalty so a model can recover after the outage is over.
         streak_penalty = 1.0 - min(0.50, 0.10 * self.failure_streak)
         return max(0.0, min(1.0, score * streak_penalty))
+
+    def call_reliability_score(self, capability: str) -> float:
+        """Bayesian-smoothed reliability for actual calls in one role/capability."""
+        successes = int(self.capability_successes.get(capability, 0))
+        failures = int(self.capability_failures.get(capability, 0))
+        observations = successes + failures
+        if observations <= 0:
+            return self.reliability_score
+        return (successes + 2.0) / (observations + 4.0)
 
     def capability_observations(self, capability: str) -> int:
         return (
