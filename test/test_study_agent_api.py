@@ -2,6 +2,7 @@
 import http.client
 import json
 import threading
+import time
 from types import SimpleNamespace
 
 from examples.study_agent_api import Handler, MODEL_ID, AgentHTTPServer, chunk, sse_event
@@ -142,7 +143,7 @@ def test_stream_chat_completion_separates_status_and_answer():
         conn.close()
 
         assert response.status == 200
-        assert response.getheader("Connection") == "close"
+        assert response.getheader("Connection") == "keep-alive"
         assert "text/event-stream" in response.getheader("Content-Type", "")
         frames = [line[6:] for line in raw.splitlines() if line.startswith("data: ")]
         assert frames[-1] == "[DONE]"
@@ -209,6 +210,53 @@ def test_chat_requires_user_message():
         assert status == 500
         assert payload["error"]["type"] == "server_error"
         assert "messages 中没有可用的 user 内容" in payload["error"]["message"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_stream_sends_status_before_agent_finishes():
+    server = AgentHTTPServer(("127.0.0.1", 0), Handler)
+
+    def slow_run(question):
+        time.sleep(0.5)
+        return SimpleNamespace(
+            final_answer="最终答案",
+            step_count=1,
+            evidence=[],
+            claims=[],
+        )
+
+    server.agent = SimpleNamespace(run=slow_run)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        conn = http.client.HTTPConnection(host, port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/chat/completions",
+            body=json.dumps({
+                "model": MODEL_ID,
+                "stream": True,
+                "messages": [{"role": "user", "content": "slow"}],
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        first_line = response.fp.readline().decode("utf-8")
+        second_line = response.fp.readline().decode("utf-8")
+        assert response.status == 200
+        assert first_line.startswith("data: ")
+        assert second_line.startswith("data: ")
+        first_payload = json.loads(first_line[6:])
+        second_payload = json.loads(second_line[6:])
+        deltas = [
+            first_payload["choices"][0]["delta"],
+            second_payload["choices"][0]["delta"],
+        ]
+        assert any("reasoning_content" in delta for delta in deltas)
+        conn.close()
     finally:
         server.shutdown()
         server.server_close()
