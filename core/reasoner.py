@@ -252,7 +252,7 @@ STOP：无法继续时停止并说明原因。
             "AgentReasoner",
             f"PROMPT → chars={len(serialized_prompt)}, recent_steps={len(recent_steps)}/{len(state.steps)}, evidence={len(state.evidence)}, claims={len(state.claims)}",
         )
-        return serialized_prompt
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
     @staticmethod
     def _strip_think(raw: str) -> str:
