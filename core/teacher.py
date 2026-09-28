@@ -245,15 +245,20 @@ class Teacher:
             except Exception as exc:
                 self.model_router.registry.record_failure(
                     model.name, "teaching",
-                    provider_level=self.model_router.registry.is_provider_level_failure(exc),
+                    provider_level=(
+                        self.model_router.registry.is_provider_level_failure(exc)
+                        if hasattr(self.model_router.registry, "is_provider_level_failure")
+                        else False
+                    ),
                 )
-                self.model_router.registry.record_task_outcome(
-                    model.name,
-                    "teaching",
-                    difficulty,
-                    attempts,
-                    False,
-                )
+                if hasattr(self.model_router.registry, "record_task_outcome"):
+                    self.model_router.registry.record_task_outcome(
+                        model.name,
+                        "teaching",
+                        difficulty,
+                        attempts,
+                        False,
+                    )
                 errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
                 debug.log("Teacher", f"MODEL FAILED → {model.name}")
         raise RuntimeError("所有 Teacher 候选模型均调用失败：\\n" + "\\n".join(errors))
