@@ -328,6 +328,7 @@ class AgentState:
     recovery_count: int = 0
     knowledge_graph: Any = None
     pending_assessment: dict[str, Any] | None = None
+    metrics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def step_count(self) -> int:
