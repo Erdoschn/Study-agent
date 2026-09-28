@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .__debug__ import debug
+from .model_router import get_model_choices, call_model_with_effort
 
 
 @dataclass
@@ -68,8 +69,9 @@ class TaskAnalyzer:
                 ensure_ascii=False,
                 indent=2,
             )
-            choices = self.model_router.select_choice_candidates(
-                capability="reasoning",
+            choices = get_model_choices(
+                self.model_router,
+                "reasoning",
                 allow_paid=self.allow_paid,
             )
             if not choices:
@@ -84,7 +86,8 @@ class TaskAnalyzer:
                 )
                 try:
                     client = self.model_factory.create(model)
-                    raw = self.model_router.call_model(
+                    raw = call_model_with_effort(
+                        self.model_router,
                         client,
                         self.SYSTEM_PROMPT,
                         prompt,
