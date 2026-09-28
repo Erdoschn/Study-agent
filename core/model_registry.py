@@ -165,6 +165,10 @@ class ModelRegistry:
                 extra["capabilities"] = dict(extra["capabilities"])
             else:
                 extra.pop("capabilities", None)
+
+            for key in ("reasoning_efforts", "benchmark", "reasoning_effort_param"):
+                if key in item:
+                    extra[key] = item[key]
             self.models[name] = ModelInfo(
                 name=name,
                 provider=provider_name,
