@@ -113,7 +113,7 @@ class AgentHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
-    protocol_version = "HTTP/1.0"
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         return
@@ -374,9 +374,9 @@ class Handler(BaseHTTPRequestHandler):
     def _write_sse(self, payload: bytes) -> None:
         """Write one raw SSE frame and flush it immediately.
 
-        HTTP/1.0 + Connection: close gives BaseHTTPRequestHandler a
-        close-delimited streaming body, so the adapter does not manually
-        implement HTTP chunk framing.
+        HTTP/1.1 + Connection: close gives OpenAI-compatible clients a
+        standard HTTP/1.1 response while the terminal connection close
+        delimits the body. The adapter does not hand-write HTTP chunk framing.
         """
         self.wfile.write(payload)
         self.wfile.flush()
@@ -385,8 +385,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
-        # [DONE] terminates the SSE stream; the HTTP/1.0 close-delimited
-        # response ends only after the terminal frame has been flushed.
+        # [DONE] terminates the SSE stream; the HTTP/1.1 response is deliberately
+        # close-delimited so the adapter never hand-writes HTTP chunk framing.
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Content-Encoding", "identity")
