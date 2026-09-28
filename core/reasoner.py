@@ -27,6 +27,7 @@ class ReasoningDecision:
     evidence_relevance: list[dict[str, Any]] | None = None
     finish_reason: str = ""
     model: str | None = None
+    effort: str | None = None
     student_model_update: dict[str, Any] | None = None
     belief_revisions: list[dict[str, Any]] | None = None
     knowledge_relations: list[dict[str, Any]] | None = None
@@ -180,6 +181,7 @@ STOP：无法继续时停止并说明原因。
                     )
                     self.model_router.registry.record_success(model.name, "reasoning")
                     decision.model = model.name
+                    decision.effort = choice.effort
                     debug.log("AgentReasoner", f"ACTION → {decision.action}")
                     return decision
                 except ModelTimeoutError as exc:
