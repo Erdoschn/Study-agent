@@ -11,6 +11,7 @@ from .evidence import EvidenceStore
 from .state import StudentMind
 from .search_strategy import SearchStrategy
 from .goal import GoalMatcher
+from .model_router import get_model_choices, call_model_with_effort
 
 
 @dataclass
@@ -152,8 +153,9 @@ STOP：无法继续时停止并说明原因。
     def decide(self, state, tool_specs=None):
         with debug.scope("AgentReasoner", f"DECIDE → step={state.step_count + 1}"):
             prompt = self._build_prompt(state, tool_specs or [])
-            choices = self.model_router.select_choice_candidates(
-                capability="reasoning",
+            choices = get_model_choices(
+                self.model_router,
+                "reasoning",
                 allow_paid=self.allow_paid,
                 task_analysis=state.task_analysis,
                 plan=state.plan,
@@ -171,7 +173,8 @@ STOP：无法继续时停止并说明原因。
                 try:
                     client = self.model_factory.create(model)
                     decision = self._parse(
-                        self.model_router.call_model(
+                        call_model_with_effort(
+                            self.model_router,
                             client,
                             self.SYSTEM_PROMPT,
                             prompt,
