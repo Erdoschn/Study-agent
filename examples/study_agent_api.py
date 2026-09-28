@@ -111,8 +111,9 @@ class AgentHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
-    protocol_version = "HTTP/1.0"
-    SSE_HEARTBEAT_SECONDS = 10.0
+    protocol_version = "HTTP/1.1"
+    SSE_HEARTBEAT_SECONDS = 5.0
+    SSE_STATUS_SECONDS = 15.0
 
     def log_message(self, fmt: str, *args: Any) -> None:
         return
@@ -224,13 +225,17 @@ class Handler(BaseHTTPRequestHandler):
             print(text, flush=True)
             emit(text)
 
+        # Emit before taking the process-wide debug lock so the frontend never
+        # looks frozen while another request is finishing its run.
+        status = "🤔 Study Agent 正在分析任务..."
+        print(status, flush=True)
+        emit(status)
+
         with _RUN_LOCK:
             original_log = debug.log
             debug.log = log_hook
             try:
-                status = "🤔 Study Agent 正在分析任务..."
-                print(status, flush=True)
-                emit(status)
+                emit("🔄 Agent 已开始执行，正在分析 / 搜索 / 推理...")
                 result = self.server.agent.run(question)
                 status = (
                     f"✓ Agent 完成：steps={result.step_count}, "
@@ -246,9 +251,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
-        # Streaming is complete after [DONE]; close the HTTP connection so
-        # simple clients (including http.client) can observe end-of-stream.
-        self.send_header("Connection", "close")
+        # [DONE] terminates the logical SSE stream. Keep the HTTP/1.1
+        # connection alive while the agent is running and close it explicitly
+        # after the terminal frame below.
+        self.send_header("Connection", "keep-alive")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -257,8 +263,14 @@ class Handler(BaseHTTPRequestHandler):
         sentinel = object()
         completion_id = "chatcmpl-" + uuid.uuid4().hex
 
-        # Initialize OpenAI-compatible clients before the first model/search delay.
+        # Send a visible status frame immediately. Open WebUI supports
+        # structured reasoning deltas, so this does not become final answer
+        # content but gives the UI something to render while the agent works.
         self.wfile.write(sse_event(chunk(role="assistant", completion_id=completion_id)))
+        self.wfile.write(sse_event(chunk(
+            reasoning="🤔 Study Agent 正在分析任务...",
+            completion_id=completion_id,
+        )))
         self.wfile.flush()
 
         def emit(status: str) -> None:
@@ -276,6 +288,7 @@ class Handler(BaseHTTPRequestHandler):
 
         threading.Thread(target=worker, daemon=True).start()
 
+        last_status_at = time.monotonic()
         try:
             while True:
                 try:
@@ -283,6 +296,13 @@ class Handler(BaseHTTPRequestHandler):
                 except queue.Empty:
                     # Keep the SSE connection active during long model/search calls.
                     self.wfile.write(b": keep-alive\n\n")
+                    now = time.monotonic()
+                    if now - last_status_at >= self.SSE_STATUS_SECONDS:
+                        self.wfile.write(sse_event(chunk(
+                            reasoning="⏳ Agent 仍在执行，请稍候...",
+                            completion_id=completion_id,
+                        )))
+                        last_status_at = now
                     self.wfile.flush()
                     continue
 
@@ -317,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
                         finish="stop",
                         completion_id=completion_id,
                     )))
-                    self.wfile.write(b"data: [DONE]\\n\\n")
+                    self.wfile.write(b"data: [DONE]\n\n")
                     self.wfile.flush()
                 elif kind == "done" and value is sentinel:
                     break
