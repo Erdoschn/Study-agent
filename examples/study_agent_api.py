@@ -95,9 +95,9 @@ def chunk(
     if content is not None:
         delta["content"] = content
     if reasoning is not None:
-        # Support clients that use either common reasoning field name.
+        # Match OpenAI-compatible reasoning-model streams: reasoning is
+        # carried only in reasoning_content deltas, with finish_reason=null.
         delta["reasoning_content"] = reasoning
-        delta["reasoning"] = reasoning
     return {
         "id": completion_id or "chatcmpl-" + uuid.uuid4().hex,
         "object": "chat.completion.chunk",
@@ -115,7 +115,6 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
     protocol_version = "HTTP/1.1"
     SSE_HEARTBEAT_SECONDS = 5.0
-    SSE_STATUS_SECONDS = 15.0
 
     def log_message(self, fmt: str, *args: Any) -> None:
         return
@@ -422,7 +421,6 @@ class Handler(BaseHTTPRequestHandler):
 
         threading.Thread(target=worker, daemon=True).start()
 
-        last_status_at = time.monotonic()
         try:
             while True:
                 try:
@@ -434,7 +432,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 if kind == "status":
                     self._write_sse(sse_event(chunk(
-                        reasoning=str(value).rstrip() + "\n\n",
+                        reasoning=str(value).rstrip() + "\n",
                         completion_id=completion_id,
                     )))
                 elif kind == "result":
