@@ -911,7 +911,7 @@ def test_same_search_query_can_change_source():
 
         def execute(self, tool, arguments):
             self.calls.append(arguments)
-            return [{"title": "result"}]
+            return [{"source": arguments.get("source"), "title": "result", "abstract": "attention"}]
 
     reasoner = StubReasoner([
         ReasoningDecision(
