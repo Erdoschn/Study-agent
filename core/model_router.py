@@ -176,6 +176,11 @@ class ModelRouter:
             )
         return client.generate(system_prompt, user_prompt, json_mode=json_mode)
 
+    @staticmethod
+    def _score(model: ModelInfo, capability: str, analysis: Any = None, plan: Any = None) -> float:
+        """Compatibility helper: routing score is now only actual call reliability."""
+        return model.call_reliability_score(capability)
+
     @classmethod
     def _difficulty(cls, analysis: Any = None) -> int:
         try:
