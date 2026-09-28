@@ -233,13 +233,14 @@ class Teacher:
             attempts += 1
             try:
                 result = self._call_model(model, state, prompt)
-                self.model_router.registry.record_task_outcome(
-                    model.name,
-                    "teaching",
-                    difficulty,
-                    attempts,
-                    True,
-                )
+                if hasattr(self.model_router.registry, "record_task_outcome"):
+                    self.model_router.registry.record_task_outcome(
+                        model.name,
+                        "teaching",
+                        difficulty,
+                        attempts,
+                        True,
+                    )
                 return result
             except Exception as exc:
                 self.model_router.registry.record_failure(
