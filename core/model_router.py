@@ -247,6 +247,10 @@ class ModelRouter:
 
     @classmethod
     def _difficulty(cls, analysis: Any = None) -> int:
+        # TaskAnalyzer is the pre-reasoner stage, so its initial call should
+        # use the cheapest effort before task difficulty is known.
+        if analysis is None:
+            return 1
         try:
             return max(1, min(5, int(getattr(analysis, "difficulty", 3) or 3)))
         except (TypeError, ValueError):
