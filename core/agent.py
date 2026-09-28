@@ -50,6 +50,47 @@ class StudyAgent:
         except (TypeError, ValueError):
             return True
 
+    def _direct_model_answer(self, state) -> str:
+        """Answer without entering the Harness tool loop."""
+        candidates = self.reasoner.model_router.select_candidates(
+            capability="general",
+            allow_paid=self.reasoner.allow_paid,
+            task_analysis=state.task_analysis,
+        )
+        if not candidates:
+            raise RuntimeError("没有可用于直接回答的模型。")
+        errors = []
+        for model in candidates:
+            try:
+                result = self.reasoner.model_factory.create(model).generate(
+                    "你是 Study Agent 的直接回答引擎。根据用户问题直接给出准确、清晰的回答。不要输出隐藏思维链。",
+                    state.question,
+                )
+                self.reasoner.model_router.registry.record_success(model.name, "general")
+                return str(result or "").strip()
+            except Exception as exc:
+                try:
+                    registry = self.reasoner.model_router.registry
+                    registry.record_failure(
+                        model.name, "general",
+                        provider_level=registry.is_provider_level_failure(exc),
+                    )
+                except TypeError:
+                    self.reasoner.model_router.registry.record_failure(model.name, "general")
+                errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
+        raise RuntimeError("所有直接回答模型均调用失败：\n" + "\n".join(errors))
+
+    def _run_knowledge_direct(self, state) -> None:
+        """Use the learner graph and Teacher, but skip the full tool loop."""
+        if self.teacher is None:
+            state.final_answer = self._direct_model_answer(state)
+            return
+        try:
+            state.final_answer = self.teacher.generate(state)
+        except Exception as exc:
+            debug.log("StudyAgent", f"TEACHER DIRECT FAILED → {type(exc).__name__}: {exc}")
+            state.final_answer = self._direct_model_answer(state)
+
     def run(self, question: str, student_state=None) -> AgentState:
         with debug.scope("StudyAgent", "RUN"):
             debug.log("StudyAgent", f"QUESTION → {question}")
@@ -68,19 +109,32 @@ class StudyAgent:
             state.search_sources = []
             state.search_sort_by = "relevance"
 
-            if self.tool_executor is not None and hasattr(self.tool_executor, "execute"):
-                try:
-                    analyzer = TaskAnalyzer(self.reasoner)
-                    state.task_analysis = analyzer.analyze(question, state.student)
-                    state.task_type = state.task_analysis.task_type
-                    state.domain = state.task_analysis.domain
-                    state.goal = state.task_analysis.goal or state.goal
-                except Exception as exc:
-                    state.task_analysis = None
-                    state.plan = None
-                    debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback to Reasoner: {type(exc).__name__}: {exc}")
+            try:
+                analyzer = TaskAnalyzer(self.reasoner)
+                state.task_analysis = analyzer.analyze(question, state.student)
+                state.task_type = state.task_analysis.task_type
+                state.domain = state.task_analysis.domain
+                mode = state.task_analysis.execution_mode
+                debug.log("StudyAgent", f"ROUTE → {mode}")
+            except Exception as exc:
+                state.task_analysis = None
+                state.plan = None
+                mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
+                debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
 
-            if self.tool_executor is None:
+            if mode == "chat":
+                try:
+                    state.final_answer = self._direct_model_answer(state)
+                    state.finished = True
+                except Exception as exc:
+                    state.error = f"直接回答失败：{type(exc).__name__}: {exc}"
+            elif mode == "knowledge_direct":
+                try:
+                    self._run_knowledge_direct(state)
+                    state.finished = True
+                except Exception as exc:
+                    state.error = f"教学回答失败：{type(exc).__name__}: {exc}"
+            elif self.tool_executor is None:
                 state.error = "Tool Harness 尚未配置。"
             elif not hasattr(self.tool_executor, "execute"):
                 state.error = "Tool Harness 接口无效：缺少 execute 方法。"
@@ -89,17 +143,14 @@ class StudyAgent:
                     state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
                     if state.pending_assessment:
                         self.pending_assessment_state = state
-                        debug.log(
-                            "StudyAgent",
-                            "ASSESSMENT PENDING → preserved interactive state",
-                        )
+                        debug.log("StudyAgent", "ASSESSMENT PENDING → preserved interactive state")
                     if state.final_answer is not None and state.steps and state.steps[-1].action == "ANSWER":
                         self._teach_final_answer(state)
                 except Exception as exc:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
 
-            debug.log("StudyAgent", f"LOOP FINISHED → steps={state.step_count}")
+            debug.log("StudyAgent", f"ROUTE FINISHED → mode={mode}, steps={state.step_count}")
 
             if state.pending_assessment:
                 debug.log(
