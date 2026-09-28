@@ -220,10 +220,39 @@ class Handler(BaseHTTPRequestHandler):
         events: list[str] = []
 
         def log_hook(module: str, message: str) -> None:
+            # Full DebugTracer output is terminal-only. The frontend receives
+            # only a small set of user-relevant progress events.
             text = f"[{module}] {message}"
             events.append(text)
             print(text, flush=True)
-            emit(text)
+
+            if module == "AgentReasoner" and message.startswith("ACTION →"):
+                action = message.split("→", 1)[1].strip()
+                emit(f"🧠 下一步：{action}")
+                return
+
+            if module == "ToolExecutor" and message.startswith("ARGS →"):
+                raw = message.split("→", 1)[1].strip()
+                if raw.startswith("{") and "'query':" in raw:
+                    import ast
+                    try:
+                        args = ast.literal_eval(raw)
+                        query = str(args.get("query", "")).strip()
+                        source = str(args.get("source", "auto")).strip() or "auto"
+                        emit(f"🔎 搜索：{query}（{source}）")
+                    except Exception:
+                        emit("🔧 正在调用搜索工具...")
+                elif raw.startswith("{"):
+                    emit("🔧 正在调用工具...")
+                return
+
+            if module == "Teacher" and message.startswith("SUCCESS →"):
+                emit("✍️ 正在整理最终教学回答...")
+                return
+
+            if module == "TaskAnalyzer" and message.startswith("RESULT →"):
+                emit("🧩 任务分析完成，开始规划执行...")
+                return
 
         # Emit before taking the process-wide debug lock so the frontend never
         # looks frozen while another request is finishing its run.
