@@ -203,9 +203,14 @@ class Teacher:
         debug.log("Teacher", f"PROMPT → chars={len(prompt)}")
         return prompt
 
-    def _call_model(self, model, state, prompt) -> str:
-        debug.log("Teacher", f"CALL LLM → {model.name}")
-        result = self.model_factory.create(model).generate(self.SYSTEM_PROMPT, prompt)
+    def _call_model(self, model, state, prompt, effort: str | None = None) -> str:
+        debug.log("Teacher", f"CALL LLM → {model.name} effort={effort or 'default'}")
+        result = self.model_router.call_model(
+            self.model_factory.create(model),
+            self.SYSTEM_PROMPT,
+            prompt,
+            reasoning_effort=effort,
+        )
         self.model_router.registry.record_success(model.name, "teaching")
         debug.log(
             "Teacher",
@@ -217,22 +222,23 @@ class Teacher:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
         analysis = state.task_analysis
-        candidates = self.model_router.select_candidates(
+        choices = self.model_router.select_choice_candidates(
             capability="teaching",
             allow_paid=self.allow_paid,
             task_analysis=analysis,
             plan=state.plan,
         )
-        if not candidates:
+        if not choices:
             raise RuntimeError("没有可用于 Teacher 的模型。")
 
         errors = []
         attempts = 0
         difficulty = getattr(analysis, "difficulty", 3) or 3
-        for model in candidates:
+        for choice in choices:
+            model = choice.model
             attempts += 1
             try:
-                result = self._call_model(model, state, prompt)
+                result = self._call_model(model, state, prompt, choice.effort)
                 if hasattr(self.model_router.registry, "record_task_outcome"):
                     self.model_router.registry.record_task_outcome(
                         model.name,
