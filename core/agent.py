@@ -65,24 +65,28 @@ class StudyAgent:
 
     def _direct_model_answer(self, state) -> str:
         """Answer without entering the Harness tool loop."""
-        candidates = self.reasoner.model_router.select_candidates(
+        choices = self.reasoner.model_router.select_choice_candidates(
             capability="general",
             allow_paid=self.reasoner.allow_paid,
             task_analysis=state.task_analysis,
         )
-        if not candidates:
+        if not choices:
             raise RuntimeError("没有可用于直接回答的模型。")
         errors = []
         attempts = 0
-        for model in candidates:
+        for choice in choices:
+            model = choice.model
             attempts += 1
             try:
-                result = self.reasoner.model_factory.create(model).generate(
+                result = self.reasoner.model_router.call_model(
+                    self.reasoner.model_factory.create(model),
                     "你是 Study Agent 的直接回答引擎。根据用户问题直接给出准确、清晰的回答。不要输出隐藏思维链。",
                     state.question,
+                    reasoning_effort=choice.effort,
                 )
                 self.reasoner.model_router.registry.record_success(model.name, "general")
                 state.metrics["direct_model_attempts"] = attempts
+                state.metrics["direct_model_effort"] = choice.effort
                 return str(result or "").strip()
             except Exception as exc:
                 try:
@@ -93,7 +97,9 @@ class StudyAgent:
                     )
                 except TypeError:
                     self.reasoner.model_router.registry.record_failure(model.name, "general")
-                errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
+                errors.append(
+                    f"{model.name}({choice.effort or 'default'}): {type(exc).__name__}: {exc}"
+                )
         state.metrics["direct_model_attempts"] = attempts
         raise RuntimeError("所有直接回答模型均调用失败：\n" + "\n".join(errors))
 
