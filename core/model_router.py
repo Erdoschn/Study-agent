@@ -27,6 +27,7 @@ class ModelRouter:
     STATIC_WEIGHT = 0.65
     RUNTIME_WEIGHT = 0.15
     RELIABILITY_WEIGHT = 0.20
+    EFFICIENCY_WEIGHT = 0.15
     RUNTIME_CONFIDENCE_OBSERVATIONS = 5
     UNKNOWN_CAPABILITY_PRIOR = 0.5
 
@@ -159,7 +160,15 @@ class ModelRouter:
         # Reliability is independent from task capability: a strong model that
         # frequently fails should not keep winning simply because its static
         # capability metadata is high.
+        difficulty = getattr(analysis, "difficulty", 3) or 3
+        efficiency_score = model.efficiency_score(capability, difficulty)
+
+        # Efficiency is only a routing signal after task-level history exists.
+        # Reliability remains independent and keeps failed models from returning
+        # merely because they have a strong capability prior.
+        capability_weight = 1.0 - self.RELIABILITY_WEIGHT - self.EFFICIENCY_WEIGHT
         return (
-            (1.0 - self.RELIABILITY_WEIGHT) * capability_score
+            capability_weight * capability_score
             + self.RELIABILITY_WEIGHT * model.reliability_score
+            + self.EFFICIENCY_WEIGHT * efficiency_score
         )
