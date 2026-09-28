@@ -51,7 +51,7 @@ class ModelRouter:
                 return []
 
             scored = [(m, self._score(m, capability, task_analysis, plan)) for m in candidates]
-            scored.sort(key=lambda item: (-item[1], item[0].calls, item[0].name))
+            preferred = self.registry.last_successful_by_capability.get(capability)\n            scored.sort(key=lambda item: (\n                0 if preferred and item[0].name == preferred else 1,\n                -item[1],\n                item[0].calls,\n                item[0].name,\n            ))
             result = [m for m, _ in scored]
 
             debug.log(
