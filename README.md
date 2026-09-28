@@ -538,6 +538,9 @@ http://host.docker.internal:8000/v1
 
 ```
 Study-agent/
+├── data/
+│   ├── .gitkeep
+│   └── knowledge_graph.sqlite3  # 运行时生成，已由 .gitignore 忽略
 ├── core/
 │   ├── agent.py              # Agent 主流程与状态管理
 │   ├── reasoner.py           # LLM 动态决策
@@ -558,6 +561,21 @@ Study-agent/
 │   └── study_agent_api.py
 └── test/                      # 自动化测试
 ```
+
+## Knowledge Graph Persistence
+
+正式运行时，知识图谱使用本地 SQLite 持久化：
+
+`data/knowledge_graph.sqlite3`
+
+其中保存：
+
+- 知识节点、别名和节点类型
+- 有向知识关系及置信度
+- 搜索证据引用
+- 每个概念对应的学习者状态与 assessment history
+
+因此关闭 Study Agent 后再次启动，之前积累的知识图谱和学习状态仍然可以恢复。`data/` 中的运行时数据默认不会提交到 Git；`data/.gitkeep` 仅用于保留目录结构。
 
 ## Project Status
 
