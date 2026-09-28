@@ -188,6 +188,10 @@ class ModelRegistry:
             f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, reliability={model.reliability_score:.3f}, cooldown={cooldown:.1f}s",
         )
 
+    def efficiency_score(self, name: str, capability: str, difficulty: int | str = 3) -> float:
+        """Return a model's task-efficiency score through the registry API."""
+        return self.get(name).efficiency_score(capability, difficulty)
+
     def record_task_outcome(
         self,
         name: str,
