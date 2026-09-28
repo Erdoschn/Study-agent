@@ -230,7 +230,7 @@ class Teacher:
             try:
                 return self._call_model(model, state, prompt)
             except Exception as exc:
-                self.model_router.registry.record_failure(model.name, "teaching")
+                self.model_router.registry.record_failure(\n                    model.name, "teaching",\n                    provider_level=self.model_router.registry.is_provider_level_failure(exc),\n                )
                 errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
                 debug.log("Teacher", f"MODEL FAILED → {model.name}")
         raise RuntimeError("所有 Teacher 候选模型均调用失败：\\n" + "\\n".join(errors))
