@@ -474,7 +474,7 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-The root entry point delegates to the Study Agent CLI:
+The root entry point runs the Study Agent CLI directly:
 
 ```bash
 python main.py
@@ -557,8 +557,8 @@ Study-agent/
 ├── config/
 │   └── providers.json         # Provider / Model 配置
 ├── examples/
-│   ├── module_demos.py
-│   └── study_agent_api.py
+│   ├── module_demos.py        # 离线模块演示
+│   └── study_agent_api.py     # OpenAI-compatible API 外壳
 └── test/                      # 自动化测试
 ```
 
