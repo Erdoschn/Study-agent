@@ -29,7 +29,7 @@ class FakeClient:
                 "knowledge_gaps": ["Q/K/V"],
                 "required_tools": [],
                 "external_facts_needed": false,
-                "answer_strategy": "explain the concepts step by step"
+                "answer_strategy": "explain the concepts step by step", "execution_mode": "knowledge_agent"
             }'''
         raise AssertionError("unexpected model call")
 
