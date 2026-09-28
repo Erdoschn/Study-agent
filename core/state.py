@@ -291,6 +291,7 @@ class AgentStep:
     step_id: int
     action: str
     model: str | None = None
+    effort: str | None = None
     tool: str | None = None
     arguments: dict[str, Any] = field(default_factory=dict)
     reasoning_summary: str = ""
