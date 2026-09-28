@@ -136,7 +136,7 @@ def test_knowledge_agent_enters_harness_loop(monkeypatch):
 
     assert calls["count"] == 1
     assert state.execution_mode == "knowledge_agent"
-    assert state.final_answer == "loop draft"
+    assert state.final_answer == "teacher answer"
     assert state.step_count == 1
     assert teacher.calls == 1
 
