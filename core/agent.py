@@ -112,6 +112,7 @@ class StudyAgent:
                 state.error = "Agent 在没有产生最终 ANSWER 的情况下结束。"
                 state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
 
+            self._record_reasoning_efficiency(state)
             self._update_student_model(state)
             self._update_knowledge_graph(state)
             self.last_state = state
@@ -168,6 +169,35 @@ class StudyAgent:
             "ASSESSMENT COMPLETE → learner graph updated and pending state cleared",
         )
         return result
+
+    def _record_reasoning_efficiency(self, state) -> None:
+        """Record how many successful Reasoner decisions each model needed for this task."""
+        if state.pending_assessment:
+            return
+        difficulty = getattr(state.task_analysis, "difficulty", 3) or 3
+        successful_answer = any(
+            step.action == "ANSWER" and step.success
+            for step in state.steps
+        ) and state.final_answer is not None
+        model_steps: dict[str, int] = {}
+        for step in state.steps:
+            if not step.model:
+                continue
+            model_steps[step.model] = model_steps.get(step.model, 0) + 1
+        for model_name, steps in model_steps.items():
+            try:
+                self.reasoner.model_router.registry.record_task_outcome(
+                    model_name,
+                    "reasoning",
+                    difficulty,
+                    steps,
+                    successful_answer,
+                )
+            except Exception as exc:
+                debug.log(
+                    "StudyAgent",
+                    f"EFFICIENCY RECORD FAILED → model={model_name}: {type(exc).__name__}",
+                )
 
     def _update_student_model(self, state) -> None:
         # Task exposure is not mastery. Learner-facing topic status comes from
