@@ -60,13 +60,16 @@ class StudyAgent:
         if not candidates:
             raise RuntimeError("没有可用于直接回答的模型。")
         errors = []
+        attempts = 0
         for model in candidates:
+            attempts += 1
             try:
                 result = self.reasoner.model_factory.create(model).generate(
                     "你是 Study Agent 的直接回答引擎。根据用户问题直接给出准确、清晰的回答。不要输出隐藏思维链。",
                     state.question,
                 )
                 self.reasoner.model_router.registry.record_success(model.name, "general")
+                state.metrics["direct_model_attempts"] = attempts
                 return str(result or "").strip()
             except Exception as exc:
                 try:
@@ -78,6 +81,7 @@ class StudyAgent:
                 except TypeError:
                     self.reasoner.model_router.registry.record_failure(model.name, "general")
                 errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
+        state.metrics["direct_model_attempts"] = attempts
         raise RuntimeError("所有直接回答模型均调用失败：\n" + "\n".join(errors))
 
     def _run_knowledge_direct(self, state) -> None:
@@ -92,6 +96,8 @@ class StudyAgent:
             state.final_answer = self._direct_model_answer(state)
 
     def run(self, question: str, student_state=None) -> AgentState:
+        import time
+        run_started = time.perf_counter()
         with debug.scope("StudyAgent", "RUN"):
             debug.log("StudyAgent", f"QUESTION → {question}")
             state = AgentState(question=question, max_steps=self.max_steps, knowledge_graph=self.knowledge_graph)
@@ -104,6 +110,7 @@ class StudyAgent:
             state.search_sources = []
             state.search_sort_by = "relevance"
 
+            analysis_started = time.perf_counter()
             try:
                 analyzer = TaskAnalyzer(self.reasoner)
                 state.task_analysis = analyzer.analyze(question, state.student)
@@ -112,13 +119,20 @@ class StudyAgent:
                 state.goal = state.task_analysis.goal or state.goal
                 mode = state.task_analysis.execution_mode
                 state.execution_mode = mode
+                state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
+                state.metrics["route_fallback"] = False
                 debug.log("StudyAgent", f"ROUTE → {mode}")
             except Exception as exc:
                 state.task_analysis = None
                 state.plan = None
                 mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
                 state.execution_mode = mode
+                state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
+                state.metrics["route_fallback"] = True
                 debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
+
+            state.metrics["route"] = mode
+            execution_started = time.perf_counter()
 
             if mode != "chat":
                 # Knowledge paths need the persistent learner graph; ordinary
@@ -154,6 +168,8 @@ class StudyAgent:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
 
+            state.metrics["execution_ms"] = round((time.perf_counter() - execution_started) * 1000, 2)
+            state.metrics["total_ms"] = round((time.perf_counter() - run_started) * 1000, 2)
             debug.log("StudyAgent", f"ROUTE FINISHED → mode={mode}, steps={state.step_count}")
 
             if state.pending_assessment:
