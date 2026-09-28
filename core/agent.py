@@ -16,6 +16,7 @@ class StudyAgent:
         tool_executor=None,
         max_steps=15,
         execution_mode_override=None,
+        knowledge_graph_path=None,
     ):
         self.reasoner = reasoner
         self.teacher = teacher
@@ -27,7 +28,7 @@ class StudyAgent:
             )
         self.execution_mode_override = execution_mode_override
         self.student_state = None
-        self.knowledge_graph = KnowledgeGraph()
+        self.knowledge_graph = KnowledgeGraph(storage_path=knowledge_graph_path)
         self.assessment_evaluator = AssessmentEvaluator()
         self.last_state = None
         self.pending_assessment_state = None
