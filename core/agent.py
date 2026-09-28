@@ -9,11 +9,23 @@ from .__debug__ import debug
 class StudyAgent:
     """LLM-driven Study Agent: Harness 初始化状态，Reasoner 决策，Teacher 负责最终教学表达。"""
 
-    def __init__(self, reasoner, teacher=None, tool_executor=None, max_steps=15):
+    def __init__(
+        self,
+        reasoner,
+        teacher=None,
+        tool_executor=None,
+        max_steps=15,
+        execution_mode_override=None,
+    ):
         self.reasoner = reasoner
         self.teacher = teacher
         self.tool_executor = tool_executor
         self.max_steps = max_steps
+        if execution_mode_override not in {None, "chat", "knowledge_direct", "knowledge_agent"}:
+            raise ValueError(
+                "execution_mode_override 必须是 chat / knowledge_direct / knowledge_agent / None。"
+            )
+        self.execution_mode_override = execution_mode_override
         self.student_state = None
         self.knowledge_graph = KnowledgeGraph()
         self.assessment_evaluator = AssessmentEvaluator()
@@ -118,23 +130,34 @@ class StudyAgent:
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
-                mode = getattr(state.task_analysis, "execution_mode", None)
-                if mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
+                analyzed_mode = getattr(state.task_analysis, "execution_mode", None)
+                if analyzed_mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
+                    analyzed_mode = None
+                mode = analyzed_mode
+                if mode is None:
                     # Preserve compatibility with lightweight/legacy analyzers:
                     # once a real ToolExecutor exists, their old behavior was
                     # to enter the Harness loop.
                     mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
-                state.execution_mode = mode
+                state.execution_mode = self.execution_mode_override or mode
+                state.metrics["analyzer_execution_mode"] = analyzed_mode or mode
+                state.metrics["route"] = state.execution_mode
+                state.metrics["route_overridden"] = self.execution_mode_override is not None
                 state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
                 state.metrics["route_fallback"] = False
+                mode = state.execution_mode
                 debug.log("StudyAgent", f"ROUTE → {mode}")
             except Exception as exc:
                 state.task_analysis = None
                 state.plan = None
                 mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
-                state.execution_mode = mode
+                state.execution_mode = self.execution_mode_override or mode
+                state.metrics["analyzer_execution_mode"] = None
+                state.metrics["route"] = state.execution_mode
+                state.metrics["route_overridden"] = self.execution_mode_override is not None
                 state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
                 state.metrics["route_fallback"] = True
+                mode = state.execution_mode
                 debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
 
             state.metrics["route"] = mode
