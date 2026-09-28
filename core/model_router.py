@@ -9,27 +9,148 @@ from .model_registry import ModelInfo, ModelRegistry
 class ModelSelection:
     model: ModelInfo
     reason: str
+    effort: str | None = None
 
 
 class ModelRouter:
-    """根据任务需求、可选能力先验、运行证据和预算动态排序。"""
+    """按任务难度选择 reasoning effort，再按真实调用可靠性排序模型。"""
 
-    TASK_WEIGHTS = {
-        "math": {"math": 1.0, "reasoning": 0.9},
-        "coding": {"coding": 1.0, "reasoning": 0.8},
-        "research": {"research": 1.0, "reasoning": 0.8},
-        "conceptual": {"reasoning": 0.9, "teaching": 0.7},
-        "explanation": {"teaching": 1.0, "reasoning": 0.6},
-        "verification": {"reasoning": 1.0, "research": 0.7},
-        "general": {"general": 0.8, "reasoning": 0.6},
+    EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
+    DEFAULT_EFFORT_BY_DIFFICULTY = {
+        1: "low",
+        2: "low",
+        3: "high",
+        4: "high",
+        5: "max",
+    }
+    # When multiple public benchmark effort points exist, choose the cheapest
+    # measured effort that retains this fraction of the model's measured peak.
+    BENCHMARK_RETENTION_BY_DIFFICULTY = {
+        1: 0.70,
+        2: 0.78,
+        3: 0.86,
+        4: 0.93,
+        5: 1.00,
     }
 
-    STATIC_WEIGHT = 0.65
-    RUNTIME_WEIGHT = 0.15
-    RELIABILITY_WEIGHT = 0.20
-    EFFICIENCY_WEIGHT = 0.15
-    RUNTIME_CONFIDENCE_OBSERVATIONS = 5
-    UNKNOWN_CAPABILITY_PRIOR = 0.5
+    def __init__(self, registry: ModelRegistry):
+        self.registry = registry
+        self._cursor = 0
+
+    def select_choice_candidates(
+        self,
+        capability: str,
+        allow_paid: bool = False,
+        exclude: set[str] | None = None,
+        task_analysis: Any = None,
+        plan: Any = None,
+    ) -> list[ModelSelection]:
+        with debug.scope("ModelRouter", f"SELECT CHOICES → capability={capability}, allow_paid={allow_paid}"):
+            exclude = exclude or set()
+            candidates = [
+                m for m in self.registry.available(allow_paid=allow_paid)
+                if m.name not in exclude
+            ]
+            if not candidates:
+                return []
+
+            difficulty = self._difficulty(task_analysis)
+            choices = [
+                ModelSelection(
+                    model=m,
+                    effort=self._select_effort(m, difficulty),
+                    reason=f"difficulty={difficulty}, call_reliability={m.call_reliability_score(capability):.3f}",
+                )
+                for m in candidates
+            ]
+            preferred = self.registry.last_successful_by_capability.get(capability)
+            choices.sort(key=lambda choice: (
+                -choice.model.call_reliability_score(capability),
+                0 if preferred and choice.model.name == preferred else 1,
+                choice.model.calls,
+                choice.model.name,
+            ))
+            debug.log(
+                "ModelRouter",
+                "ORDER → " + " → ".join(
+                    f"{choice.model.name}(call_score={choice.model.call_reliability_score(capability):.3f}, effort={choice.effort or 'default'})"
+                    for choice in choices
+                ),
+            )
+            return choices
+
+    def select_candidates(
+        self,
+        capability: str,
+        allow_paid: bool = False,
+        exclude: set[str] | None = None,
+        task_analysis: Any = None,
+        plan: Any = None,
+    ) -> list[ModelInfo]:
+        return [
+            choice.model
+            for choice in self.select_choice_candidates(
+                capability,
+                allow_paid=allow_paid,
+                exclude=exclude,
+                task_analysis=task_analysis,
+                plan=plan,
+            )
+        ]
+
+    def select(
+        self,
+        capability: str,
+        allow_paid: bool = False,
+        task_analysis: Any = None,
+        plan: Any = None,
+    ) -> ModelSelection:
+        choices = self.select_choice_candidates(
+            capability,
+            allow_paid=allow_paid,
+            task_analysis=task_analysis,
+            plan=plan,
+        )
+        if not choices:
+            raise RuntimeError("没有可用模型。")
+        return choices[0]
+
+    @classmethod
+    def _difficulty(cls, analysis: Any = None) -> int:
+        try:
+            return max(1, min(5, int(getattr(analysis, "difficulty", 3) or 3)))
+        except (TypeError, ValueError):
+            return 3
+
+    @classmethod
+    def _select_effort(cls, model: ModelInfo, difficulty: int) -> str | None:
+        supported = [effort for effort in model.reasoning_efforts if effort in cls.EFFORT_ORDER]
+        if not supported:
+            return None
+
+        scores = model.benchmark_scores
+        measured = [
+            (effort, scores[effort])
+            for effort in supported
+            if effort in scores
+        ]
+        # One measured point cannot establish an effort curve. Fall back to a
+        # transparent difficulty→effort mapping until there are at least two.
+        if len(measured) >= 2:
+            peak = max(score for _, score in measured)
+            target = peak * cls.BENCHMARK_RETENTION_BY_DIFFICULTY[difficulty]
+            for effort in cls.EFFORT_ORDER:
+                if effort in supported and effort in scores and scores[effort] >= target:
+                    return effort
+
+        desired = cls.DEFAULT_EFFORT_BY_DIFFICULTY[difficulty]
+        for effort in cls.EFFORT_ORDER:
+            if effort not in supported:
+                continue
+            if cls.EFFORT_ORDER.index(effort) >= cls.EFFORT_ORDER.index(desired):
+                return effort
+        return supported[-1]
+
 
     def __init__(self, registry: ModelRegistry):
         self.registry = registry
