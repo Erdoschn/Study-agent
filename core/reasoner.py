@@ -50,7 +50,13 @@ class OpenAICompatibleClient(ModelClient):
         self.timeout = timeout
         self.headers = dict(headers or {})
 
-    def generate(self, system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        json_mode: bool = False,
+        reasoning_effort: str | None = None,
+    ) -> str:
         payload = {
             "model": self.model,
             "messages": [
@@ -59,6 +65,8 @@ class OpenAICompatibleClient(ModelClient):
             ],
             "temperature": 0.1,
         }
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         request = urllib.request.Request(
@@ -143,22 +151,32 @@ STOP：无法继续时停止并说明原因。
     def decide(self, state, tool_specs=None):
         with debug.scope("AgentReasoner", f"DECIDE → step={state.step_count + 1}"):
             prompt = self._build_prompt(state, tool_specs or [])
-            candidates = self.model_router.select_candidates(
+            choices = self.model_router.select_choice_candidates(
                 capability="reasoning",
                 allow_paid=self.allow_paid,
                 task_analysis=state.task_analysis,
                 plan=state.plan,
                 exclude=set(),
             )
-            if not candidates:
+            if not choices:
                 raise RuntimeError("没有可用于 Reasoning 的模型。")
             errors = []
-            for model in candidates:
-                debug.log("AgentReasoner", f"TRY MODEL → {model.name}")
+            for choice in choices:
+                model = choice.model
+                debug.log(
+                    "AgentReasoner",
+                    f"TRY MODEL → {model.name} effort={choice.effort or 'default'}",
+                )
                 try:
                     client = self.model_factory.create(model)
                     decision = self._parse(
-                        client.generate(self.SYSTEM_PROMPT, prompt, json_mode=True)
+                        self.model_router.call_model(
+                            client,
+                            self.SYSTEM_PROMPT,
+                            prompt,
+                            json_mode=True,
+                            reasoning_effort=choice.effort,
+                        )
                     )
                     self.model_router.registry.record_success(model.name, "reasoning")
                     decision.model = model.name
