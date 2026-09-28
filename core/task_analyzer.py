@@ -16,6 +16,7 @@ class TaskAnalysis:
     external_facts_needed: bool = False
     answer_strategy: str = ""
     difficulty: int = 3
+    execution_mode: str = "chat"
 
 
 class TaskAnalyzer:
@@ -35,6 +36,7 @@ class TaskAnalyzer:
 - external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
 - answer_strategy：给后续 Reasoner 的简短行动建议
 - difficulty：任务难度 1-5；1=直接事实/简单解释，3=需要工具或多步推理，5=复杂研究、多轮证据整合或高难度推理
+- execution_mode：必须是 chat / knowledge_direct / knowledge_agent；chat=普通聊天直接回答，knowledge_direct=知识学习但无需工具循环，knowledge_agent=知识学习且需要搜索/计算/验证/外部事实或多步工具循环
 不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。\n不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
 不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
@@ -95,7 +97,7 @@ class TaskAnalyzer:
                     )
                     debug.log(
                         "TaskAnalyzer",
-                        f"RESULT → type={analysis.task_type}, domain={analysis.domain}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
+                        f"RESULT → mode={analysis.execution_mode}, type={analysis.task_type}, domain={analysis.domain}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
                     )
                     return analysis
                 except Exception as exc:
@@ -235,6 +237,15 @@ class TaskAnalyzer:
             external_text = str(raw_external).strip().lower()
             external_facts_needed = external_text in {"true", "1", "yes", "y", "on"}
 
+        execution_mode = str(data.get("execution_mode", "")).strip().lower()
+        if execution_mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
+            if tools or external_facts_needed:
+                execution_mode = "knowledge_agent"
+            elif task_type != "general":
+                execution_mode = "knowledge_direct"
+            else:
+                execution_mode = "chat"
+
         return TaskAnalysis(
             task_type=task_type,
             domain=str(data.get("domain", "general")).strip() or "general",
@@ -245,4 +256,5 @@ class TaskAnalyzer:
             external_facts_needed=external_facts_needed,
             answer_strategy=str(data.get("answer_strategy", "")).strip(),
             difficulty=difficulty,
+            execution_mode=execution_mode,
         )
