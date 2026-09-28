@@ -127,6 +127,8 @@ class ModelRegistry:
         model.cooldown_until = 0.0
         if capability:
             self._update_capability(model, capability, True)
+            self.last_successful_by_capability[capability] = name
+            self.provider_cooldown_until.pop(model.provider, None)
         debug.log(
             "ModelRegistry",
             f"SUCCESS → model={name}, capability={capability or 'none'}, calls={model.calls}, failures={model.failures}, cooldown=0",
