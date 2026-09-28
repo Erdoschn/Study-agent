@@ -11,6 +11,11 @@ CONFIG_PATH = (
     / "providers.json"
 )
 
+MODEL_PROFILES_PATH = (
+    Path(__file__).resolve().parent
+    / "model_profiles.json"
+)
+
 
 
 def _refresh_provider_models(config: dict[str, Any]) -> None:
@@ -92,6 +97,44 @@ def _refresh_provider_models(config: dict[str, Any]) -> None:
         )
 
 
+def _merge_model_profiles(config: dict[str, Any]) -> None:
+    """Merge tracked benchmark/effort metadata into local provider model entries."""
+    if not MODEL_PROFILES_PATH.exists():
+        return
+    try:
+        with MODEL_PROFILES_PATH.open("r", encoding="utf-8") as file:
+            profile_data = json.load(file)
+    except (OSError, json.JSONDecodeError) as exc:
+        debug.log(
+            "ConfigLoader",
+            f"MODEL PROFILE SKIP → {type(exc).__name__}: {exc}",
+        )
+        return
+
+    profiles = profile_data.get("models", {}) if isinstance(profile_data, dict) else {}
+    models = config.get("models", {})
+    if not isinstance(profiles, dict) or not isinstance(models, dict):
+        return
+
+    merged = 0
+    for item in models.values():
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("model", "")).strip()
+        profile = profiles.get(model_id)
+        if not isinstance(profile, dict):
+            continue
+        for key in ("reasoning_efforts", "reasoning_effort_param", "benchmark"):
+            if key in profile:
+                item[key] = profile[key]
+        merged += 1
+
+    debug.log(
+        "ConfigLoader",
+        f"MODEL PROFILES → matched={merged}/{len(models)}",
+    )
+
+
 def load_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(
@@ -111,6 +154,7 @@ def load_config() -> dict[str, Any]:
 
     if not isinstance(config, dict):
         raise ValueError("providers.json 顶层必须是 JSON 对象。")
+    _merge_model_profiles(config)
     _refresh_provider_models(config)
     debug.log(
         "ConfigLoader",
