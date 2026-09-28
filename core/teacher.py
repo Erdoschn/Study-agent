@@ -1,6 +1,7 @@
 import json
 import inspect
 from .__debug__ import debug
+from .model_router import get_model_choices, call_model_with_effort
 
 
 class Teacher:
@@ -205,7 +206,8 @@ class Teacher:
 
     def _call_model(self, model, state, prompt, effort: str | None = None) -> str:
         debug.log("Teacher", f"CALL LLM → {model.name} effort={effort or 'default'}")
-        result = self.model_router.call_model(
+        result = call_model_with_effort(
+            self.model_router,
             self.model_factory.create(model),
             self.SYSTEM_PROMPT,
             prompt,
@@ -223,8 +225,9 @@ class Teacher:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
         analysis = state.task_analysis
-        choices = self.model_router.select_choice_candidates(
-            capability="teaching",
+        choices = get_model_choices(
+            self.model_router,
+            "teaching",
             allow_paid=self.allow_paid,
             task_analysis=analysis,
             plan=state.plan,
