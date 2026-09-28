@@ -44,7 +44,7 @@ class ModelInfo:
         values = self.extra.get("reasoning_efforts", [])
         if not isinstance(values, list):
             return []
-        allowed = {"none", "low", "medium", "high", "xhigh", "max"}
+        allowed = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
         return [str(value).lower() for value in values if str(value).lower() in allowed]
 
     @property
