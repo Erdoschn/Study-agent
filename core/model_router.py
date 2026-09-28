@@ -12,6 +12,70 @@ class ModelSelection:
     effort: str | None = None
 
 
+def get_model_choices(
+    router,
+    capability: str,
+    *,
+    allow_paid: bool = False,
+    exclude: set[str] | None = None,
+    task_analysis: Any = None,
+    plan: Any = None,
+) -> list[ModelSelection]:
+    """Compatibility adapter for lightweight routers that still expose only select_candidates."""
+    method = getattr(router, "select_choice_candidates", None)
+    if callable(method):
+        return method(
+            capability,
+            allow_paid=allow_paid,
+            exclude=exclude,
+            task_analysis=task_analysis,
+            plan=plan,
+        )
+
+    candidates = router.select_candidates(
+        capability,
+        allow_paid=allow_paid,
+        exclude=exclude,
+        task_analysis=task_analysis,
+        plan=plan,
+    )
+    return [
+        ModelSelection(model=model, reason="legacy router adapter", effort=None)
+        for model in candidates
+    ]
+
+
+def call_model_with_effort(
+    router,
+    client,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    json_mode: bool = False,
+    reasoning_effort: str | None = None,
+    reasoning_effort_param: str | None = None,
+) -> str:
+    """Compatibility adapter for lightweight routers/clients used by tests and integrations."""
+    method = getattr(router, "call_model", None)
+    if callable(method):
+        return method(
+            client,
+            system_prompt,
+            user_prompt,
+            json_mode=json_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_effort_param=reasoning_effort_param,
+        )
+    if reasoning_effort is None or not reasoning_effort_param:
+        return client.generate(system_prompt, user_prompt, json_mode=json_mode)
+    return client.generate(
+        system_prompt,
+        user_prompt,
+        json_mode=json_mode,
+        **{reasoning_effort_param: reasoning_effort},
+    )
+
+
 class ModelRouter:
     """按任务难度选择 reasoning effort，再按真实调用可靠性排序模型。
 
