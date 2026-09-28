@@ -184,6 +184,18 @@ class Handler(BaseHTTPRequestHandler):
             )
             if not question:
                 raise ValueError("messages 中没有可用的 user 内容")
+
+            # Open WebUI may send an internal follow-up-generation prompt through
+            # the same OpenAI-compatible endpoint after the real answer is done.
+            # That prompt is not a StudyAgent task and must never re-enter
+            # StudyAgent.run(), otherwise the whole analysis/reasoning/teaching
+            # pipeline is executed a second time.
+            if self._is_follow_up_request(question):
+                follow_ups = self._build_follow_ups(messages)
+                payload = {"follow_ups": follow_ups}
+                self._send_json(self._completion(json.dumps(payload, ensure_ascii=False)))
+                return
+
             stream = bool(request.get("stream", True))
             if stream:
                 self._stream_run(question)
@@ -202,6 +214,48 @@ class Handler(BaseHTTPRequestHandler):
                     "type": "server_error",
                 }
             }, 500)
+
+    @staticmethod
+    def _is_follow_up_request(question: str) -> bool:
+        """Detect Open WebUI's internal follow-up-generation prompt.
+
+        Follow-up generation is a UI-side auxiliary task. Routing it through
+        StudyAgent would recursively invoke TaskAnalyzer -> Reasoner -> Teacher.
+        """
+        text = str(question or "").lower()
+        markers = (
+            "suggest 3-5 relevant follow-up questions",
+            '"follow_ups"',
+            "based on the chat history",
+            "response must be a json object with a",
+        )
+        return sum(marker in text for marker in markers) >= 2
+
+    @staticmethod
+    def _build_follow_ups(messages: list[Any]) -> list[str]:
+        """Return lightweight follow-ups without re-entering StudyAgent.
+
+        Keep this deterministic so the UI helper never consumes another Agent
+        run or another model call.
+        """
+        user_messages = [
+            str(item.get("content", "")).strip()
+            for item in messages
+            if isinstance(item, dict)
+            and item.get("role") == "user"
+            and str(item.get("content", "")).strip()
+        ]
+        topic = user_messages[-2] if len(user_messages) >= 2 else (
+            user_messages[-1] if user_messages else "这个问题"
+        )
+        if len(topic) > 80:
+            topic = topic[:80].rstrip() + "..."
+
+        return [
+            f"如果我继续研究“{topic}”，下一步最值得深入哪个具体部分？",
+            "如果我要自己实现一个最小版本，哪些组件是必须的，哪些可以先不做？",
+            "怎么设计一个实验来比较不同模型、工具和 Harness 结构的效果？",
+        ]
 
     def _completion(self, answer: str) -> dict[str, Any]:
         return {
@@ -291,14 +345,10 @@ class Handler(BaseHTTPRequestHandler):
         sentinel = object()
         completion_id = "chatcmpl-" + uuid.uuid4().hex
 
-        # Send a visible status frame immediately. Open WebUI supports
-        # structured reasoning deltas, so this does not become final answer
-        # content but gives the UI something to render while the agent works.
+        # _run_agent emits the initial status exactly once, before acquiring
+        # the global run lock. Do not emit it here as well, or the UI will show
+        # duplicate "正在分析任务" messages.
         self.wfile.write(sse_event(chunk(role="assistant", completion_id=completion_id)))
-        self.wfile.write(sse_event(chunk(
-            reasoning="🤔 Study Agent 正在分析任务...",
-            completion_id=completion_id,
-        )))
         self.wfile.flush()
 
         def emit(status: str) -> None:
