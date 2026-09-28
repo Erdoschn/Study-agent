@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "benchmark_source": "Artificial Analysis Intelligence Index v4.3.2",
+  "models": {
+    "gpt-5.6-sol": {
+      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GPT-5.6 Sol",
+        "intelligence_index_by_effort": {
+          "none": 28,
+          "low": 34,
+          "medium": 39,
+          "high": 42,
+          "xhigh": 44,
+          "max": 47
+        }
+      }
+    },
+    "gpt-5.6-terra": {
+      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GPT-5.6 Terra",
+        "intelligence_index_by_effort": {
+          "none": 22,
+          "low": 28,
+          "medium": 30,
+          "high": 34,
+          "xhigh": 38,
+          "max": 42
+        }
+      }
+    },
+    "gpt-5.6-luna": {
+      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GPT-5.6 Luna",
+        "intelligence_index_by_effort": {
+          "none": 16,
+          "low": 21,
+          "medium": 25,
+          "high": 32,
+          "xhigh": 35,
+          "max": 37
+        }
+      }
+    },
+    "deepseek/deepseek-v4-pro": {
+      "reasoning_efforts": ["low", "high", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "DeepSeek V4 Pro 0813",
+        "intelligence_index_by_effort": {
+          "max": 36
+        }
+      }
+    },
+    "deepseek/deepseek-v4-flash": {
+      "reasoning_efforts": ["low", "high", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "DeepSeek V4 Flash 0731",
+        "intelligence_index_by_effort": {
+          "max": 35
+        }
+      }
+    },
+    "z-ai/glm-5.3": {
+      "reasoning_efforts": ["low", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GLM-5.3",
+        "intelligence_index_by_effort": {
+          "low": 34,
+          "max": 45
+        }
+      }
+    },
+    "z-ai/glm-5.3-flash": {
+      "reasoning_efforts": ["max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GLM 5.3 Flash",
+        "intelligence_index_by_effort": {
+          "max": 42
+        }
+      }
+    },
+    "moonshotai/kimi-k3": {
+      "reasoning_efforts": ["low", "max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "Kimi K3",
+        "intelligence_index_by_effort": {
+          "low": 34,
+          "max": 44
+        }
+      }
+    },
+    "qwen/qwen3.8-max": {
+      "reasoning_efforts": ["max"],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "Qwen3.8 Max 0902",
+        "intelligence_index_by_effort": {
+          "max": 45
+        }
+      }
+    }
+  }
+}
