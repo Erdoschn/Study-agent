@@ -1,3 +1,4 @@
+import core.agent as agent_module
 from core.agent import StudyAgent
 from core.task_analyzer import TaskAnalyzer
 from core.reasoner import ReasoningDecision
@@ -120,7 +121,15 @@ def test_knowledge_agent_enters_harness_loop(monkeypatch):
         state.finished = True
         return state
 
-    monkeypatch.setattr("core.agent.AgentToolLoop.run", fake_run)
+    class FakeLoop:
+        def __init__(self, reasoner, executor):
+            self.reasoner = reasoner
+            self.executor = executor
+
+        def run(self, state):
+            return fake_run(state)
+
+    monkeypatch.setattr(agent_module, "AgentToolLoop", FakeLoop)
     state = agent.run("研究 Transformer 的最新优化")
 
     assert calls["count"] == 1
