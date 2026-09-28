@@ -7,6 +7,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+KNOWLEDGE_GRAPH_PATH = PROJECT_ROOT / "data" / "knowledge_graph.sqlite3"
+
 from config.loader import (
     load_config,
     setup_debug,
@@ -121,6 +123,7 @@ def build_agent(
         teacher=teacher,
         tool_executor=executor,
         max_steps=None,
+        knowledge_graph_path=KNOWLEDGE_GRAPH_PATH,
     )
 
 
