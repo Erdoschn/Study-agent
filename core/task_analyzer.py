@@ -68,22 +68,28 @@ class TaskAnalyzer:
                 ensure_ascii=False,
                 indent=2,
             )
-            candidates = self.model_router.select_candidates(
+            choices = self.model_router.select_choice_candidates(
                 capability="reasoning",
                 allow_paid=self.allow_paid,
             )
-            if not candidates:
+            if not choices:
                 raise RuntimeError("没有可用于 Task Analysis 的模型。")
 
             errors = []
-            for model in candidates:
+            for choice in choices:
+                model = choice.model
+                debug.log(
+                    "TaskAnalyzer",
+                    f"TRY MODEL → {model.name} effort={choice.effort or 'default'}",
+                )
                 try:
-                    debug.log("TaskAnalyzer", f"TRY MODEL → {model.name}")
                     client = self.model_factory.create(model)
-                    raw = client.generate(
+                    raw = self.model_router.call_model(
+                        client,
                         self.SYSTEM_PROMPT,
                         prompt,
                         json_mode=True,
+                        reasoning_effort=choice.effort,
                     )
                     analysis = self._parse(raw)
                     analysis.domain = self._normalize_domain(question, analysis.domain)
@@ -97,7 +103,7 @@ class TaskAnalyzer:
                     )
                     debug.log(
                         "TaskAnalyzer",
-                        f"RESULT → mode={analysis.execution_mode}, type={analysis.task_type}, domain={analysis.domain}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
+                        f"RESULT → mode={analysis.execution_mode}, type={analysis.task_type}, domain={analysis.domain}, difficulty={analysis.difficulty}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
                     )
                     return analysis
                 except Exception as exc:
