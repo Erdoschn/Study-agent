@@ -212,7 +212,7 @@ class Teacher:
             self.SYSTEM_PROMPT,
             prompt,
             reasoning_effort=effort,
-            reasoning_effort_param=model.reasoning_effort_param,
+            reasoning_effort_param=getattr(model, "reasoning_effort_param", None),
         )
         self.model_router.registry.record_success(model.name, "teaching")
         debug.log(
