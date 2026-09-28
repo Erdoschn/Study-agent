@@ -243,14 +243,22 @@ class Teacher:
                     )
                 return result
             except Exception as exc:
-                self.model_router.registry.record_failure(
-                    model.name, "teaching",
-                    provider_level=(
-                        self.model_router.registry.is_provider_level_failure(exc)
-                        if hasattr(self.model_router.registry, "is_provider_level_failure")
-                        else False
-                    ),
+                registry = self.model_router.registry
+                provider_level = (
+                    registry.is_provider_level_failure(exc)
+                    if hasattr(registry, "is_provider_level_failure")
+                    else False
                 )
+                try:
+                    registry.record_failure(
+                        model.name, "teaching",
+                        provider_level=provider_level,
+                    )
+                except TypeError as record_exc:
+                    # Keep compatibility with lightweight legacy registries used by integrations/tests.
+                    if "provider_level" not in str(record_exc):
+                        raise
+                    registry.record_failure(model.name, "teaching")
                 if hasattr(self.model_router.registry, "record_task_outcome"):
                     self.model_router.registry.record_task_outcome(
                         model.name,
