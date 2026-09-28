@@ -114,6 +114,8 @@ def test_knowledge_direct_uses_teacher_without_tool_loop():
     assert state.knowledge_graph is agent.knowledge_graph
     assert state.metrics["route"] == "knowledge_direct"
     assert state.metrics["execution_ms"] >= 0
+    assert state.metrics["reasoner_steps"] == 0
+    assert state.metrics["tool_calls"] == 0
 
 
 def test_knowledge_agent_enters_harness_loop(monkeypatch):
