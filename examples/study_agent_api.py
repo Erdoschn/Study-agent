@@ -220,7 +220,10 @@ class Handler(BaseHTTPRequestHandler):
             return json.dumps({"title": cls._build_title(question, messages)}, ensure_ascii=False)
         if cls._is_follow_up_request(question):
             return json.dumps({"follow_ups": cls._build_follow_ups(messages)}, ensure_ascii=False)
+        if cls._is_tag_request(question):
+            return json.dumps({"tags": cls._build_tags(question, messages)}, ensure_ascii=False)
         return None
+
 
     @staticmethod
     def _is_title_request(question: str) -> bool:
@@ -233,6 +236,57 @@ class Handler(BaseHTTPRequestHandler):
             "raw json object",
         )
         return sum(marker in text for marker in markers) >= 2
+
+    @staticmethod
+    def _is_tag_request(question: str) -> bool:
+        text = str(question or "").lower()
+        markers = (
+            "generate 1-3 broad tags",
+            "categorizing the main themes",
+            '"tags"',
+            "more specific subtopic tags",
+            "chat history",
+        )
+        return sum(marker in text for marker in markers) >= 3
+
+    @staticmethod
+    def _extract_last_user_topic(messages: list[Any]) -> str:
+        for item in reversed(messages):
+            if (
+                isinstance(item, dict)
+                and item.get("role") == "user"
+                and str(item.get("content", "")).strip()
+            ):
+                return str(item["content"]).strip()
+        return ""
+
+    @classmethod
+    def _build_tags(cls, question: str, messages: list[Any]) -> list[str]:
+        topic = cls._extract_last_user_topic(messages)
+        source = (topic or question).lower()
+        tags: list[str] = []
+
+        keyword_groups = (
+            (("上下文缓存", "context caching", "prompt caching", "kv cache"), "AI", "LLM"),
+            (("coder agent", "code agent", "编程智能体", "coding agent"), "AI", "Agent"),
+            (("knowledge graph", "知识图谱", "learner model", "学习者模型"), "Education", "Knowledge Graph"),
+            (("transformer", "attention", "self-attention"), "AI", "Transformer"),
+            (("github", "git", "repository", "代码仓库"), "Technology", "Software Development"),
+        )
+        broad_added = set()
+        specific_added = set()
+        for keywords, broad, specific in keyword_groups:
+            if any(keyword in source for keyword in keywords):
+                if broad not in broad_added:
+                    tags.append(broad)
+                    broad_added.add(broad)
+                if specific not in specific_added and len(tags) < 3:
+                    tags.append(specific)
+                    specific_added.add(specific)
+
+        if not tags:
+            tags = ["General"]
+        return tags[:3]
 
     @staticmethod
     def _is_follow_up_request(question: str) -> bool:
