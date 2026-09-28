@@ -1,4 +1,4 @@
-from .state import AgentState
+from .state import AgentState, StudentState
 from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
@@ -118,7 +118,6 @@ class StudyAgent:
             elif self.student_state is None:
                 self.student_state = state.student
             state.student = self.student_state
-            state.student.sync_from_knowledge_graph(self.knowledge_graph)
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
             state.search_sort_by = "relevance"
@@ -343,8 +342,9 @@ class StudyAgent:
         elif relation is not None:
             debug.log("StudyAgent", "ASSESS RELATION → ignored malformed relation input")
 
-        if self.student_state is not None:
-            self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
+        if self.student_state is None:
+            self.student_state = StudentState()
+        self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
 
     def _update_knowledge_graph(self, state) -> None:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
