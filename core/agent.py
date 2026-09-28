@@ -106,6 +106,7 @@ class StudyAgent:
             elif self.student_state is None:
                 self.student_state = state.student
             state.student = self.student_state
+            state.student.sync_from_knowledge_graph(self.knowledge_graph)
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
             state.search_sort_by = "relevance"
@@ -117,7 +118,12 @@ class StudyAgent:
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
-                mode = state.task_analysis.execution_mode
+                mode = getattr(state.task_analysis, "execution_mode", None)
+                if mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
+                    # Preserve compatibility with lightweight/legacy analyzers:
+                    # once a real ToolExecutor exists, their old behavior was
+                    # to enter the Harness loop.
+                    mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
                 state.execution_mode = mode
                 state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
                 state.metrics["route_fallback"] = False
