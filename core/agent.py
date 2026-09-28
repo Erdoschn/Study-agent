@@ -197,6 +197,11 @@ class StudyAgent:
                     debug.log("StudyAgent", state.error)
 
             state.metrics["execution_ms"] = round((time.perf_counter() - execution_started) * 1000, 2)
+            state.metrics["reasoner_steps"] = state.step_count
+            state.metrics["tool_calls"] = sum(
+                state.action_counts.get(action, 0)
+                for action in ("SEARCH", "CALCULATE", "VERIFY", "ASSESS")
+            )
             state.metrics["total_ms"] = round((time.perf_counter() - run_started) * 1000, 2)
             debug.log("StudyAgent", f"ROUTE FINISHED → mode={mode}, steps={state.step_count}")
 
