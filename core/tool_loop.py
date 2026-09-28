@@ -378,13 +378,13 @@ class AgentToolLoop:
 
         args = arguments if isinstance(arguments, dict) else {}
         if tool == "search" or action == "SEARCH":
-            query = re.sub(r"\\s+", " ", str(args.get("query", ""))).strip().lower()
+            query = re.sub(r"\s+", " ", str(args.get("query", ""))).strip().lower()
             source = str(args.get("source", "")).strip().lower() or "auto"
             categories = args.get("categories", [])
             if not isinstance(categories, list):
                 categories = []
             categories = sorted({
-                re.sub(r"\\s+", " ", str(item)).strip().lower()
+                re.sub(r"\s+", " ", str(item)).strip().lower()
                 for item in categories if str(item).strip()
             })
             try:
@@ -404,10 +404,10 @@ class AgentToolLoop:
             }
 
         if tool == "verify" or action == "VERIFY":
-            return {"claim": re.sub(r"\\s+", " ", str(args.get("claim", ""))).strip().lower()}
+            return {"claim": re.sub(r"\s+", " ", str(args.get("claim", ""))).strip().lower()}
 
         if tool == "calculate" or action == "CALCULATE":
-            return {"expression": re.sub(r"\\s+", "", str(args.get("expression", "")))}
+            return {"expression": re.sub(r"\s+", "", str(args.get("expression", "")))}
 
         if tool == "assess" or action == "ASSESS":
             concepts = args.get("concepts", [])
@@ -415,14 +415,14 @@ class AgentToolLoop:
                 concepts = []
             return {
                 "concepts": sorted({
-                    re.sub(r"\\s+", " ", str(item)).strip().lower()
+                    re.sub(r"\s+", " ", str(item)).strip().lower()
                     for item in concepts if str(item).strip()
                 }),
                 "primary_concept": re.sub(
-                    r"\\s+", " ", str(args.get("primary_concept", ""))
+                    r"\s+", " ", str(args.get("primary_concept", ""))
                 ).strip().lower(),
                 "question": re.sub(
-                    r"\\s+", " ", str(args.get("question", ""))
+                    r"\s+", " ", str(args.get("question", ""))
                 ).strip().lower(),
                 "difficulty": str(args.get("difficulty", "graduate")).strip().lower(),
                 "question_type": str(args.get("question_type", "open_ended")).strip().lower(),
