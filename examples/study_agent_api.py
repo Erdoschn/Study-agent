@@ -111,7 +111,7 @@ class AgentHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
-    protocol_version = "HTTP/1.1"
+    protocol_version = "HTTP/1.0"
     SSE_HEARTBEAT_SECONDS = 5.0
     SSE_STATUS_SECONDS = 15.0
 
@@ -251,10 +251,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
-        # [DONE] terminates the logical SSE stream. Keep the HTTP/1.1
-        # connection alive while the agent is running and close it explicitly
-        # after the terminal frame below.
-        self.send_header("Connection", "keep-alive")
+        # [DONE] terminates the SSE stream; close the HTTP connection
+        # after the terminal frame so simple clients can detect completion.
+        self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
