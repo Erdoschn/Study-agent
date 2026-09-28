@@ -562,6 +562,30 @@ Study-agent/
 └── test/                      # 自动化测试
 ```
 
+## Adaptive Model + Reasoning Effort Routing
+
+当前模型路由分成两个独立决策：
+
+```text
+TaskAnalyzer
+    ↓
+difficulty 1~5
+    ↓
+ModelRouter
+    ├── 模型：只按真实调用可靠性排序
+    └── effort：根据模型公开 benchmark 的 effort 曲线 + difficulty 选择
+    ↓
+Reasoner / Teacher / Direct Model
+    ↓
+reasoning_effort（仅对该模型已配置支持的接口参数发送）
+```
+
+公开 benchmark 不再与 runtime reliability 做加权综合。benchmark 只是静态先验：有多档实测曲线时，Router 选择达到当前难度目标所需的最低实测 effort；只有一个实测点时，不把它扩展到未知档位，而回退到透明的 difficulty→effort 映射。
+
+模型 benchmark / effort 元数据集中在 `config/model_profiles.json`，API provider 和模型密钥仍保留在本地 `config/providers.json`。当前配置中的 benchmark 数值来自 Artificial Analysis Intelligence Index v4.3.2，并保留模型版本与 effort 信息。
+
+`reasoning_effort` 会在 OpenAI-compatible Chat Completions 请求中作为模型请求参数发送。OpenAI 的 GPT-5.6 系列支持 `none/low/medium/high/xhigh/max`；DeepSeek V4-Pro / V4-Flash 支持 `low/high/max`，且 DeepSeek 官方会将部分兼容档位映射到实际 effort。citeturn394990search0turn394990search2
+
 ## Knowledge Graph Persistence
 
 正式运行时，知识图谱使用本地 SQLite 持久化：
