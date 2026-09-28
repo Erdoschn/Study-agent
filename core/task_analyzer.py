@@ -15,6 +15,7 @@ class TaskAnalysis:
     required_tools: list[str] = field(default_factory=list)
     external_facts_needed: bool = False
     answer_strategy: str = ""
+    difficulty: int = 3
 
 
 class TaskAnalyzer:
@@ -33,6 +34,7 @@ class TaskAnalyzer:
 - required_tools：只填写真正需要的工具，可选 search / calculate / verify
 - external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
 - answer_strategy：给后续 Reasoner 的简短行动建议
+- difficulty：任务难度 1-5；1=直接事实/简单解释，3=需要工具或多步推理，5=复杂研究、多轮证据整合或高难度推理
 不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。\n不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
 不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
@@ -217,6 +219,13 @@ class TaskAnalyzer:
                     cleaned.append(text)
             return cleaned[:limit]
 
+        raw_difficulty = data.get("difficulty", 3)
+        try:
+            difficulty = int(raw_difficulty)
+        except (TypeError, ValueError):
+            difficulty = 3
+        difficulty = max(1, min(5, difficulty))
+
         raw_external = data.get("external_facts_needed", False)
         if isinstance(raw_external, bool):
             external_facts_needed = raw_external
@@ -235,4 +244,5 @@ class TaskAnalyzer:
             required_tools=tools,
             external_facts_needed=external_facts_needed,
             answer_strategy=str(data.get("answer_strategy", "")).strip(),
+            difficulty=difficulty,
         )
