@@ -20,6 +20,7 @@ class ModelInfo:
     failure_streak: int = 0
     cooldown_until: float = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
+    efficiency_stats: dict[str, dict[str, float]] = field(default_factory=dict)
 
     @property
     def capabilities(self) -> dict[str, float]:
@@ -62,6 +63,20 @@ class ModelInfo:
             int(self.capability_successes.get(capability, 0))
             + int(self.capability_failures.get(capability, 0))
         )
+    
+    def efficiency_score(self, capability: str, difficulty: int | str = 3) -> float:
+        """Return a confidence-weighted efficiency score for a capability/difficulty."""
+        key = str(difficulty)
+        stats = self.efficiency_stats.get(capability, {}).get(key)
+        if not stats:
+            return 0.5
+        successes = float(stats.get("successes", 0.0))
+        if successes <= 0:
+            return 0.5
+        avg_steps = max(1.0, float(stats.get("avg_steps", 1.0)))
+        raw = 1.0 / (avg_steps ** 0.5)
+        confidence = successes / (successes + 5.0)
+        return max(0.0, min(1.0, 0.5 + (raw - 0.5) * confidence))
 
 
 class ModelRegistry:
@@ -171,6 +186,36 @@ class ModelRegistry:
         debug.log(
             "ModelRegistry",
             f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, reliability={model.reliability_score:.3f}, cooldown={cooldown:.1f}s",
+        )
+
+    def record_task_outcome(
+        self,
+        name: str,
+        capability: str,
+        difficulty: int | str,
+        steps: int,
+        success: bool,
+    ) -> None:
+        """Record task-level efficiency without rewarding failed tasks."""
+        model = self.get(name)
+        capability_stats = model.efficiency_stats.setdefault(capability, {})
+        key = str(difficulty)
+        stats = capability_stats.setdefault(
+            key,
+            {"attempts": 0.0, "successes": 0.0, "avg_steps": 0.0},
+        )
+        stats["attempts"] += 1.0
+        if success:
+            stats["successes"] += 1.0
+            steps = max(1, int(steps))
+            old_successes = stats["successes"] - 1.0
+            stats["avg_steps"] = (
+                steps if old_successes <= 0
+                else ((stats["avg_steps"] * old_successes) + steps) / stats["successes"]
+            )
+        debug.log(
+            "ModelRegistry",
+            f"TASK OUTCOME → model={name}, capability={capability}, difficulty={difficulty}, steps={steps}, success={success}, efficiency={self.efficiency_score(capability, difficulty):.3f}",
         )
 
     @staticmethod
