@@ -84,8 +84,17 @@ def make_agent(mode, task_type="general", tools=None):
     return StudyAgent(reasoner, teacher=teacher, tool_executor=executor), teacher, executor
 
 
-def test_chat_bypasses_teacher_and_tool_loop():
+def test_chat_bypasses_teacher_tool_loop_and_learner_graph(monkeypatch):
     agent, teacher, executor = make_agent("chat")
+
+    def graph_must_not_run(*args, **kwargs):
+        raise AssertionError("chat route must not touch learner graph")
+
+    monkeypatch.setattr(agent.knowledge_graph, "bootstrap_query_context", graph_must_not_run)
+    monkeypatch.setattr(
+        "core.state.StudentState.sync_from_knowledge_graph",
+        graph_must_not_run,
+    )
     state = agent.run("今天好累啊")
     assert state.execution_mode == "chat"
     assert state.final_answer == "direct answer"
@@ -103,6 +112,8 @@ def test_knowledge_direct_uses_teacher_without_tool_loop():
     assert teacher.calls == 1
     assert executor.calls == 0
     assert state.knowledge_graph is agent.knowledge_graph
+    assert state.metrics["route"] == "knowledge_direct"
+    assert state.metrics["execution_ms"] >= 0
 
 
 def test_knowledge_agent_enters_harness_loop(monkeypatch):
