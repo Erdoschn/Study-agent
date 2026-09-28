@@ -247,12 +247,12 @@ STOP：无法继续时停止并说明原因。
             "step_count": state.step_count,
             "pending_assessment": getattr(state, "pending_assessment", None),
         }
-        # Compact JSON preserves every field while substantially reducing\n        # prompt bytes/tokens and therefore model prefill latency.\n        prompt = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        # Compact JSON preserves every field while substantially reducing\n        # prompt bytes/tokens and therefore model prefill latency.\n        serialized_prompt = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         debug.log(
             "AgentReasoner",
-            f"PROMPT → chars={len(prompt)}, recent_steps={len(recent_steps)}/{len(state.steps)}, evidence={len(state.evidence)}, claims={len(state.claims)}",
+            f"PROMPT → chars={len(serialized_prompt)}, recent_steps={len(recent_steps)}/{len(state.steps)}, evidence={len(state.evidence)}, claims={len(state.claims)}",
         )
-        return prompt
+        return serialized_prompt
 
     @staticmethod
     def _strip_think(raw: str) -> str:
