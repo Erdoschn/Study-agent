@@ -87,6 +87,7 @@ def make_agent(mode, task_type="general", tools=None):
 def test_chat_bypasses_teacher_and_tool_loop():
     agent, teacher, executor = make_agent("chat")
     state = agent.run("今天好累啊")
+    assert state.execution_mode == "chat"
     assert state.final_answer == "direct answer"
     assert state.step_count == 0
     assert teacher.calls == 0
@@ -96,6 +97,7 @@ def test_chat_bypasses_teacher_and_tool_loop():
 def test_knowledge_direct_uses_teacher_without_tool_loop():
     agent, teacher, executor = make_agent("knowledge_direct", "conceptual")
     state = agent.run("什么是 Transformer？")
+    assert state.execution_mode == "knowledge_direct"
     assert state.final_answer == "teacher answer"
     assert state.step_count == 0
     assert teacher.calls == 1
@@ -133,6 +135,7 @@ def test_knowledge_agent_enters_harness_loop(monkeypatch):
     state = agent.run("研究 Transformer 的最新优化")
 
     assert calls["count"] == 1
+    assert state.execution_mode == "knowledge_agent"
     assert state.final_answer == "loop draft"
     assert state.step_count == 1
     assert teacher.calls == 1
