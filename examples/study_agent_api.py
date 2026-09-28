@@ -29,6 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
+
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
@@ -70,6 +72,7 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
         teacher=teacher,
         tool_executor=ToolExecutor(search_router=build_search_router()),
         max_steps=None,
+        knowledge_graph_path=KNOWLEDGE_GRAPH_PATH,
     )
 
 
