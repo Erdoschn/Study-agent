@@ -213,3 +213,82 @@ def test_chat_requires_user_message():
         server.shutdown()
         server.server_close()
 
+
+
+def test_follow_up_prompt_is_detected_as_internal_request():
+    prompt = """
+    Suggest 3-5 relevant follow-up questions or prompts that the user might
+    naturally ask next in this conversation as a user, based on the chat history.
+    Response must be a JSON object with a "follow_ups" key.
+    """
+    assert Handler._is_follow_up_request(prompt) is True
+
+
+def test_follow_up_request_does_not_reenter_study_agent():
+    calls = []
+
+    server = AgentHTTPServer(("127.0.0.1", 0), Handler)
+    server.agent = SimpleNamespace(
+        run=lambda question: calls.append(question)
+    )
+    try:
+        status, content_type, raw = _request(
+            server,
+            "POST",
+            "/v1/chat/completions",
+            {
+                "model": MODEL_ID,
+                "stream": False,
+                "messages": [
+                    {"role": "user", "content": "我想自己做一个 agent harness"},
+                    {"role": "assistant", "content": "可以从工具层开始。"},
+                    {
+                        "role": "user",
+                        "content": (
+                            'Suggest 3-5 relevant follow-up questions based on the chat history. '
+                            'Response must be a JSON object with a "follow_ups" key.'
+                        ),
+                    },
+                ],
+            },
+        )
+        payload = json.loads(raw)
+        assert status == 200
+        assert "application/json" in content_type
+        assert calls == []
+        follow_ups = json.loads(payload["choices"][0]["message"]["content"])
+        assert len(follow_ups["follow_ups"]) == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_stream_status_is_not_emitted_twice_by_api_shell():
+    server, _ = _start_server()
+    try:
+        host, port = server.server_address
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+        conn.request(
+            "POST",
+            "/v1/chat/completions",
+            body=json.dumps({
+                "model": MODEL_ID,
+                "stream": True,
+                "messages": [{"role": "user", "content": "1+1=?"}],
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        raw = response.read().decode("utf-8")
+        conn.close()
+
+        frames = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: ") and line[6:] != "[DONE]"]
+        status_frames = [
+            payload for payload in frames
+            if "reasoning_content" in payload["choices"][0]["delta"]
+            and "正在分析任务" in payload["choices"][0]["delta"]["reasoning_content"]
+        ]
+        assert len(status_frames) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
