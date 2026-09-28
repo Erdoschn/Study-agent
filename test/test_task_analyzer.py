@@ -61,3 +61,15 @@ def test_parse_normalizes_string_boolean_and_bounds_lists():
     assert result.external_facts_needed is False
     assert result.issues == ["a", "b"]
     assert result.knowledge_gaps == ["gap"]
+
+
+def test_parse_execution_modes():
+    assert TaskAnalyzer._parse('{"task_type":"general","execution_mode":"chat"}').execution_mode == "chat"
+    assert TaskAnalyzer._parse('{"task_type":"conceptual","execution_mode":"knowledge_direct"}').execution_mode == "knowledge_direct"
+    assert TaskAnalyzer._parse('{"task_type":"research","required_tools":["search"],"execution_mode":"knowledge_agent"}').execution_mode == "knowledge_agent"
+
+
+def test_parse_execution_mode_fallback():
+    assert TaskAnalyzer._parse('{"task_type":"research","required_tools":["search"]}').execution_mode == "knowledge_agent"
+    assert TaskAnalyzer._parse('{"task_type":"conceptual"}').execution_mode == "knowledge_direct"
+    assert TaskAnalyzer._parse('{"task_type":"general"}').execution_mode == "chat"
