@@ -52,8 +52,7 @@ class ModelRegistry:
     MAX_COOLDOWN_SECONDS = 120.0
 
     def __init__(self, config: dict[str, Any]):
-        self.models: dict[str, ModelInfo] = {}
-        self._load(config)
+        self.models: dict[str, ModelInfo] = {}\n        # Keep a hot model per capability so later turns do not cold-start\n        # from the entire pool after a successful call.\n        self.last_successful_by_capability: dict[str, str] = {}\n        self._load(config)
 
     def _load(self, config: dict[str, Any]) -> None:
         providers = config.get("providers", {})
