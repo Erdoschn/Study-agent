@@ -157,3 +157,25 @@ def test_task_analyzer_unknown_mode_falls_back_by_tool_need():
         '{"task_type":"research","required_tools":["search"],"external_facts_needed":true}'
     )
     assert result.execution_mode == "knowledge_agent"
+
+
+def test_execution_mode_override_controls_experimental_condition():
+    agent, teacher, executor = make_agent("chat")
+    agent.execution_mode_override = "knowledge_direct"
+
+    state = agent.run("普通问题")
+
+    assert state.execution_mode == "knowledge_direct"
+    assert state.metrics["route_overridden"] is True
+    assert state.metrics["analyzer_execution_mode"] == "chat"
+    assert teacher.calls == 1
+    assert executor.calls == 0
+
+
+def test_execution_mode_override_is_validated():
+    try:
+        StudyAgent(make_agent("chat")[0].reasoner, execution_mode_override="invalid")
+    except ValueError as exc:
+        assert "execution_mode_override" in str(exc)
+    else:
+        raise AssertionError("invalid execution mode override should fail")
