@@ -93,7 +93,7 @@ class TaskAnalyzer:
                         prompt,
                         json_mode=True,
                         reasoning_effort=choice.effort,
-                        reasoning_effort_param=choice.model.reasoning_effort_param,
+                        reasoning_effort_param=getattr(choice.model, "reasoning_effort_param", None),
                     )
                     analysis = self._parse(raw)
                     analysis.domain = self._normalize_domain(question, analysis.domain)
