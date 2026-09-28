@@ -219,7 +219,7 @@ class ModelRegistry:
             )
         debug.log(
             "ModelRegistry",
-            f"TASK OUTCOME → model={name}, capability={capability}, difficulty={difficulty}, steps={steps}, success={success}, efficiency={self.efficiency_score(capability, difficulty):.3f}",
+            f"TASK OUTCOME → model={name}, capability={capability}, difficulty={difficulty}, steps={steps}, success={success}, efficiency={model.efficiency_score(capability, difficulty):.3f}",
         )
 
     @staticmethod
