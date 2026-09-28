@@ -83,10 +83,10 @@ class ModelRouter:
     capability-specific 的真实调用可靠性。
     """
 
-    EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
+    EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
     DEFAULT_EFFORT_BY_DIFFICULTY = {
-        1: "low",
+        1: "minimal",
         2: "low",
         3: "high",
         4: "high",
