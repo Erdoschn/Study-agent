@@ -584,7 +584,7 @@ reasoning_effort（仅对该模型已配置支持的接口参数发送）
 
 模型 benchmark / effort 元数据集中在 `config/model_profiles.json`，API provider 和模型密钥仍保留在本地 `config/providers.json`。当前配置中的 benchmark 数值来自 Artificial Analysis Intelligence Index v4.3.2，并保留模型版本与 effort 信息。
 
-`reasoning_effort` 会在 OpenAI-compatible Chat Completions 请求中作为模型请求参数发送。OpenAI 的 GPT-5.6 系列支持 `none/low/medium/high/xhigh/max`；DeepSeek V4-Pro / V4-Flash 支持 `low/high/max`，且 DeepSeek 官方会将部分兼容档位映射到实际 effort。citeturn394990search0turn394990search2
+`reasoning_effort` 会在 OpenAI-compatible Chat Completions 请求中作为模型请求参数发送。OpenAI 的 GPT-5.6 系列支持 `none/low/medium/high/xhigh/max`；DeepSeek V4-Pro / V4-Flash 支持 `low/high/max`，且 DeepSeek 官方会将部分兼容档位映射到实际 effort。[OpenAI reasoning documentation](https://developers.openai.com/api/docs/guides/reasoning) and [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/).
 
 ## Knowledge Graph Persistence
 
