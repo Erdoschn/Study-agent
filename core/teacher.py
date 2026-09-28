@@ -198,7 +198,8 @@ class Teacher:
 
     @classmethod
     def _build_prompt(cls, state, draft_answer: str | None = None) -> str:
-        # Compact JSON preserves every teaching field while reducing prompt prefill latency.\n        prompt = json.dumps(cls._build_payload(state, draft_answer), ensure_ascii=False, separators=(",", ":"))
+        # Compact JSON preserves every teaching field while reducing prompt prefill latency.
+        prompt = json.dumps(cls._build_payload(state, draft_answer), ensure_ascii=False, separators=(",", ":"))
         debug.log("Teacher", f"PROMPT → chars={len(prompt)}")
         return prompt
 
