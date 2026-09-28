@@ -95,7 +95,9 @@ def chunk(
     if content is not None:
         delta["content"] = content
     if reasoning is not None:
+        # Support clients that use either common reasoning field name.
         delta["reasoning_content"] = reasoning
+        delta["reasoning"] = reasoning
     return {
         "id": completion_id or "chatcmpl-" + uuid.uuid4().hex,
         "object": "chat.completion.chunk",
@@ -185,15 +187,11 @@ class Handler(BaseHTTPRequestHandler):
             if not question:
                 raise ValueError("messages 中没有可用的 user 内容")
 
-            # Open WebUI may send an internal follow-up-generation prompt through
-            # the same OpenAI-compatible endpoint after the real answer is done.
-            # That prompt is not a StudyAgent task and must never re-enter
-            # StudyAgent.run(), otherwise the whole analysis/reasoning/teaching
-            # pipeline is executed a second time.
-            if self._is_follow_up_request(question):
-                follow_ups = self._build_follow_ups(messages)
-                payload = {"follow_ups": follow_ups}
-                self._send_json(self._completion(json.dumps(payload, ensure_ascii=False)))
+            # Web UI helper prompts are routed here and never enter StudyAgent.
+            # The core agent therefore remains independent of Open WebUI.
+            ui_result = self._handle_ui_auxiliary_request(question, messages)
+            if ui_result is not None:
+                self._send_json(self._completion(ui_result))
                 return
 
             stream = bool(request.get("stream", True))
@@ -215,13 +213,28 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }, 500)
 
+    @classmethod
+    def _handle_ui_auxiliary_request(cls, question: str, messages: list[Any]) -> str | None:
+        if cls._is_title_request(question):
+            return json.dumps({"title": cls._build_title(question, messages)}, ensure_ascii=False)
+        if cls._is_follow_up_request(question):
+            return json.dumps({"follow_ups": cls._build_follow_ups(messages)}, ensure_ascii=False)
+        return None
+
+    @staticmethod
+    def _is_title_request(question: str) -> bool:
+        text = str(question or "").lower()
+        markers = (
+            "generate a concise title",
+            "summarizing the chat history",
+            '"title"',
+            "2-4 words",
+            "raw json object",
+        )
+        return sum(marker in text for marker in markers) >= 2
+
     @staticmethod
     def _is_follow_up_request(question: str) -> bool:
-        """Detect Open WebUI's internal follow-up-generation prompt.
-
-        Follow-up generation is a UI-side auxiliary task. Routing it through
-        StudyAgent would recursively invoke TaskAnalyzer -> Reasoner -> Teacher.
-        """
         text = str(question or "").lower()
         markers = (
             "suggest 3-5 relevant follow-up questions",
@@ -230,6 +243,36 @@ class Handler(BaseHTTPRequestHandler):
             "response must be a json object with a",
         )
         return sum(marker in text for marker in markers) >= 2
+
+    @staticmethod
+    def _extract_title_topic(question: str, messages: list[Any]) -> str:
+        import re
+        match = re.search(r"<chat_history>\s*(.*?)(?:\s*</chat_history>|$)",
+                          str(question or ""), flags=re.I | re.S)
+        history = match.group(1) if match else ""
+        users = re.findall(r"USER:\s*(.*?)(?=\s*ASSISTANT:|$)", history, flags=re.I | re.S)
+        if users:
+            return users[-1].strip()
+        for item in reversed(messages):
+            if (isinstance(item, dict) and item.get("role") == "user"
+                    and str(item.get("content", "")).strip()
+                    and not Handler._is_title_request(str(item.get("content", "")))):
+                return str(item["content"]).strip()
+        return ""
+
+    @classmethod
+    def _build_title(cls, question: str, messages: list[Any]) -> str:
+        import re
+        topic = cls._extract_title_topic(question, messages)
+        topic = re.sub(r"^#+\s*", "", topic).strip()
+        topic = re.sub(r"(是什么|是什么意思|怎么理解|如何理解|请问|帮我|能否|可以吗)\s*[？?。.!！]*$",
+                       "", topic, flags=re.I).strip(" ：:，,。.!！？?")
+        if not topic:
+            return "Study Topic"
+        if re.search(r"[\u3400-\u9fff]", topic):
+            return topic[:12]
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'_-]*", topic)
+        return " ".join(words[:4]) if words else topic[:40].strip()
 
     @staticmethod
     def _build_follow_ups(messages: list[Any]) -> list[str]:
@@ -338,6 +381,7 @@ class Handler(BaseHTTPRequestHandler):
         # after the terminal frame so simple clients can detect completion.
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Content-Encoding", "identity")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
