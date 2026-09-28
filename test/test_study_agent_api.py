@@ -2,7 +2,6 @@
 import http.client
 import json
 import threading
-import time
 from types import SimpleNamespace
 
 from examples.study_agent_api import Handler, MODEL_ID, AgentHTTPServer, chunk, sse_event
