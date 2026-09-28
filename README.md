@@ -567,14 +567,14 @@ Study-agent/
 
 当前模型路由分成两个相互独立的问题：
 
-§§§text
+`text
 1. Which model?
 2. How much reasoning effort?
-§§§
+`
 
 整体流程为：
 
-§§§text
+`text
 Question
    ↓
 TaskAnalyzer
@@ -586,19 +586,19 @@ TaskAnalyzer
        └── effort: difficulty + benchmark curve
            ↓
    Reasoner / Teacher / Direct Model
-§§§
+`
 
 ### 为什么不让 Reasoner 自己选择模型？
 
 Reasoner 必须先由某个模型运行，才能产生下一步决策。因此让 Reasoner 在第一次调用时决定“应该使用哪个模型”会形成循环依赖：
 
-§§§text
+`text
 先选模型
    ↓
 才能运行 Reasoner
    ↓
 Reasoner 才能选模型
-§§§
+`
 
 当前实现因此把两个决策分开：
 
@@ -619,9 +619,9 @@ TaskAnalyzer 本身就是“便宜的前置评估器”。在没有 task analysi
 
 它输出：
 
-§§§text
+`text
 difficulty ∈ {1,2,3,4,5}
-§§§
+`
 
 这个难度不是心理学意义上的真实“问题难度”，而是 Router 使用的**任务复杂度估计**，当前依据包括：
 
@@ -639,13 +639,13 @@ difficulty ∈ {1,2,3,4,5}
 
 主要依据是：
 
-§§§text
+`text
 capability-specific runtime reliability
-§§§
+`
 
 例如：
 
-§§§text
+`text
 reasoning capability
     model A: 真实调用成功率较高
     model B: 真实调用成功率较低
@@ -653,7 +653,7 @@ reasoning capability
 teaching capability
     model A: teaching role 的历史表现
     model B: teaching role 的历史表现
-§§§
+`
 
 reasoning 和 teaching 可以因此得到不同的模型顺序。
 
@@ -665,13 +665,13 @@ runtime reliability 使用平滑统计，避免一个模型只成功 1 次或失
 
 当前支持的逻辑是：
 
-§§§text
+`text
 difficulty 1 → minimal
 difficulty 2 → low
 difficulty 3 → high
 difficulty 4 → high
 difficulty 5 → max
-§§§
+`
 
 如果某个模型至少有两个已测 benchmark effort 点，则 Router 会尝试选择达到当前难度目标所需的**最低实测 effort**。
 
@@ -697,19 +697,19 @@ Reasoning effort 是模型 API 提供的离散推理强度控制参数。
 
 它不是统一的百分比：
 
-§§§text
+`text
 low = 20%
 medium = 50%
 high = 80%
-§§§
+`
 
 这种解释是不成立的，因为不同模型对 effort 的定义和支持档位并不完全相同。
 
 例如 OpenAI GPT-5.6 系列当前公开支持：
 
-§§§text
+`text
 none / low / medium / high / xhigh / max
-§§§
+`
 
 DeepSeek V4 的 Thinking 接口支持更少的实际档位，并对部分兼容值进行映射。
 
@@ -717,7 +717,7 @@ DeepSeek V4 的 Thinking 接口支持更少的实际档位，并对部分兼容�
 
 真正实验时，还应该记录：
 
-§§§text
+`text
 model
 provider
 effort
@@ -727,7 +727,7 @@ reasoning tokens（若 provider 可提供）
 total tokens
 quality
 cost
-§§§
+`
 
 这样才能分析“更高 effort 带来了多少质量收益，以及付出了多少成本”。
 
@@ -737,9 +737,9 @@ cost
 
 Benchmark 文件：
 
-§§§text
+`text
 config/model_profiles.json
-§§§
+`
 
 当前记录的是 Artificial Analysis Intelligence Index 的公开结果。**这些分数不是本项目自己的实验结果，而是 routing 的静态先验。**
 
@@ -769,23 +769,23 @@ config/model_profiles.json
 
 例如：
 
-§§§text
+`text
 deepseek/deepseek-v4-flash
     → V4 Flash 0420
 
 deepseek/deepseek-v4-flash-0731
     → V4 Flash 0731
-§§§
+`
 
 这避免不同版本模型被误认为同一个 benchmark profile。
 
 另外需要区分：
 
-§§§text
+`text
 public benchmark
     ≠
 specific provider endpoint performance
-§§§
+`
 
 某个公开 benchmark 数值只能作为先验；真正用于部署和实验的模型选择仍然应该观察实际 provider 的 runtime behavior。
 
@@ -795,20 +795,20 @@ specific provider endpoint performance
 
 当前架构刻意没有做成一个“万能分数”：
 
-§§§text
+`text
 model_score =
     capability
   + speed
   + benchmark
   + popularity
   + ...
-§§§
+`
 
 原因是这种总分很难解释，也很难证明每个权重合理。
 
 当前实现更接近：
 
-§§§text
+`text
 TaskAnalyzer
     ↓
 estimated difficulty
@@ -818,7 +818,7 @@ ModelRouter
     └── effort      ← difficulty + benchmark prior
     ↓
 role executor
-§§§
+`
 
 这样每一层只有一个主要研究含义：
 
@@ -843,11 +843,11 @@ role executor
 
 ### Experiment A — Fixed vs Adaptive execution
 
-§§§text
+`text
 Fixed Full Harness
         vs.
 Adaptive Execution
-§§§
+`
 
 核心问题：
 
@@ -855,11 +855,11 @@ Adaptive Execution
 
 ### Experiment B — Fixed model vs runtime router
 
-§§§text
+`text
 Fixed Model
         vs.
 Runtime Reliability Router
-§§§
+`
 
 核心问题：
 
@@ -867,11 +867,11 @@ Runtime Reliability Router
 
 ### Experiment C — Fixed effort vs adaptive effort
 
-§§§text
+`text
 Fixed effort
         vs.
 Difficulty-aware effort
-§§§
+`
 
 核心问题：
 
@@ -879,17 +879,17 @@ Difficulty-aware effort
 
 ### Experiment D — Adaptive model + adaptive effort
 
-§§§text
+`text
 fixed model + fixed effort
         vs.
 adaptive model + adaptive effort
-§§§
+`
 
 这是当前 routing 机制最完整的实验。
 
 重点不只是最终质量，而是：
 
-§§§text
+`text
 Quality
 Token usage
 Reasoning tokens
@@ -897,7 +897,7 @@ Latency
 Model calls
 Cost
 Failure recovery
-§§§
+`
 
 ---
 
@@ -907,7 +907,7 @@ Failure recovery
 
 这两个模块不是重复的。
 
-§§§text
+`text
 TaskAnalyzer
     = “这是什么任务？”
     + “大概有多难？”
@@ -915,15 +915,15 @@ TaskAnalyzer
 
 AgentReasoner
     = “现在下一步应该做什么？”
-§§§
+`
 
 因此它们分别属于：
 
-§§§text
+`text
 pre-reasoner task understanding
                 ↓
 online action reasoning
-§§§
+`
 
 这种分层还有一个研究上的好处：TaskAnalyzer 可以被替换成 rule-based classifier、small model、large model 或 classifier benchmark，而不会改变 Tool Loop 的逻辑。
 
@@ -931,7 +931,7 @@ online action reasoning
 
 二者同样不应该合并：
 
-§§§text
+`text
 ModelRouter
     → Which model?
     → Which effort?
@@ -942,7 +942,7 @@ AgentReasoner
     → Verify?
     → Answer?
     → Stop?
-§§§
+`
 
 如果把 model choice 交给 Reasoner，模型本身就参与决定“选择哪个模型”，会增加控制策略和实验解释的耦合。
 
@@ -950,13 +950,13 @@ AgentReasoner
 
 Teacher 的职责也不是重复 Reasoner：
 
-§§§text
+`text
 Reasoner:
     optimize execution
 
 Teacher:
     optimize teaching
-§§§
+`
 
 Reasoner 关心任务是否完成、证据是否足够、下一步工具动作是什么。
 
