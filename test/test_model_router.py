@@ -137,13 +137,68 @@ def test_unknown_capability_is_neutral_not_artificially_inflated():
     assert router._score(registry.get("model-a"), "reasoning") == 0.5
 
 
+def test_reliability_score_is_neutral_at_cold_start():
+    registry = ModelRegistry(config())
+    assert registry.get("model-a").reliability_score == 0.5
+
+
+def test_repeated_failures_strongly_reduce_reliability(monkeypatch):
+    registry = ModelRegistry(config())
+    monkeypatch.setattr("time.time", lambda: 100.0)
+    model = registry.get("model-a")
+
+    registry.record_failure("model-a", "reasoning")
+    model.cooldown_until = 0.0
+    first = model.reliability_score
+
+    registry.record_failure("model-a", "reasoning")
+    model.cooldown_until = 0.0
+    second = model.reliability_score
+
+    assert first < 0.5
+    assert second < first
+    assert second <= 0.4
+
+
+def test_success_recovers_reliability_after_failures(monkeypatch):
+    registry = ModelRegistry(config())
+    monkeypatch.setattr("time.time", lambda: 100.0)
+    model = registry.get("model-a")
+
+    registry.record_failure("model-a", "reasoning")
+    model.cooldown_until = 0.0
+    failed = model.reliability_score
+
+    registry.record_success("model-a", "reasoning")
+    assert model.reliability_score > failed
+    assert model.failure_streak == 0
+
+
+def test_router_penalizes_unreliable_model():
+    data = config()
+    data["models"]["model-b"]["paid"] = False
+    registry = ModelRegistry(data)
+    router = ModelRouter(registry)
+
+    # Keep model-a and model-b otherwise comparable; only reliability differs.
+    for _ in range(4):
+        registry.record_success("model-b", "reasoning")
+    for _ in range(3):
+        registry.get("model-a").cooldown_until = 0.0
+        registry.record_failure("model-a", "reasoning")
+        registry.get("model-a").cooldown_until = 0.0
+
+    assert registry.get("model-a").reliability_score < registry.get("model-b").reliability_score
+    assert router._score(registry.get("model-a"), "reasoning") < router._score(registry.get("model-b"), "reasoning")
+
+
 def test_runtime_evidence_is_confidence_weighted():
     registry = ModelRegistry(config())
     model = registry.get("model-a")
     for _ in range(1):
         registry.record_success("model-a", "reasoning")
     router = ModelRouter(registry)
-    assert router._score(model, "reasoning") == 0.5333333333333333
+    assert router._score(model, "reasoning") == 0.5466666666666666
 
     for _ in range(4):
         model.cooldown_until = 0.0
