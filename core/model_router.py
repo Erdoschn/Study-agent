@@ -142,6 +142,39 @@ class ModelRouter:
     ) -> str | None:
         return self._select_effort(model, self._difficulty(task_analysis))
 
+    @staticmethod
+    def call_model(
+        client,
+        system_prompt: str,
+        user_prompt: str,
+        json_mode: bool = False,
+        reasoning_effort: str | None = None,
+    ) -> str:
+        """Call clients with effort when supported; keep lightweight test adapters compatible."""
+        import inspect
+
+        if reasoning_effort is None:
+            return client.generate(system_prompt, user_prompt, json_mode=json_mode)
+
+        try:
+            params = inspect.signature(client.generate).parameters.values()
+            supports_effort = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                or p.name == "reasoning_effort"
+                for p in params
+            )
+        except (TypeError, ValueError):
+            supports_effort = True
+
+        if supports_effort:
+            return client.generate(
+                system_prompt,
+                user_prompt,
+                json_mode=json_mode,
+                reasoning_effort=reasoning_effort,
+            )
+        return client.generate(system_prompt, user_prompt, json_mode=json_mode)
+
     @classmethod
     def _difficulty(cls, analysis: Any = None) -> int:
         try:
