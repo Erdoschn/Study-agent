@@ -313,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
                     print(f"✓ FINAL ANSWER → {len(answer)} chars", flush=True)
                     if answer:
                         self.wfile.write(sse_event(
-                            chunk(content=answer, completion_id=completion_id)
+                            chunk(content=answer, role="assistant", completion_id=completion_id)
                         ))
                         self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
                     else:
