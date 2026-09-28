@@ -241,7 +241,7 @@ STOP：无法继续时停止并说明原因。
             "step_count": state.step_count,
             "pending_assessment": getattr(state, "pending_assessment", None),
         }
-        prompt = json.dumps(payload, ensure_ascii=False, indent=2)
+        # Compact JSON preserves every field while substantially reducing\n        # prompt bytes/tokens and therefore model prefill latency.\n        prompt = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         debug.log(
             "AgentReasoner",
             f"PROMPT → chars={len(prompt)}, recent_steps={len(recent_steps)}/{len(state.steps)}, evidence={len(state.evidence)}, claims={len(state.claims)}",
