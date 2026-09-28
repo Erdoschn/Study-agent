@@ -50,7 +50,7 @@ class SearchObservation(list):
 class ToolExecutor:
     """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
 
-    DEFAULT_SEARCH_RESULTS = 15
+    DEFAULT_SEARCH_RESULTS = 10
     MAX_CALCULATE_EXPRESSION_LENGTH = 200
     MAX_CALCULATE_AST_DEPTH = 32
     MAX_CALCULATE_LITERAL_DIGITS = 100
