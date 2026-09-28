@@ -226,13 +226,31 @@ class Teacher:
             raise RuntimeError("没有可用于 Teacher 的模型。")
 
         errors = []
+        attempts = 0
+        difficulty = getattr(analysis, "difficulty", 3) or 3
         for model in candidates:
+            attempts += 1
             try:
-                return self._call_model(model, state, prompt)
+                result = self._call_model(model, state, prompt)
+                self.model_router.registry.record_task_outcome(
+                    model.name,
+                    "teaching",
+                    difficulty,
+                    attempts,
+                    True,
+                )
+                return result
             except Exception as exc:
                 self.model_router.registry.record_failure(
                     model.name, "teaching",
                     provider_level=self.model_router.registry.is_provider_level_failure(exc),
+                )
+                self.model_router.registry.record_task_outcome(
+                    model.name,
+                    "teaching",
+                    difficulty,
+                    attempts,
+                    False,
                 )
                 errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
                 debug.log("Teacher", f"MODEL FAILED → {model.name}")
