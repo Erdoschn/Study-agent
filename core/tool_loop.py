@@ -372,9 +372,73 @@ class AgentToolLoop:
         self.reasoner, self.executor = reasoner, executor
 
     @staticmethod
-    def _fingerprint(action, tool, arguments):
+    def _canonical_arguments(action, tool, arguments):
+        """Normalize semantically equivalent tool calls before duplicate detection."""
+        import re
+
+        args = arguments if isinstance(arguments, dict) else {}
+        if tool == "search" or action == "SEARCH":
+            query = re.sub(r"\\s+", " ", str(args.get("query", ""))).strip().lower()
+            source = str(args.get("source", "")).strip().lower() or "auto"
+            categories = args.get("categories", [])
+            if not isinstance(categories, list):
+                categories = []
+            categories = sorted({
+                re.sub(r"\\s+", " ", str(item)).strip().lower()
+                for item in categories if str(item).strip()
+            })
+            try:
+                max_results = max(
+                    int(args.get("max_results", ToolExecutor.DEFAULT_SEARCH_RESULTS)),
+                    ToolExecutor.DEFAULT_SEARCH_RESULTS,
+                )
+            except (TypeError, ValueError):
+                max_results = args.get("max_results")
+            return {
+                "query": query,
+                "source": source,
+                "categories": categories,
+                "max_results": max_results,
+                "sort_by": str(args.get("sort_by", "")).strip() or "relevance",
+                "sort_order": str(args.get("sort_order", "descending")).strip().lower(),
+            }
+
+        if tool == "verify" or action == "VERIFY":
+            return {"claim": re.sub(r"\\s+", " ", str(args.get("claim", ""))).strip().lower()}
+
+        if tool == "calculate" or action == "CALCULATE":
+            return {"expression": re.sub(r"\\s+", "", str(args.get("expression", "")))}
+
+        if tool == "assess" or action == "ASSESS":
+            concepts = args.get("concepts", [])
+            if not isinstance(concepts, list):
+                concepts = []
+            return {
+                "concepts": sorted({
+                    re.sub(r"\\s+", " ", str(item)).strip().lower()
+                    for item in concepts if str(item).strip()
+                }),
+                "primary_concept": re.sub(
+                    r"\\s+", " ", str(args.get("primary_concept", ""))
+                ).strip().lower(),
+                "question": re.sub(
+                    r"\\s+", " ", str(args.get("question", ""))
+                ).strip().lower(),
+                "difficulty": str(args.get("difficulty", "graduate")).strip().lower(),
+                "question_type": str(args.get("question_type", "open_ended")).strip().lower(),
+            }
+
+        return args
+
+    @classmethod
+    def _fingerprint(cls, action, tool, arguments):
         import json
-        return action, tool, json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True, default=str)
+        return action, tool, json.dumps(
+            cls._canonical_arguments(action, tool, arguments),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
 
     @staticmethod
     def _answer_fingerprint(decision):
@@ -629,7 +693,7 @@ class AgentToolLoop:
                     state.add_step(AgentStep(
                         step_id=step_id, action="STOP", model=decision.model, tool=tool,
                         arguments=decision.arguments or {},
-                        reasoning_summary="检测到完全相同的工具调用，停止以避免无意义循环。",
+                        reasoning_summary="检测到等价的重复工具调用，停止以避免无意义循环。",
                         success=False, error=state.error,
                     ))
                     state.finished = True
