@@ -50,6 +50,7 @@ class ModelRegistry:
 
     BASE_COOLDOWN_SECONDS = 5.0
     MAX_COOLDOWN_SECONDS = 120.0
+    PROVIDER_COOLDOWN_SECONDS = 15.0
 
     def __init__(self, config: dict[str, Any]):
         self.models: dict[str, ModelInfo] = {}\n        # Keep a hot model per capability so later turns do not cold-start\n        # from the entire pool after a successful call.\n        self.last_successful_by_capability: dict[str, str] = {}\n        self._load(config)
@@ -105,6 +106,7 @@ class ModelRegistry:
             if model.enabled
             and (allow_paid or not model.paid)
             and model.cooldown_until <= now
+            and self.provider_cooldown_until.get(model.provider, 0.0) <= now
         ]
         debug.log(
             "ModelRegistry",
@@ -125,7 +127,7 @@ class ModelRegistry:
             f"SUCCESS → model={name}, capability={capability or 'none'}, calls={model.calls}, failures={model.failures}, cooldown=0",
         )
 
-    def record_failure(self, name: str, capability: str | None = None) -> None:
+    def record_failure(self, name: str, capability: str | None = None, provider_level: bool = False) -> None:
         import time
         model = self.get(name)
         model.calls += 1
@@ -134,12 +136,28 @@ class ModelRegistry:
         streak = max(1, model.failure_streak)
         cooldown = min(self.MAX_COOLDOWN_SECONDS, self.BASE_COOLDOWN_SECONDS * (2 ** min(streak - 1, 5)))
         model.cooldown_until = time.time() + cooldown
+        if provider_level:
+            self.provider_cooldown_until[model.provider] = time.time() + self.PROVIDER_COOLDOWN_SECONDS
         if capability:
             self._update_capability(model, capability, False)
         debug.log(
             "ModelRegistry",
             f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, cooldown={cooldown:.1f}s",
         )
+
+    @staticmethod
+    def is_provider_level_failure(exc: BaseException) -> bool:
+        """Classify failures where another model on the same provider is unlikely to help."""
+        if isinstance(exc, TimeoutError):
+            return True
+        message = str(exc or "").lower()
+        provider_markers = (
+            "timeout", "timed out", "connection", "urlopen",
+            "http 401", "http 403", "http 408", "http 429",
+            "http 500", "http 502", "http 503", "http 504",
+            "temporarily unavailable", "service unavailable",
+        )
+        return any(marker in message for marker in provider_markers)
 
     @staticmethod
     def _update_capability(model: ModelInfo, capability: str, success: bool) -> None:
