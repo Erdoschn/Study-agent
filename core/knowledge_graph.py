@@ -85,9 +85,200 @@ class KnowledgeGraph:
     MAX_NODES = 500
     MAX_EDGES = 1000
 
-    def __init__(self):
+    def __init__(self, storage_path: str | None = None):
         self.nodes: dict[str, KnowledgeNode] = {}
         self.edges: dict[tuple[str, str, str], KnowledgeEdge] = {}
+        self.storage_path = self._normalize_storage_path(storage_path)
+        if self.storage_path is not None:
+            self._initialize_storage()
+            self.load()
+
+    @staticmethod
+    def _normalize_storage_path(storage_path: str | None):
+        if storage_path is None:
+            return None
+        from pathlib import Path
+
+        value = str(storage_path).strip()
+        if not value:
+            return None
+        return Path(value).expanduser()
+
+    @property
+    def persistent(self) -> bool:
+        return self.storage_path is not None
+
+    def _connect(self):
+        import sqlite3
+
+        if self.storage_path is None:
+            return None
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(str(self.storage_path))
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    def _initialize_storage(self) -> None:
+        connection = self._connect()
+        if connection is None:
+            return
+        try:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS nodes (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    node_type TEXT NOT NULL,
+                    aliases_json TEXT NOT NULL,
+                    evidence_refs_json TEXT NOT NULL,
+                    learner_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS edges (
+                    source TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    relation TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    evidence_refs_json TEXT NOT NULL,
+                    learner_json TEXT NOT NULL,
+                    PRIMARY KEY (source, target, relation),
+                    FOREIGN KEY (source) REFERENCES nodes(id) ON DELETE CASCADE,
+                    FOREIGN KEY (target) REFERENCES nodes(id) ON DELETE CASCADE
+                );
+                INSERT OR REPLACE INTO metadata(key, value)
+                    VALUES ('schema_version', '1');
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _learner_from_dict(payload: dict[str, Any] | None) -> LearnerState:
+        payload = payload if isinstance(payload, dict) else {}
+        allowed = {
+            "familiarity", "confidence", "exposure_count", "successful_count",
+            "last_seen", "learning_stage", "assessment_history",
+            "max_familiarity", "highest_assessment_level",
+        }
+        values = {key: payload[key] for key in allowed if key in payload}
+        history = values.get("assessment_history", [])
+        values["assessment_history"] = history if isinstance(history, list) else []
+        return LearnerState(**values)
+
+    def save(self) -> None:
+        """Persist the complete graph to SQLite when a storage path is configured."""
+        connection = self._connect()
+        if connection is None:
+            return
+        import json
+        from dataclasses import asdict
+
+        try:
+            with connection:
+                connection.execute("DELETE FROM edges")
+                connection.execute("DELETE FROM nodes")
+                for node in self.nodes.values():
+                    connection.execute(
+                        """
+                        INSERT INTO nodes(id, name, node_type, aliases_json, evidence_refs_json, learner_json)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            node.id,
+                            node.name,
+                            node.node_type,
+                            json.dumps(node.aliases, ensure_ascii=False),
+                            json.dumps(node.evidence_refs, ensure_ascii=False),
+                            json.dumps(asdict(node.learner), ensure_ascii=False),
+                        ),
+                    )
+                for edge in self.edges.values():
+                    connection.execute(
+                        """
+                        INSERT INTO edges(source, target, relation, confidence, evidence_refs_json, learner_json)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            edge.source,
+                            edge.target,
+                            edge.relation,
+                            edge.confidence,
+                            json.dumps(edge.evidence_refs, ensure_ascii=False),
+                            json.dumps(asdict(edge.learner), ensure_ascii=False),
+                        ),
+                    )
+        finally:
+            connection.close()
+        debug.log(
+            "KnowledgeGraph",
+            f"PERSIST → {self.storage_path} nodes={len(self.nodes)} edges={len(self.edges)}",
+        )
+
+    def load(self) -> None:
+        """Load a previously persisted graph; missing/empty databases remain empty graphs."""
+        connection = self._connect()
+        if connection is None:
+            return
+        import json
+
+        try:
+            rows = connection.execute(
+                "SELECT id, name, node_type, aliases_json, evidence_refs_json, learner_json FROM nodes"
+            ).fetchall()
+            edge_rows = connection.execute(
+                "SELECT source, target, relation, confidence, evidence_refs_json, learner_json FROM edges"
+            ).fetchall()
+        finally:
+            connection.close()
+
+        nodes: dict[str, KnowledgeNode] = {}
+        for row in rows:
+            node_id, name, node_type, aliases_json, evidence_json, learner_json = row
+            try:
+                aliases = json.loads(aliases_json)
+                evidence_refs = json.loads(evidence_json)
+                learner_payload = json.loads(learner_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            nodes[node_id] = KnowledgeNode(
+                id=node_id,
+                name=name,
+                node_type=node_type,
+                aliases=aliases if isinstance(aliases, list) else [],
+                evidence_refs=evidence_refs if isinstance(evidence_refs, list) else [],
+                learner=self._learner_from_dict(learner_payload),
+            )
+
+        edges: dict[tuple[str, str, str], KnowledgeEdge] = {}
+        for row in edge_rows:
+            source, target, relation, confidence, evidence_json, learner_json = row
+            if source not in nodes or target not in nodes:
+                continue
+            try:
+                evidence_refs = json.loads(evidence_json)
+                learner_payload = json.loads(learner_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            key = (source, target, relation)
+            edges[key] = KnowledgeEdge(
+                source=source,
+                target=target,
+                relation=relation,
+                confidence=float(confidence),
+                evidence_refs=evidence_refs if isinstance(evidence_refs, list) else [],
+                learner=self._learner_from_dict(learner_payload),
+            )
+
+        self.nodes = nodes
+        self.edges = edges
+        debug.log(
+            "KnowledgeGraph",
+            f"LOAD → {self.storage_path} nodes={len(self.nodes)} edges={len(self.edges)}",
+        )
 
     def bootstrap_query_context(self, query: str) -> list[str]:
         """Seed only deterministic semantic anchors for an unambiguous query."""
@@ -143,6 +334,7 @@ class KnowledgeGraph:
         if evidence and evidence not in node.evidence_refs:
             node.evidence_refs.append(dict(evidence))
             del node.evidence_refs[:-10]
+        self.save()
         return node_id
 
     def _apply_assessment(self, state: LearnerState, correct: bool, confidence: float | None = None, difficulty: float = 1.0) -> None:
@@ -227,6 +419,7 @@ class KnowledgeGraph:
                 f"LEARNER UPDATE → concept={concept!r}, correct={bool(correct)}, difficulty={difficulty!r}",
             )
             self._apply_assessment(self.nodes[node_id].learner, correct, confidence, difficulty)
+            self.save()
 
     def record_assessment(
         self,
@@ -289,6 +482,7 @@ class KnowledgeGraph:
         edge = self.edges.get(key)
         if edge:
             self._apply_assessment(edge.learner, correct, confidence, difficulty)
+            self.save()
 
     def learner_context(self, query: str, limit: int = 12) -> dict[str, Any]:
         node = self.nodes.get(self._id(query))
@@ -391,6 +585,7 @@ class KnowledgeGraph:
             "KnowledgeGraph",
             f"RELATION → {source!r} -[{relation}]-> {target!r} confidence={edge.confidence:.2f}",
         )
+        self.save()
 
     def learn_from_search(self, query: str, results: list[dict[str, Any]]) -> None:
         """Record only explicit search concepts and result titles; never invent a hierarchy."""
@@ -423,6 +618,7 @@ class KnowledgeGraph:
         if edge and evidence not in edge.evidence_refs:
             edge.evidence_refs.append(dict(evidence))
             del edge.evidence_refs[:-10]
+        self.save()
 
     @staticmethod
     def _concept_tokens(text: str) -> set[str]:
