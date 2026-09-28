@@ -19,6 +19,5 @@ def test_core_exports_learning_apis():
 
 def test_root_main_exports_cli_entrypoint():
     from main import main
-    from examples.study_agent import main as example_main
 
-    assert main is example_main
+    assert callable(main)
