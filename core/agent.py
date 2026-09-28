@@ -100,11 +100,6 @@ class StudyAgent:
             elif self.student_state is None:
                 self.student_state = state.student
             state.student = self.student_state
-            # Restore persistent learner evidence before TaskAnalyzer sees the student.
-            state.student.sync_from_knowledge_graph(self.knowledge_graph)
-            # Seed deterministic semantic anchors before the model reasons/searches.
-            self.knowledge_graph.bootstrap_query_context(question)
-
             state.goal = "解决用户当前问题，并在需要时获取足够可靠的证据。"
             state.search_sources = []
             state.search_sort_by = "relevance"
@@ -114,6 +109,7 @@ class StudyAgent:
                 state.task_analysis = analyzer.analyze(question, state.student)
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
+                state.goal = state.task_analysis.goal or state.goal
                 mode = state.task_analysis.execution_mode
                 state.execution_mode = mode
                 debug.log("StudyAgent", f"ROUTE → {mode}")
@@ -123,6 +119,12 @@ class StudyAgent:
                 mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
                 state.execution_mode = mode
                 debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
+
+            if mode != "chat":
+                # Knowledge paths need the persistent learner graph; ordinary
+                # chat must not pay this cost or mutate learning context.
+                state.student.sync_from_knowledge_graph(self.knowledge_graph)
+                self.knowledge_graph.bootstrap_query_context(question)
 
             if mode == "chat":
                 try:
@@ -253,8 +255,10 @@ class StudyAgent:
                 )
 
     def _update_student_model(self, state) -> None:
-        # Task exposure is not mastery. Learner-facing topic status comes from
-        # explicit assessment evidence stored in the persistent knowledge graph.
+        # Ordinary chat must not touch the learner graph. Knowledge-path updates
+        # are synchronized from explicit assessment evidence only.
+        if state.execution_mode == "chat":
+            return
         if state.knowledge_graph is not None:
             state.student.sync_from_knowledge_graph(state.knowledge_graph)
 
@@ -299,6 +303,8 @@ class StudyAgent:
 
     def _update_knowledge_graph(self, state) -> None:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
+        if state.execution_mode == "chat":
+            return
         graph = state.knowledge_graph
         if graph is None: return
         # TaskAnalyzer.domain is a scope label, not necessarily a learner concept.
