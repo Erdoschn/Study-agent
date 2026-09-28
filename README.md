@@ -562,29 +562,408 @@ Study-agent/
 └── test/                      # 自动化测试
 ```
 
+
 ## Adaptive Model + Reasoning Effort Routing
 
-当前模型路由分成两个独立决策：
+当前模型路由分成两个相互独立的问题：
 
-```text
+§§§text
+1. Which model?
+2. How much reasoning effort?
+§§§
+
+整体流程为：
+
+§§§text
+Question
+   ↓
+TaskAnalyzer
+   ├── task type / domain / tools / external facts
+   └── difficulty 1~5
+           ↓
+       ModelRouter
+       ├── model: runtime capability reliability
+       └── effort: difficulty + benchmark curve
+           ↓
+   Reasoner / Teacher / Direct Model
+§§§
+
+### 为什么不让 Reasoner 自己选择模型？
+
+Reasoner 必须先由某个模型运行，才能产生下一步决策。因此让 Reasoner 在第一次调用时决定“应该使用哪个模型”会形成循环依赖：
+
+§§§text
+先选模型
+   ↓
+才能运行 Reasoner
+   ↓
+Reasoner 才能选模型
+§§§
+
+当前实现因此把两个决策分开：
+
+- **TaskAnalyzer / pre-reasoner stage**：先理解问题并估计 difficulty。
+- **ModelRouter**：根据 difficulty 和模型运行历史决定模型及 effort。
+- **AgentReasoner**：拿到已经选择的模型后，只负责决定下一步 action。
+- **Teacher**：拿到已经选择的教学模型后，负责组织学习解释。
+
+因此：
+
+> **Reasoner 决定“做什么”，Router 决定“谁来做”。**
+
+这也使不同 routing policy 可以在相同任务集上做严格对照。
+
+### difficulty 是如何得到的？
+
+TaskAnalyzer 本身就是“便宜的前置评估器”。在没有 task analysis 之前，它默认使用较低的 effort 来完成最初的任务分析，避免为了估计难度而先支付高 reasoning 成本。
+
+它输出：
+
+§§§text
+difficulty ∈ {1,2,3,4,5}
+§§§
+
+这个难度不是心理学意义上的真实“问题难度”，而是 Router 使用的**任务复杂度估计**，当前依据包括：
+
+- 任务类型与目标
+- 是否需要外部事实
+- 是否需要搜索 / 计算 / 验证
+- 是否存在多步推理需求
+- TaskAnalyzer 对任务复杂度的结构化判断
+
+因此 README 和实验中应该把它称为 **estimated task difficulty**，而不是客观难度标签。
+
+### Model selection：只使用 runtime reliability
+
+当前模型顺序不再由多个静态因素加权得到。
+
+主要依据是：
+
+§§§text
+capability-specific runtime reliability
+§§§
+
+例如：
+
+§§§text
+reasoning capability
+    model A: 真实调用成功率较高
+    model B: 真实调用成功率较低
+
+teaching capability
+    model A: teaching role 的历史表现
+    model B: teaching role 的历史表现
+§§§
+
+reasoning 和 teaching 可以因此得到不同的模型顺序。
+
+runtime reliability 使用平滑统计，避免一个模型只成功 1 次或失败 1 次就被错误地排到极端位置。
+
+### Effort selection：difficulty + benchmark curve
+
+模型选定后，再决定使用多少 reasoning effort。
+
+当前支持的逻辑是：
+
+§§§text
+difficulty 1 → minimal
+difficulty 2 → low
+difficulty 3 → high
+difficulty 4 → high
+difficulty 5 → max
+§§§
+
+如果某个模型至少有两个已测 benchmark effort 点，则 Router 会尝试选择达到当前难度目标所需的**最低实测 effort**。
+
+当前目标保留比例为：
+
+| Difficulty | Target benchmark retention |
+|---|---:|
+| 1 | 70% |
+| 2 | 78% |
+| 3 | 86% |
+| 4 | 93% |
+| 5 | 100% |
+
+这些比例是当前研究原型中的启发式参数，不是官方 benchmark 标准。
+
+如果只有一个 benchmark 点，Router **不会推测缺失 effort 的分数**，而是退回到透明的 difficulty → supported effort 规则。
+
+---
+
+## What is reasoning effort?
+
+Reasoning effort 是模型 API 提供的离散推理强度控制参数。
+
+它不是统一的百分比：
+
+§§§text
+low = 20%
+medium = 50%
+high = 80%
+§§§
+
+这种解释是不成立的，因为不同模型对 effort 的定义和支持档位并不完全相同。
+
+例如 OpenAI GPT-5.6 系列当前公开支持：
+
+§§§text
+none / low / medium / high / xhigh / max
+§§§
+
+DeepSeek V4 的 Thinking 接口支持更少的实际档位，并对部分兼容值进行映射。
+
+因此本项目把 effort 作为**模型特定的离散控制变量**，并在 config/model_profiles.json 中记录模型已知的 effort 档位。
+
+真正实验时，还应该记录：
+
+§§§text
+model
+provider
+effort
+task
+latency
+reasoning tokens（若 provider 可提供）
+total tokens
+quality
+cost
+§§§
+
+这样才能分析“更高 effort 带来了多少质量收益，以及付出了多少成本”。
+
+---
+
+## Public Benchmark Profiles
+
+Benchmark 文件：
+
+§§§text
+config/model_profiles.json
+§§§
+
+当前记录的是 Artificial Analysis Intelligence Index 的公开结果。**这些分数不是本项目自己的实验结果，而是 routing 的静态先验。**
+
+主要已记录模型：
+
+| Model | Published effort benchmark points |
+|---|---|
+| GPT-5.6 Sol | none 28 / low 34 / medium 39 / high 42 / xhigh 44 / max 47 |
+| GPT-5.6 Terra | none 22 / low 28 / medium 30 / high 34 / xhigh 38 / max 42 |
+| GPT-5.6 Luna | none 16 / low 21 / medium 25 / high 32 / xhigh 35 / max 37 |
+| GPT-5 mini | minimal 10 / medium 21 / high 17 |
+| DeepSeek V4 Pro 0813 | max 36 |
+| DeepSeek V4 Flash 0420 | max 24 |
+| DeepSeek V4 Flash 0731 | max 50 |
+| GLM-5.3 | low 34 / max 45 |
+| GLM-5.3 Flash | max 42 |
+| Kimi K3 | low 34 / max 44 |
+| Qwen3.8 Max 0902 | max 45 |
+
+### Benchmark data policy
+
+项目遵循三个约束：
+
+1. **模型版本必须对应。**
+2. **缺少 benchmark 的 effort 档位保持 unknown。**
+3. **Router 不根据一个已知点虚构整个 effort curve。**
+
+例如：
+
+§§§text
+deepseek/deepseek-v4-flash
+    → V4 Flash 0420
+
+deepseek/deepseek-v4-flash-0731
+    → V4 Flash 0731
+§§§
+
+这避免不同版本模型被误认为同一个 benchmark profile。
+
+另外需要区分：
+
+§§§text
+public benchmark
+    ≠
+specific provider endpoint performance
+§§§
+
+某个公开 benchmark 数值只能作为先验；真正用于部署和实验的模型选择仍然应该观察实际 provider 的 runtime behavior。
+
+---
+
+## Design Rationale: why the routing is structured this way
+
+当前架构刻意没有做成一个“万能分数”：
+
+§§§text
+model_score =
+    capability
+  + speed
+  + benchmark
+  + popularity
+  + ...
+§§§
+
+原因是这种总分很难解释，也很难证明每个权重合理。
+
+当前实现更接近：
+
+§§§text
 TaskAnalyzer
     ↓
-difficulty 1~5
+estimated difficulty
     ↓
 ModelRouter
-    ├── 模型：只按真实调用可靠性排序
-    └── effort：根据模型公开 benchmark 的 effort 曲线 + difficulty 选择
+    ├── model order ← runtime reliability
+    └── effort      ← difficulty + benchmark prior
     ↓
-Reasoner / Teacher / Direct Model
-    ↓
-reasoning_effort（仅对该模型已配置支持的接口参数发送）
-```
+role executor
+§§§
 
-公开 benchmark 不再与 runtime reliability 做加权综合。benchmark 只是静态先验：有多档实测曲线时，Router 选择达到当前难度目标所需的最低实测 effort；只有一个实测点时，不把它扩展到未知档位，而回退到透明的 difficulty→effort 映射。
+这样每一层只有一个主要研究含义：
 
-模型 benchmark / effort 元数据集中在 `config/model_profiles.json`，API provider 和模型密钥仍保留在本地 `config/providers.json`。当前配置中的 benchmark 数值来自 Artificial Analysis Intelligence Index v4.3.2，并保留模型版本与 effort 信息。
+| Layer | Decision |
+|---|---|
+| TaskAnalyzer | 这个任务是什么、复杂度大概如何 |
+| ModelRouter / model | 谁更可靠地执行这个 role |
+| ModelRouter / effort | 当前任务需要多少 reasoning budget |
+| Reasoner | 下一步采取什么 action |
+| ToolExecutor | 如何实际执行 action |
+| Evidence | 得到了什么证据 |
+| Learner Model | 学生现在掌握什么 |
+| Teacher | 如何把结果教给学生 |
 
-`reasoning_effort` 会在 OpenAI-compatible Chat Completions 请求中作为模型请求参数发送。OpenAI 的 GPT-5.6 系列支持 `none/low/medium/high/xhigh/max`；DeepSeek V4-Pro / V4-Flash 支持 `low/high/max`，且 DeepSeek 官方会将部分兼容档位映射到实际 effort。[OpenAI reasoning documentation](https://developers.openai.com/api/docs/guides/reasoning) and [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/).
+这让系统更适合做 ablation 和 controlled experiments。
+
+---
+
+## Recommended Routing Experiments
+
+可以直接利用现有 execution_mode_override 和 model routing hooks 构造实验。
+
+### Experiment A — Fixed vs Adaptive execution
+
+§§§text
+Fixed Full Harness
+        vs.
+Adaptive Execution
+§§§
+
+核心问题：
+
+> 所有问题都跑完整 Agent Loop，是否真的比根据任务特征选择执行深度更有效？
+
+### Experiment B — Fixed model vs runtime router
+
+§§§text
+Fixed Model
+        vs.
+Runtime Reliability Router
+§§§
+
+核心问题：
+
+> 模型失败历史是否足以帮助系统改变后续角色分配？
+
+### Experiment C — Fixed effort vs adaptive effort
+
+§§§text
+Fixed effort
+        vs.
+Difficulty-aware effort
+§§§
+
+核心问题：
+
+> 是否可以在维持回答质量的同时减少不必要的 reasoning budget？
+
+### Experiment D — Adaptive model + adaptive effort
+
+§§§text
+fixed model + fixed effort
+        vs.
+adaptive model + adaptive effort
+§§§
+
+这是当前 routing 机制最完整的实验。
+
+重点不只是最终质量，而是：
+
+§§§text
+Quality
+Token usage
+Reasoning tokens
+Latency
+Model calls
+Cost
+Failure recovery
+§§§
+
+---
+
+## Detailed Module Review
+
+### TaskAnalyzer vs AgentReasoner
+
+这两个模块不是重复的。
+
+§§§text
+TaskAnalyzer
+    = “这是什么任务？”
+    + “大概有多难？”
+    + “是否需要工具？”
+
+AgentReasoner
+    = “现在下一步应该做什么？”
+§§§
+
+因此它们分别属于：
+
+§§§text
+pre-reasoner task understanding
+                ↓
+online action reasoning
+§§§
+
+这种分层还有一个研究上的好处：TaskAnalyzer 可以被替换成 rule-based classifier、small model、large model 或 classifier benchmark，而不会改变 Tool Loop 的逻辑。
+
+### ModelRouter vs AgentReasoner
+
+二者同样不应该合并：
+
+§§§text
+ModelRouter
+    → Which model?
+    → Which effort?
+
+AgentReasoner
+    → Search?
+    → Calculate?
+    → Verify?
+    → Answer?
+    → Stop?
+§§§
+
+如果把 model choice 交给 Reasoner，模型本身就参与决定“选择哪个模型”，会增加控制策略和实验解释的耦合。
+
+### Teacher vs Reasoner
+
+Teacher 的职责也不是重复 Reasoner：
+
+§§§text
+Reasoner:
+    optimize execution
+
+Teacher:
+    optimize teaching
+§§§
+
+Reasoner 关心任务是否完成、证据是否足够、下一步工具动作是什么。
+
+Teacher 关心学生已有知识、薄弱点、误解、解释顺序和学习脚手架。
+
+因此 Teacher 是这个项目从普通 Agent Harness 走向 learning-oriented Agent 的关键模块之一。
+
 
 ## Knowledge Graph Persistence
 
@@ -601,7 +980,6 @@ reasoning_effort（仅对该模型已配置支持的接口参数发送）
 
 因此关闭 Study Agent 后再次启动，之前积累的知识图谱和学习状态仍然可以恢复。`data/` 中的运行时数据默认不会提交到 Git；`data/.gitkeep` 仅用于保留目录结构。
 
-## Project Status
 
 当前项目已经从“LLM + Tool 调用脚本”发展成具有：
 
