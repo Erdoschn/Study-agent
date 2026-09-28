@@ -165,11 +165,17 @@ STOP：无法继续时停止并说明原因。
                     debug.log("AgentReasoner", f"ACTION → {decision.action}")
                     return decision
                 except ModelTimeoutError as exc:
-                    self.model_router.registry.record_failure(\n                        model.name, "reasoning",\n                        provider_level=self.model_router.registry.is_provider_level_failure(exc),\n                    )
+                    self.model_router.registry.record_failure(
+                        model.name, "reasoning",
+                        provider_level=self.model_router.registry.is_provider_level_failure(exc),
+                    )
                     errors.append(f"{model.name}: TIMEOUT: {exc}")
                     debug.log("AgentReasoner", f"MODEL TIMEOUT → {model.name}")
                 except Exception as exc:
-                    self.model_router.registry.record_failure(model.name, "reasoning")
+                    self.model_router.registry.record_failure(
+                        model.name, "reasoning",
+                        provider_level=self.model_router.registry.is_provider_level_failure(exc),
+                    )
                     errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
                     debug.log("AgentReasoner", f"MODEL FAILED → {model.name}")
             raise RuntimeError(
