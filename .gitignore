@@ -4,6 +4,10 @@ __pycache__/
 *.py[cod]
 *.pyo
 config/providers.json
+# Runtime knowledge-graph storage; keep the data directory itself in git via .gitkeep.
+data/*
+!data/.gitkeep
+!data/benchmarks/
 data/benchmarks/*
 !data/benchmarks/.gitkeep
 .pytest_cache/
