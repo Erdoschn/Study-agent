@@ -100,6 +100,7 @@ class TaskAnalyzer:
                     self.model_router.registry.record_failure(
                         model.name,
                         "reasoning",
+                        provider_level=self.model_router.registry.is_provider_level_failure(exc),
                     )
                     errors.append(
                         f"{model.name}: {type(exc).__name__}: {exc}"
