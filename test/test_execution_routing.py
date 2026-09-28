@@ -1,6 +1,7 @@
 from core.agent import StudyAgent
 from core.task_analyzer import TaskAnalyzer
 from core.reasoner import ReasoningDecision
+from core.state import AgentStep
 
 
 class Model:
@@ -101,11 +102,30 @@ def test_knowledge_direct_uses_teacher_without_tool_loop():
     assert state.knowledge_graph is agent.knowledge_graph
 
 
-def test_knowledge_agent_enters_harness_loop():
+def test_knowledge_agent_enters_harness_loop(monkeypatch):
     agent, teacher, executor = make_agent("knowledge_agent", "research", ["search"])
+    calls = {"count": 0}
+
+    def fake_run(state):
+        calls["count"] += 1
+        state.final_answer = "loop draft"
+        state.add_step(
+            AgentStep(
+                step_id=1,
+                action="ANSWER",
+                model="fake-free",
+                reasoning_summary="harness route reached",
+            )
+        )
+        state.finished = True
+        return state
+
+    monkeypatch.setattr("core.agent.AgentToolLoop.run", fake_run)
     state = agent.run("研究 Transformer 的最新优化")
-    assert state.step_count >= 1
+
+    assert calls["count"] == 1
     assert state.final_answer == "loop draft"
+    assert state.step_count == 1
     assert teacher.calls == 1
 
 
