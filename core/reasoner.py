@@ -177,6 +177,7 @@ STOP：无法继续时停止并说明原因。
                             prompt,
                             json_mode=True,
                             reasoning_effort=choice.effort,
+                            reasoning_effort_param=choice.model.reasoning_effort_param,
                         )
                     )
                     self.model_router.registry.record_success(model.name, "reasoning")
