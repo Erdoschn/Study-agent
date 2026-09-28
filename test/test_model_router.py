@@ -149,3 +149,28 @@ def test_runtime_evidence_is_confidence_weighted():
         model.cooldown_until = 0.0
         registry.record_success("model-a", "reasoning")
     assert router._score(model, "reasoning") > 0.6
+
+
+def test_router_prefers_last_successful_model_for_capability():
+    registry = ModelRegistry(config())
+    data = config()
+    data["models"]["model-b"]["paid"] = False
+    registry = ModelRegistry(data)
+    router = ModelRouter(registry)
+
+    registry.record_success("model-a", "reasoning")
+    registry.get("model-a").cooldown_until = 0.0
+    registry.get("model-b").cooldown_until = 0.0
+
+    assert router.select_candidates("reasoning")[0].name == "model-a"
+
+
+def test_provider_level_failure_temporarily_skips_provider():
+    registry = ModelRegistry(config())
+    registry.record_failure("model-a", "reasoning", provider_level=True)
+
+    assert registry.available() == []
+    assert registry.provider_cooldown_until["test"] > 0.0
+    assert registry.is_provider_level_failure(TimeoutError("timed out"))
+    assert registry.is_provider_level_failure(RuntimeError("LLM HTTP 503: unavailable"))
+    assert not registry.is_provider_level_failure(RuntimeError("LLM HTTP 404: model retired"))
