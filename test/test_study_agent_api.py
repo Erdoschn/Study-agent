@@ -38,10 +38,14 @@ def test_sse_event_is_valid_data_frame():
     assert parsed["choices"][0]["delta"]["content"] == "ok"
 
 
-def _start_server(answer="最终答案"):
+def _start_server(answer="最终答案", delay=0.0):
     server = AgentHTTPServer(("127.0.0.1", 0), Handler)
     server.agent = SimpleNamespace(
-        run=lambda question: SimpleNamespace(
+        run=lambda question: (
+            __import__("time").sleep(delay)
+            if delay
+            else None
+        ) or SimpleNamespace(
             final_answer=answer,
             step_count=1,
             evidence=[],
@@ -166,6 +170,36 @@ def test_stream_chat_completion_separates_status_and_answer():
         assert "content" not in status_delta
         assert answer_delta == {"role": "assistant", "content": "最终答案"}
         assert finish == "stop"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_stream_delivers_first_event_before_agent_finishes():
+    server, _ = _start_server(delay=0.5)
+    try:
+        host, port = server.server_address
+        conn = http.client.HTTPConnection(host, port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/chat/completions",
+            body=json.dumps({
+                "model": MODEL_ID,
+                "stream": True,
+                "messages": [{"role": "user", "content": "stream test"}],
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+
+        # The first SSE frame must arrive while the agent is still sleeping.
+        first_line = response.fp.readline().decode("utf-8")
+        assert first_line.startswith("data: ")
+        first_payload = json.loads(first_line[len("data: "):])
+        assert first_payload["choices"][0]["delta"] == {"role": "assistant"}
+
+        response.read()
+        conn.close()
     finally:
         server.shutdown()
         server.server_close()
