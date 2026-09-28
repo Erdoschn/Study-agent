@@ -38,6 +38,25 @@ class ModelInfo:
             result[str(key)] = max(0.0, min(1.0, score))
         return result
 
+    @property
+    def reliability_score(self) -> float:
+        """Runtime call reliability with a neutral prior and streak penalty.
+
+        The prior prevents one lucky call from dominating. Repeated failures
+        reduce the score quickly, while successful calls recover it gradually.
+        """
+        if self.calls <= 0:
+            return 0.5
+
+        # Beta(2, 2) prior: cold-start stays neutral and small samples are
+        # deliberately conservative.
+        score = (self.successes + 2.0) / (self.calls + 4.0)
+
+        # A consecutive failure streak is more informative than old failures.
+        # Cap the penalty so a model can recover after the outage is over.
+        streak_penalty = 1.0 - min(0.50, 0.10 * self.failure_streak)
+        return max(0.0, min(1.0, score * streak_penalty))
+
     def capability_observations(self, capability: str) -> int:
         return (
             int(self.capability_successes.get(capability, 0))
@@ -131,7 +150,7 @@ class ModelRegistry:
             self.provider_cooldown_until.pop(model.provider, None)
         debug.log(
             "ModelRegistry",
-            f"SUCCESS → model={name}, capability={capability or 'none'}, calls={model.calls}, failures={model.failures}, cooldown=0",
+            f"SUCCESS → model={name}, capability={capability or 'none'}, calls={model.calls}, failures={model.failures}, reliability={model.reliability_score:.3f}, cooldown=0",
         )
 
     def record_failure(self, name: str, capability: str | None = None, provider_level: bool = False) -> None:
@@ -151,7 +170,7 @@ class ModelRegistry:
                 self.last_successful_by_capability.pop(capability, None)
         debug.log(
             "ModelRegistry",
-            f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, cooldown={cooldown:.1f}s",
+            f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, reliability={model.reliability_score:.3f}, cooldown={cooldown:.1f}s",
         )
 
     @staticmethod
