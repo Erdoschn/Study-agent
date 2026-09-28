@@ -147,6 +147,8 @@ class ModelRegistry:
             self.provider_cooldown_until[model.provider] = time.time() + self.PROVIDER_COOLDOWN_SECONDS
         if capability:
             self._update_capability(model, capability, False)
+            if self.last_successful_by_capability.get(capability) == name:
+                self.last_successful_by_capability.pop(capability, None)
         debug.log(
             "ModelRegistry",
             f"FAILURE → model={name}, capability={capability or 'none'}, failures={model.failures}, streak={model.failure_streak}, cooldown={cooldown:.1f}s",
