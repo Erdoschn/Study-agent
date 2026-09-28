@@ -4,6 +4,7 @@ from .task_analyzer import TaskAnalyzer
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
 from .assessment import AssessmentEvaluator
 from .__debug__ import debug
+from .model_router import get_model_choices, call_model_with_effort
 
 
 class StudyAgent:
@@ -65,8 +66,9 @@ class StudyAgent:
 
     def _direct_model_answer(self, state) -> str:
         """Answer without entering the Harness tool loop."""
-        choices = self.reasoner.model_router.select_choice_candidates(
-            capability="general",
+        choices = get_model_choices(
+            self.reasoner.model_router,
+            "general",
             allow_paid=self.reasoner.allow_paid,
             task_analysis=state.task_analysis,
         )
@@ -78,7 +80,8 @@ class StudyAgent:
             model = choice.model
             attempts += 1
             try:
-                result = self.reasoner.model_router.call_model(
+                result = call_model_with_effort(
+                    self.reasoner.model_router,
                     self.reasoner.model_factory.create(model),
                     "你是 Study Agent 的直接回答引擎。根据用户问题直接给出准确、清晰的回答。不要输出隐藏思维链。",
                     state.question,
