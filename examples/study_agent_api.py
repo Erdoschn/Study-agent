@@ -113,7 +113,7 @@ class AgentHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
-    protocol_version = "HTTP/1.0"
+    protocol_version = "HTTP/1.1"
     SSE_HEARTBEAT_SECONDS = 5.0
     SSE_STATUS_SECONDS = 15.0
 
@@ -373,13 +373,26 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 debug.log = original_log
 
+    def _write_sse(self, payload: bytes) -> None:
+        """Write one SSE frame as an HTTP/1.1 chunk and flush immediately."""
+        header = f"{len(payload):X}\r\n".encode("ascii")
+        self.wfile.write(header)
+        self.wfile.write(payload)
+        self.wfile.write(b"\r\n")
+        self.wfile.flush()
+
+    def _finish_chunked(self) -> None:
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+
     def _stream_run(self, question: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
         # [DONE] terminates the SSE stream; close the HTTP connection
         # after the terminal frame so simple clients can detect completion.
-        self.send_header("Connection", "close")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Transfer-Encoding", "chunked")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Content-Encoding", "identity")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -392,8 +405,7 @@ class Handler(BaseHTTPRequestHandler):
         # _run_agent emits the initial status exactly once, before acquiring
         # the global run lock. Do not emit it here as well, or the UI will show
         # duplicate "正在分析任务" messages.
-        self.wfile.write(sse_event(chunk(role="assistant", completion_id=completion_id)))
-        self.wfile.flush()
+        self._write_sse(sse_event(chunk(role="assistant", completion_id=completion_id)))
 
         def emit(status: str) -> None:
             events.put(("status", status))
@@ -417,56 +429,51 @@ class Handler(BaseHTTPRequestHandler):
                     kind, value = events.get(timeout=self.SSE_HEARTBEAT_SECONDS)
                 except queue.Empty:
                     # Keep the SSE connection active during long model/search calls.
-                    self.wfile.write(b": keep-alive\n\n")
-                    now = time.monotonic()
-                    if now - last_status_at >= self.SSE_STATUS_SECONDS:
-                        self.wfile.write(sse_event(chunk(
-                            reasoning="⏳ Agent 仍在执行，请稍候...",
-                            completion_id=completion_id,
-                        )))
-                        last_status_at = now
-                    self.wfile.flush()
+                    self._write_sse(b": keep-alive\n\n")
                     continue
 
                 if kind == "status":
-                    self.wfile.write(sse_event(chunk(reasoning=value, completion_id=completion_id)))
-                    self.wfile.flush()
+                    self._write_sse(sse_event(chunk(
+                        reasoning=str(value).rstrip() + "\n\n",
+                        completion_id=completion_id,
+                    )))
                 elif kind == "result":
                     answer = str(value.final_answer or "").strip()
                     print(f"✓ FINAL ANSWER → {len(answer)} chars", flush=True)
                     if answer:
-                        self.wfile.write(sse_event(
+                        self._write_sse(sse_event(
                             chunk(content=answer, role="assistant", completion_id=completion_id)
                         ))
-                        self.wfile.write(sse_event(chunk(finish="stop", completion_id=completion_id)))
+                        self._write_sse(sse_event(chunk(finish="stop", completion_id=completion_id)))
                     else:
-                        self.wfile.write(sse_event(chunk(
-                            reasoning="❌ StudyAgent 完成但 final_answer 为空",
+                        self._write_sse(sse_event(chunk(
+                            reasoning="❌ StudyAgent 完成但 final_answer 为空\n\n",
                             completion_id=completion_id,
                         )))
-                        self.wfile.write(sse_event(chunk(
+                        self._write_sse(sse_event(chunk(
                             finish="stop",
                             completion_id=completion_id,
                         )))
-                    self.wfile.write(b"data: [DONE]\n\n")
-                    self.wfile.flush()
+                    self._write_sse(b"data: [DONE]\n\n")
                 elif kind == "error":
-                    self.wfile.write(sse_event(chunk(
-                        reasoning=f"❌ Agent 执行失败：{value}",
+                    self._write_sse(sse_event(chunk(
+                        reasoning=f"❌ Agent 执行失败：{value}\n\n",
                         completion_id=completion_id,
                     )))
-                    self.wfile.write(sse_event(chunk(
+                    self._write_sse(sse_event(chunk(
                         finish="stop",
                         completion_id=completion_id,
                     )))
-                    self.wfile.write(b"data: [DONE]\n\n")
-                    self.wfile.flush()
+                    self._write_sse(b"data: [DONE]\n\n")
                 elif kind == "done" and value is sentinel:
                     break
         except (BrokenPipeError, ConnectionResetError):
             print("⚠️ SSE 客户端已断开连接", flush=True)
         finally:
-            # Explicitly terminate the HTTP connection after [DONE].
+            try:
+                self._finish_chunked()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             self.close_connection = True
 
 
