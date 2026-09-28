@@ -198,7 +198,7 @@ def test_runtime_evidence_is_confidence_weighted():
     for _ in range(1):
         registry.record_success("model-a", "reasoning")
     router = ModelRouter(registry)
-    assert router._score(model, "reasoning") == 0.5466666666666666
+    assert router._score(model, "reasoning") == 0.5416666666666666
 
     for _ in range(4):
         model.cooldown_until = 0.0
@@ -229,3 +229,41 @@ def test_provider_level_failure_temporarily_skips_provider():
     assert registry.is_provider_level_failure(TimeoutError("timed out"))
     assert registry.is_provider_level_failure(RuntimeError("LLM HTTP 503: unavailable"))
     assert not registry.is_provider_level_failure(RuntimeError("LLM HTTP 404: model retired"))
+
+
+def test_efficiency_is_tracked_per_difficulty():
+    registry = ModelRegistry(config())
+    data = config()
+    data["models"]["model-b"]["paid"] = False
+    registry = ModelRegistry(data)
+
+    for _ in range(10):
+        registry.record_task_outcome("model-a", "reasoning", 4, 2, True)
+        registry.record_task_outcome("model-b", "reasoning", 4, 4, True)
+
+    assert registry.get("model-a").efficiency_score("reasoning", 4) > registry.get("model-b").efficiency_score("reasoning", 4)
+    assert registry.get("model-a").efficiency_score("reasoning", 3) == 0.5
+
+
+def test_failed_tasks_do_not_earn_efficiency_reward():
+    registry = ModelRegistry(config())
+    for _ in range(20):
+        registry.record_task_outcome("model-a", "reasoning", 5, 1, False)
+
+    assert registry.get("model-a").efficiency_score("reasoning", 5) == 0.5
+
+
+def test_router_uses_same_difficulty_efficiency():
+    registry = ModelRegistry(config())
+    data = config()
+    data["models"]["model-b"]["paid"] = False
+    registry = ModelRegistry(data)
+
+    for _ in range(10):
+        registry.record_task_outcome("model-a", "reasoning", 4, 2, True)
+        registry.record_task_outcome("model-b", "reasoning", 4, 5, True)
+
+    router = ModelRouter(registry)
+    assert router._score(registry.get("model-a"), "reasoning", type("A", (), {"difficulty": 4})()) > router._score(
+        registry.get("model-b"), "reasoning", type("A", (), {"difficulty": 4})()
+    )
