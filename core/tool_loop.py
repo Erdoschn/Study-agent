@@ -551,6 +551,7 @@ class AgentToolLoop:
                         step_id=state.step_count + 1,
                         action="STOP",
                         model=decision.model,
+                        effort=decision.effort,
                         reasoning_summary="同一 ANSWER 在 Harness 拒绝后再次重复，停止以避免无限循环。",
                         success=False,
                         error=state.error,
@@ -635,6 +636,7 @@ class AgentToolLoop:
                                 step_id=step_id,
                                 action="ANSWER_BLOCKED",
                                 model=decision.model,
+                                effort=decision.effort,
                                 reasoning_summary="模型声明 ANSWER，但没有提供可交付答案。",
                                 success=False,
                                 error="EMPTY_ANSWER: ANSWER 必须提供非空 answer。",
@@ -682,6 +684,7 @@ class AgentToolLoop:
                         state.error = decision.finish_reason or decision.reasoning_summary
                     state.add_step(AgentStep(
                         step_id=step_id, action=decision.action, model=decision.model,
+                        effort=decision.effort,
                         reasoning_summary=decision.reasoning_summary,
                         success=decision.action == "ANSWER", error=state.error or "",
                     ))
@@ -691,7 +694,7 @@ class AgentToolLoop:
                 if self._repeated_tool(state, decision):
                     state.error = "Agent 检测到重复工具调用，已停止。"
                     state.add_step(AgentStep(
-                        step_id=step_id, action="STOP", model=decision.model, tool=tool,
+                        step_id=step_id, action="STOP", model=decision.model, effort=decision.effort, tool=tool,
                         arguments=decision.arguments or {},
                         reasoning_summary="检测到等价的重复工具调用，停止以避免无意义循环。",
                         success=False, error=state.error,
