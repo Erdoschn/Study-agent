@@ -90,9 +90,9 @@
       ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
-        "model_version": "DeepSeek V4 Flash 0731",
+        "model_version": "DeepSeek V4 Flash 0420",
         "intelligence_index_by_effort": {
-          "max": 35
+          "max": 24
         }
       }
     },
@@ -145,6 +145,37 @@
         "model_version": "Qwen3.8 Max 0902",
         "intelligence_index_by_effort": {
           "max": 45
+        }
+      }
+    },
+    "deepseek/deepseek-v4-flash-0731": {
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "DeepSeek V4 Flash 0731",
+        "intelligence_index_by_effort": {
+          "max": 50
+        }
+      }
+    },
+    "gpt-5-mini": {
+      "reasoning_efforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "reasoning_effort_param": "reasoning_effort",
+      "benchmark": {
+        "model_version": "GPT-5 mini",
+        "intelligence_index_by_effort": {
+          "minimal": 10,
+          "medium": 21,
+          "high": 17
         }
       }
     }
