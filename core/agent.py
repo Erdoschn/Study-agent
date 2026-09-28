@@ -83,6 +83,7 @@ class StudyAgent:
                     "你是 Study Agent 的直接回答引擎。根据用户问题直接给出准确、清晰的回答。不要输出隐藏思维链。",
                     state.question,
                     reasoning_effort=choice.effort,
+                    reasoning_effort_param=choice.model.reasoning_effort_param,
                 )
                 self.reasoner.model_router.registry.record_success(model.name, "general")
                 state.metrics["direct_model_attempts"] = attempts
