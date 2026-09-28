@@ -149,11 +149,12 @@ class ModelRouter:
         user_prompt: str,
         json_mode: bool = False,
         reasoning_effort: str | None = None,
+        reasoning_effort_param: str | None = "reasoning_effort",
     ) -> str:
         """Call clients with effort when supported; keep lightweight test adapters compatible."""
         import inspect
 
-        if reasoning_effort is None:
+        if reasoning_effort is None or not reasoning_effort_param:
             return client.generate(system_prompt, user_prompt, json_mode=json_mode)
 
         try:
@@ -171,7 +172,7 @@ class ModelRouter:
                 system_prompt,
                 user_prompt,
                 json_mode=json_mode,
-                reasoning_effort=reasoning_effort,
+                **{reasoning_effort_param: reasoning_effort},
             )
         return client.generate(system_prompt, user_prompt, json_mode=json_mode)
 
