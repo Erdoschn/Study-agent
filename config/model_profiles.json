@@ -3,7 +3,14 @@
   "benchmark_source": "Artificial Analysis Intelligence Index v4.3.2",
   "models": {
     "gpt-5.6-sol": {
-      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "GPT-5.6 Sol",
@@ -18,7 +25,14 @@
       }
     },
     "gpt-5.6-terra": {
-      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "GPT-5.6 Terra",
@@ -33,7 +47,14 @@
       }
     },
     "gpt-5.6-luna": {
-      "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "reasoning_efforts": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "GPT-5.6 Luna",
@@ -48,7 +69,11 @@
       }
     },
     "deepseek/deepseek-v4-pro": {
-      "reasoning_efforts": ["low", "high", "max"],
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "DeepSeek V4 Pro 0813",
@@ -58,7 +83,11 @@
       }
     },
     "deepseek/deepseek-v4-flash": {
-      "reasoning_efforts": ["low", "high", "max"],
+      "reasoning_efforts": [
+        "low",
+        "high",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "DeepSeek V4 Flash 0731",
@@ -68,7 +97,10 @@
       }
     },
     "z-ai/glm-5.3": {
-      "reasoning_efforts": ["low", "max"],
+      "reasoning_efforts": [
+        "low",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "GLM-5.3",
@@ -79,7 +111,9 @@
       }
     },
     "z-ai/glm-5.3-flash": {
-      "reasoning_efforts": ["max"],
+      "reasoning_efforts": [
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "GLM 5.3 Flash",
@@ -89,7 +123,10 @@
       }
     },
     "moonshotai/kimi-k3": {
-      "reasoning_efforts": ["low", "max"],
+      "reasoning_efforts": [
+        "low",
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "Kimi K3",
@@ -100,7 +137,9 @@
       }
     },
     "qwen/qwen3.8-max": {
-      "reasoning_efforts": ["max"],
+      "reasoning_efforts": [
+        "max"
+      ],
       "reasoning_effort_param": "reasoning_effort",
       "benchmark": {
         "model_version": "Qwen3.8 Max 0902",
@@ -109,5 +148,7 @@
         }
       }
     }
-  }
+  },
+  "source_url": "https://artificialanalysis.ai/",
+  "note": "Only measured values are recorded. Missing effort points remain unknown; router never invents benchmark scores."
 }
