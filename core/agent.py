@@ -115,11 +115,13 @@ class StudyAgent:
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
                 mode = state.task_analysis.execution_mode
+                state.execution_mode = mode
                 debug.log("StudyAgent", f"ROUTE → {mode}")
             except Exception as exc:
                 state.task_analysis = None
                 state.plan = None
                 mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
+                state.execution_mode = mode
                 debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
 
             if mode == "chat":
