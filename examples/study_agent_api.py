@@ -113,8 +113,7 @@ class AgentHTTPServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "StudyAgentAPI/1.0"
-    protocol_version = "HTTP/1.1"
-    SSE_HEARTBEAT_SECONDS = 5.0
+    protocol_version = "HTTP/1.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         return
@@ -373,25 +372,22 @@ class Handler(BaseHTTPRequestHandler):
                 debug.log = original_log
 
     def _write_sse(self, payload: bytes) -> None:
-        """Write one SSE frame as an HTTP/1.1 chunk and flush immediately."""
-        header = f"{len(payload):X}\r\n".encode("ascii")
-        self.wfile.write(header)
-        self.wfile.write(payload)
-        self.wfile.write(b"\r\n")
-        self.wfile.flush()
+        """Write one raw SSE frame and flush it immediately.
 
-    def _finish_chunked(self) -> None:
-        self.wfile.write(b"0\r\n\r\n")
+        HTTP/1.0 + Connection: close gives BaseHTTPRequestHandler a
+        close-delimited streaming body, so the adapter does not manually
+        implement HTTP chunk framing.
+        """
+        self.wfile.write(payload)
         self.wfile.flush()
 
     def _stream_run(self, question: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
-        # [DONE] terminates the SSE stream; close the HTTP connection
-        # after the terminal frame so simple clients can detect completion.
-        self.send_header("Connection", "keep-alive")
-        self.send_header("Transfer-Encoding", "chunked")
+        # [DONE] terminates the SSE stream; the HTTP/1.0 close-delimited
+        # response ends only after the terminal frame has been flushed.
+        self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Content-Encoding", "identity")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -423,12 +419,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             while True:
-                try:
-                    kind, value = events.get(timeout=self.SSE_HEARTBEAT_SECONDS)
-                except queue.Empty:
-                    # Keep the SSE connection active during long model/search calls.
-                    self._write_sse(b": keep-alive\n\n")
-                    continue
+                kind, value = events.get()
 
                 if kind == "status":
                     self._write_sse(sse_event(chunk(
@@ -468,10 +459,6 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             print("⚠️ SSE 客户端已断开连接", flush=True)
         finally:
-            try:
-                self._finish_chunked()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
             self.close_connection = True
 
 
