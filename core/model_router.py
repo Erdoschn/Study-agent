@@ -24,8 +24,9 @@ class ModelRouter:
         "general": {"general": 0.8, "reasoning": 0.6},
     }
 
-    STATIC_WEIGHT = 0.75
-    RUNTIME_WEIGHT = 0.25
+    STATIC_WEIGHT = 0.65
+    RUNTIME_WEIGHT = 0.15
+    RELIABILITY_WEIGHT = 0.20
     RUNTIME_CONFIDENCE_OBSERVATIONS = 5
     UNKNOWN_CAPABILITY_PRIOR = 0.5
 
@@ -62,7 +63,10 @@ class ModelRouter:
 
             debug.log(
                 "ModelRouter",
-                "ORDER → " + " → ".join(f"{m.name}({s:.3f})" for m, s in scored),
+                "ORDER → " + " → ".join(
+                    f"{m.name}(score={s:.3f}, reliability={m.reliability_score:.3f})"
+                    for m, s in scored
+                ),
             )
             return result
 
@@ -122,7 +126,6 @@ class ModelRouter:
 
     @staticmethod
     def _weighted_known(values: dict[str, float], requested: dict[str, float]) -> float | None:
-        # Kept for compatibility with callers that need the old "known only" view.
         pairs = [(values[key], weight) for key, weight in requested.items() if key in values]
         if not pairs:
             return None
@@ -141,10 +144,6 @@ class ModelRouter:
 
     def _score(self, model: ModelInfo, capability: str, analysis: Any = None, plan: Any = None) -> float:
         requested = self._requested_capabilities(capability, analysis, plan)
-
-        # Missing static capabilities are neutral priors, but still count in the
-        # denominator. This prevents a model with only generic reasoning metadata
-        # from outranking a model with the task's explicit primary capability.
         static_fit = self._weighted_fit(model.capabilities, requested)
         runtime_fit, observations = self._runtime_fit(model, requested)
 
@@ -153,9 +152,14 @@ class ModelRouter:
             runtime_fit - self.UNKNOWN_CAPABILITY_PRIOR
         ) * confidence
 
-        if not model.capabilities:
-            # Preserve the cold-start contract: with no static metadata, runtime
-            # evidence is the only signal and unseen models remain exactly neutral.
-            return runtime_adjusted
+        capability_score = runtime_adjusted
+        if model.capabilities:
+            capability_score = self.STATIC_WEIGHT * static_fit + self.RUNTIME_WEIGHT * runtime_adjusted
 
-        return self.STATIC_WEIGHT * static_fit + self.RUNTIME_WEIGHT * runtime_adjusted
+        # Reliability is independent from task capability: a strong model that
+        # frequently fails should not keep winning simply because its static
+        # capability metadata is high.
+        return (
+            (1.0 - self.RELIABILITY_WEIGHT) * capability_score
+            + self.RELIABILITY_WEIGHT * model.reliability_score
+        )
