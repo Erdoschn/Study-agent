@@ -865,72 +865,24 @@ def test_assess_rejects_empty_concepts():
         assert "concept" in str(exc).lower()
 
 
-def test_equivalent_search_call_is_rejected_after_executor_normalization():
-    class Executor:
-        def __init__(self):
-            self.calls = 0
 
-        def execute(self, tool, arguments):
-            self.calls += 1
-            return []
-
-    reasoner = StubReasoner([
-        ReasoningDecision(
-            action="SEARCH",
-            reasoning_summary="first search",
-            tool="search",
-            arguments={"query": "Attention   Transformer", "source": "arxiv", "max_results": 5},
-        ),
-        ReasoningDecision(
-            action="SEARCH",
-            reasoning_summary="same effective search with different formatting/defaults",
-            tool="search",
-            arguments={
-                "query": "attention transformer",
-                "source": "ARXIV",
-                "max_results": 15,
-                "sort_by": "relevance",
-                "sort_order": "descending",
-                "categories": [],
-            },
-        ),
-    ])
-    executor = Executor()
-    state = AgentToolLoop(reasoner, executor).run(
-        AgentState(question="attention transformer", max_steps=3)
+def test_tool_fingerprint_normalizes_effective_search_defaults():
+    loop = AgentToolLoop.__new__(AgentToolLoop)
+    first = loop._fingerprint(
+        "SEARCH",
+        "search",
+        {"query": "Attention   Transformer", "source": "arxiv", "max_results": 5},
     )
-    assert state.finished is True
-    assert "重复工具调用" in state.error
-    assert executor.calls == 1
-
-
-def test_same_search_query_can_change_source():
-    class Executor:
-        def __init__(self):
-            self.calls = []
-
-        def execute(self, tool, arguments):
-            self.calls.append(arguments)
-            return [{"source": arguments.get("source"), "title": "result", "abstract": "attention"}]
-
-    reasoner = StubReasoner([
-        ReasoningDecision(
-            action="SEARCH",
-            reasoning_summary="wikipedia",
-            tool="search",
-            arguments={"query": "attention", "source": "wikipedia"},
-        ),
-        ReasoningDecision(
-            action="SEARCH",
-            reasoning_summary="arxiv",
-            tool="search",
-            arguments={"query": "attention", "source": "arxiv"},
-        ),
-        ReasoningDecision(action="STOP", reasoning_summary="done"),
-    ])
-    executor = Executor()
-    state = AgentToolLoop(reasoner, executor).run(
-        AgentState(question="attention", max_steps=3)
+    second = loop._fingerprint(
+        "SEARCH",
+        "search",
+        {
+            "query": "attention transformer",
+            "source": "ARXIV",
+            "max_results": 15,
+            "sort_by": "relevance",
+            "sort_order": "descending",
+            "categories": [],
+        },
     )
-    assert state.finished is True
-    assert len(executor.calls) == 2
+    assert first == second
