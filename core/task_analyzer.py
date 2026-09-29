@@ -43,7 +43,9 @@ class TaskAnalyzer:
 - assessment_concept：用户要检验的主要知识点；若用户明确给出则原样保留，否则尽量从问题中提取，不要凭空创造。
 - assessment_difficulty：若用户明确指定难度，使用 basic/undergraduate/graduate/postgraduate/postgraduate_plus；否则使用 graduate。
 - 不要决定执行路径。不要输出 execution_mode；后续 ModelRouter 会根据任务信号自动决定 direct / direct_verified / reasoner。
-不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。\n不要因为关键词出现就机械判断需要工具。
+不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。
+不要因为关键词出现就机械判断需要工具。
+输出中若 assessment_requested=true，必须同时填写 assessment_concept；普通问题必须为 false。
 不要编造用户没有表达的背景。
 不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
 必须只输出 JSON。
@@ -173,7 +175,7 @@ class TaskAnalyzer:
         text = str(question or "").strip().lower()
         markers = (
             "出题", "给我一道题", "给我一题", "来一道题", "来道题",
-            "测试我", "测测我", "考考我", "检验一下", "检验我的理解",
+            "测试我", "测测我", "考考我", "检查", "创建测试", "检验一下", "检验我的理解",
             "做题", "quiz", "test me", "give me a question", "assess me",
         )
         return any(marker in text for marker in markers)
