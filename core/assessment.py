@@ -19,7 +19,16 @@ class AssessmentEvaluator:
         if not expected:
             raise ValueError("assessment 缺少 expected_answer，无法进行安全评分。")
         score = self._score(answer, expected, rubric)
-        correct = score >= 0.8
+        try:
+            difficulty = float(assessment.get("difficulty", 0.0))
+        except (TypeError, ValueError):
+            difficulty = 0.0
+        # Advanced mastery evidence is intentionally strict: postgraduate and
+        # postgraduate+ assessments require every rubric criterion to match.
+        # Easier assessments retain the normal 0.8 threshold and therefore
+        # cannot by themselves certify full mastery in KnowledgeGraph.
+        required_score = 1.0 if difficulty >= 0.9 else 0.8
+        correct = score >= required_score
         confidence_value = score
         if confidence is not None:
             try:
