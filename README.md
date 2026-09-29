@@ -9,11 +9,11 @@ flowchart LR
 
     USER["User"] --> SA["StudyAgent"]
     SA --> TA["TaskAnalyzer"]
-    TA --> ROUTE{"Execution Mode"}
-    ROUTE -->|chat| CHAT["Direct Model"]
-    ROUTE -->|knowledge_direct| KD["Knowledge Graph + Teacher"]
-    ROUTE -->|knowledge_agent| KG["Knowledge Graph + Teacher"]
-    KG --> LOOP["AgentToolLoop"]
+    TA --> ROUTE{"Execution Strategy"}
+    ROUTE -->|direct| DIRECT["Direct Model"]
+    ROUTE -->|direct_verified| VERIFIED["Direct Model + Validator"]
+    ROUTE -->|reasoner| REASONER_PATH["AgentReasoner + ToolLoop"]
+    REASONER_PATH --> LOOP["AgentToolLoop"]
 
     subgraph CORE["Agent Core"]
         TA
@@ -55,7 +55,9 @@ flowchart LR
 
     CONFIG["providers.json"] --> MODEL
     TA <--> MODEL
-    CHAT <--> MODEL
+    DIRECT <--> MODEL
+    VERIFIED <--> MODEL
+    VALIDATOR <--> MODEL
     TEACHER <--> MODEL
     REASONER <--> MODEL
     LOOP --> EXECUTOR
@@ -186,7 +188,7 @@ AgentReasoner 是动态决策中心，ToolExecutor 只负责执行。这样把�
 
 ### TaskAnalyzer — 任务理解
 
-负责第一次理解用户任务：task type、domain、goal、knowledge gaps、外部事实需求、推荐工具以及 execution mode。
+负责第一次理解用户任务：task type、domain、goal、knowledge gaps、外部事实需求、推荐工具、difficulty，以及是否明确要求测试。
 
 它决定任务进入普通聊天、直接教学还是完整 Harness；它不负责决定每一步具体搜索什么。
 
@@ -316,7 +318,7 @@ KNOWLEDGE_AGENT
     → Knowledge Graph + Teacher + AgentToolLoop
 ```
 
-`StudyAgent` 支持 `execution_mode_override`，可以在保持同一任务集、模型和用户状态的条件下强制指定路径，用于构造严格对照组。
+`StudyAgent` 支持 `execution_strategy_override`，可以在保持同一任务集、模型和用户状态的条件下强制指定路径，用于构造严格对照组。
 
 `AgentState.metrics` 会记录路由结果、TaskAnalyzer 时间和执行时间，后续可以继续扩展任务完成率、工具调用数、Token/成本等实验指标。
 
@@ -841,7 +843,7 @@ role executor
 
 ## Recommended Routing Experiments
 
-可以直接利用现有 execution_mode_override 和 model routing hooks 构造实验。
+可以直接利用现有 execution_strategy_override 和 model routing hooks 构造实验。
 
 ### Experiment A — Fixed vs Adaptive execution
 
