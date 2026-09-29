@@ -1095,7 +1095,12 @@ supporting_concepts = softmax, matrix multiplication
 
 正式测试只在学生明确提出测试请求后生成。
 
-正常回答结束后不会自动出题。对于明确的学习类问题，CLI 只给轻量提示：
+这里的“明确提出”是 Harness 的硬条件，而不是只依赖模型判断：
+- 普通回答不会自动出题。
+- TaskAnalyzer 即使误报 assessment_requested，也不会获得出题权限。
+- ToolLoop 在任务没有明确测试请求时会拒绝 ASSESS。
+- CLI 对学习类回答只给轻量提示：
+
 
 ```text
 📝 要检验一下刚才的理解吗？输入“出题”或“测试我”。
