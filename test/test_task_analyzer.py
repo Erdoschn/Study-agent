@@ -79,3 +79,45 @@ def test_parse_explicit_assessment_fields():
     assert result.assessment_requested is True
     assert result.assessment_concept == "attention"
     assert result.assessment_difficulty == "postgraduate_plus"
+
+
+
+def test_analyze_marks_explicit_assessment_request_without_proactive_testing():
+    import json
+
+    class Model:
+        name = "fake"
+        reasoning_effort_param = None
+
+    class Registry:
+        def record_success(self, *args): pass
+        def record_failure(self, *args, **kwargs): pass
+
+    class Router:
+        registry = Registry()
+
+        def select_candidates(self, capability, **kwargs):
+            assert capability == "reasoning"
+            return [Model()]
+
+    class Client:
+        def generate(self, system_prompt, user_prompt, json_mode=False, **kwargs):
+            assert json_mode is True
+            return json.dumps({
+                "task_type": "conceptual",
+                "domain": "transformer",
+                "assessment_requested": False,
+            }, ensure_ascii=False)
+
+    class Factory:
+        def create(self, model): return Client()
+
+    class Reasoner:
+        model_router = Router()
+        model_factory = Factory()
+        allow_paid = False
+
+    analyzer = TaskAnalyzer(Reasoner())
+    result = analyzer.analyze("给我一道 self-attention 的题测试一下我")
+    assert result.assessment_requested is True
+    assert "self-attention" in result.assessment_concept
