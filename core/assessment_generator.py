@@ -116,8 +116,17 @@ JSON schema：
                 return assessment
             except Exception as exc:
                 registry = self.model_router.registry
+                provider_level = (
+                    registry.is_provider_level_failure(exc)
+                    if hasattr(registry, "is_provider_level_failure")
+                    else False
+                )
                 try:
-                    registry.record_failure(model.name, "assessment", provider_level=registry.is_provider_level_failure(exc))
+                    registry.record_failure(
+                        model.name,
+                        "assessment",
+                        provider_level=provider_level,
+                    )
                 except TypeError:
                     registry.record_failure(model.name, "assessment")
                 errors.append(f"{model.name}: {type(exc).__name__}: {exc}")
