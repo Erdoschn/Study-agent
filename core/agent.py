@@ -202,7 +202,11 @@ class StudyAgent:
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
 
-                if getattr(state.task_analysis, "assessment_requested", False):
+                assessment_requested = (
+                    bool(getattr(state.task_analysis, "assessment_requested", False))
+                    or TaskAnalyzer._is_explicit_assessment_request(question)
+                )
+                if assessment_requested:
                     concept = (
                         getattr(state.task_analysis, "assessment_concept", "")
                         or state.domain
@@ -236,8 +240,12 @@ class StudyAgent:
                     strategy = selection.strategy
                     strategy_reason = selection.reason
                 else:
-                    needs_loop = (
-                        self.tool_executor is not None
+                    if router is None:
+                        strategy = "reasoner"
+                        strategy_reason = "legacy reasoner fallback"
+                    else:
+                        needs_loop = (
+                            self.tool_executor is not None
                         and hasattr(self.tool_executor, "execute")
                         and (
                             bool(getattr(state.task_analysis, "required_tools", []))
