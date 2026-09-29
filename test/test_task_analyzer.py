@@ -63,13 +63,19 @@ def test_parse_normalizes_string_boolean_and_bounds_lists():
     assert result.knowledge_gaps == ["gap"]
 
 
-def test_parse_execution_modes():
-    assert TaskAnalyzer._parse('{"task_type":"general","execution_mode":"chat"}').execution_mode == "chat"
-    assert TaskAnalyzer._parse('{"task_type":"conceptual","execution_mode":"knowledge_direct"}').execution_mode == "knowledge_direct"
-    assert TaskAnalyzer._parse('{"task_type":"research","required_tools":["search"],"execution_mode":"knowledge_agent"}').execution_mode == "knowledge_agent"
+def test_parse_has_no_execution_mode_and_defaults_assessment_off():
+    result = TaskAnalyzer._parse(
+        '{"task_type":"conceptual","assessment_requested":false}'
+    )
+    assert not hasattr(result, "execution_mode")
+    assert result.assessment_requested is False
 
 
-def test_parse_execution_mode_fallback():
-    assert TaskAnalyzer._parse('{"task_type":"research","required_tools":["search"]}').execution_mode == "knowledge_agent"
-    assert TaskAnalyzer._parse('{"task_type":"conceptual"}').execution_mode == "knowledge_direct"
-    assert TaskAnalyzer._parse('{"task_type":"general"}').execution_mode == "chat"
+def test_parse_explicit_assessment_fields():
+    result = TaskAnalyzer._parse(
+        '{"task_type":"conceptual","assessment_requested":true,'
+        '"assessment_concept":"attention","assessment_difficulty":"postgraduate_plus"}'
+    )
+    assert result.assessment_requested is True
+    assert result.assessment_concept == "attention"
+    assert result.assessment_difficulty == "postgraduate_plus"
