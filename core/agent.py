@@ -202,10 +202,7 @@ class StudyAgent:
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
 
-                assessment_requested = (
-                    bool(getattr(state.task_analysis, "assessment_requested", False))
-                    or TaskAnalyzer._is_explicit_assessment_request(question)
-                )
+                assessment_requested = TaskAnalyzer._is_explicit_assessment_request(question)
                 if assessment_requested:
                     concept = (
                         getattr(state.task_analysis, "assessment_concept", "")
