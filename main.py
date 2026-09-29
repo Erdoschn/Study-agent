@@ -318,9 +318,8 @@ def main() -> None:
 
             break
 
-        # Explicit formal assessment session:
-        # /test <concept> [difficulty]
-        # This path never exposes shell, file, or arbitrary code tools.
+        # /test is only a convenience syntax. It is converted into a
+        # normal user request so the same Agent Loop and Reasoner decide ASSESS.
         if question.lower().startswith("/test "):
             parts = question.split(maxsplit=2)
             concept = parts[1].strip() if len(parts) > 1 else ""
@@ -328,27 +327,7 @@ def main() -> None:
             if not concept:
                 print("用法：/test <知识点> [难度]\n")
                 continue
-            try:
-                assessment = agent.start_assessment(concept, difficulty)
-                print("\n========== Formal Assessment ==========\n")
-                print(f"Concept: {assessment['primary_concept']}")
-                print(f"Difficulty: {assessment['difficulty_level']}")
-                print(f"\n{assessment['question']}\n")
-                answer = input("Student Answer > ").strip()
-                result = agent.submit_assessment_answer(answer)
-                learner = result.get("learner_state", {}).get(
-                    assessment["primary_concept"], {}
-                )
-                print("\n========== Assessment Result ==========\n")
-                print(f"Score: {result['score']:.3f}")
-                print(f"Correct: {result['correct']}")
-                print(f"Learning Stage: {learner.get('learning_stage', 'unknown')}")
-                print(f"Familiarity: {learner.get('familiarity', 0):.3f}")
-                print(f"Confidence: {learner.get('confidence', 0):.3f}")
-                print()
-            except Exception as exc:
-                print(f"❌ 正式测评失败：{type(exc).__name__}: {exc}\n")
-            continue
+            question = f"请测试我对“{concept}”的理解，正式测评难度为 {difficulty}。"
 
         if question.lower().startswith("/learner"):
             parts = question.split(maxsplit=1)
