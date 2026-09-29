@@ -183,7 +183,7 @@ class TaskAnalyzer:
         import re
         text = str(question or "").strip()
         # Prefer explicit quoted/topic phrases, then strip common assessment language.
-        quoted = re.findall(r"[“”"]([^“”"]+)[“”"]", text)
+        quoted = re.findall(r'[“”"]([^“”"]+)[“”"]', text)
         for candidate in quoted:
             candidate = candidate.strip()
             if candidate:
