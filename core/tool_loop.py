@@ -594,6 +594,26 @@ class AgentToolLoop:
                     state.claims = decision.claims or []
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
+                if decision.action == "ASSESS" and not bool(
+                    getattr(getattr(state, "task_analysis", None), "assessment_requested", False)
+                ):
+                    state.error = "ASSESSMENT_NOT_REQUESTED: 只有用户明确要求测试时才能生成题目。"
+                    state.add_step(AgentStep(
+                        step_id=state.step_count + 1,
+                        action="ASSESS_BLOCKED",
+                        model=decision.model,
+                        effort=decision.effort,
+                        reasoning_summary="用户未明确要求测试，拒绝自动生成测评题。",
+                        success=False,
+                        error=state.error,
+                    ))
+                    debug.log(
+                        "AgentToolLoop",
+                        "ASSESS BLOCKED → explicit assessment request required",
+                    )
+                    state.finished = True
+                    break
+
                 if decision.knowledge_relations and state.knowledge_graph is not None:
                     for relation in decision.knowledge_relations:
                         source = relation["source"]
