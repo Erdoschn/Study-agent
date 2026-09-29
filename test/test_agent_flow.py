@@ -29,7 +29,7 @@ class FakeClient:
                 "knowledge_gaps": ["Q/K/V"],
                 "required_tools": ["search"],
                 "external_facts_needed": false,
-                "answer_strategy": "explain the concepts step by step",
+                "answer_strategy": "explain the concepts step by step"
             }'''
         raise AssertionError("unexpected model call")
 
@@ -67,3 +67,4 @@ def test_agent_runs_analysis_and_reason_loop():
     assert state.final_answer == "teaching answer"
     assert state.finished is True
     assert state.step_count == 1
+    assert state.metrics["assessment_offer"] is True
