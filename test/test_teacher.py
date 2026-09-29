@@ -72,7 +72,7 @@ def test_teacher_generates_with_teaching_capability():
             return Client()
 
     router = Router()
-    teacher = Teacher(router, Factory())
+    teacher = Teacher(router, Factory(), validate_teaching=False)
     state = AgentState(question="解释 attention")
 
     result = teacher.generate(state, draft_answer="原始草稿")
@@ -118,7 +118,7 @@ def test_teacher_falls_back_across_failed_models():
             return Client(model)
 
     router = Router()
-    teacher = Teacher(router, Factory())
+    teacher = Teacher(router, Factory(), validate_teaching=False)
     state = AgentState(question="解释 attention")
 
     assert teacher.generate(state) == "fallback teaching answer"
@@ -236,3 +236,81 @@ def test_teacher_recognizes_harness_verified_claim_with_normalized_text():
     ]
 
     assert Teacher._verified_claims(state) == ["attention mechanism"]
+
+
+
+def test_teacher_revises_only_when_validator_finds_major_error():
+    class Model:
+        name = "teacher-model"
+        reasoning_effort_param = None
+
+    class Registry:
+        def record_success(self, *args):
+            pass
+
+        def record_failure(self, *args, **kwargs):
+            pass
+
+    class Router:
+        def __init__(self):
+            self.registry = Registry()
+
+        def select_candidates(self, capability, **kwargs):
+            assert capability == "teaching"
+            return [Model()]
+
+    class Client:
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, system_prompt, user_prompt, json_mode=False):
+            self.calls += 1
+            if self.calls == 1:
+                return "三阶矩就是偏度。"
+            assert "validator_findings" in user_prompt
+            return "严格来说，三阶中心矩与偏度有关，但二者并不相等。"
+
+    class Factory:
+        def __init__(self):
+            self.client = Client()
+
+        def create(self, model):
+            return self.client
+
+    class FakeValidator:
+        def validate(self, state, draft_answer):
+            return {
+                "status": "REVISE",
+                "claims": [{
+                    "claim": "三阶矩就是偏度",
+                    "verdict": "ERROR",
+                    "severity": "major",
+                    "correction": "三阶中心矩与偏度并不相等。",
+                }],
+                "summary": "发现概念等价压缩错误。",
+                "attempted": True,
+                "attempts": 1,
+                "model": "validator",
+                "effort": "high",
+            }
+
+        @staticmethod
+        def revision_findings(result):
+            return [
+                item for item in result["claims"]
+                if item["verdict"] == "ERROR" and item["severity"] == "major"
+            ]
+
+    router = Router()
+    factory = Factory()
+    teacher = Teacher(router, factory, validate_teaching=True)
+    teacher.teaching_validator = FakeValidator()
+    state = AgentState(question="解释矩")
+    state.task_type = "conceptual"
+
+    result = teacher.generate(state)
+
+    assert "不相等" in result
+    assert state.metrics["teaching_validation_status"] == "REVISE"
+    assert state.metrics["teaching_validation_major_errors"] == 1
+    assert state.metrics["teaching_revision"] is True
