@@ -308,7 +308,7 @@ class AgentState:
     goal_context: list[str] = field(default_factory=list)
     task_type: str = ""
     domain: str = ""
-    execution_mode: str = "chat"
+    execution_strategy: str = "direct"
     task_analysis: Any = None
     plan: Any = None
     search_sources: list[str] = field(default_factory=list)
