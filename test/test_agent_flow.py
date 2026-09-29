@@ -27,9 +27,9 @@ class FakeClient:
                 "goal": "understand attention",
                 "issues": [],
                 "knowledge_gaps": ["Q/K/V"],
-                "required_tools": [],
+                "required_tools": ["search"],
                 "external_facts_needed": false,
-                "answer_strategy": "explain the concepts step by step", "execution_mode": "knowledge_agent"
+                "answer_strategy": "explain the concepts step by step",
             }'''
         raise AssertionError("unexpected model call")
 
