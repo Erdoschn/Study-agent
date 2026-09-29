@@ -68,7 +68,8 @@ JSON schema：
         rubric = [str(x).strip() for x in raw_rubric if str(x).strip()] if isinstance(raw_rubric, list) else []
         if len(rubric) < 2:
             raise ValueError("正式测评至少需要两个独立评分点。")
-        # The caller owns the assessment target; the generator may add supporting concepts but cannot retarget the primary concept.\n        primary = primary_concept
+        # The caller owns the assessment target; the generator may add supporting concepts but cannot retarget the primary concept.
+        primary = primary_concept
         supporting = data.get("supporting_concepts", [])
         supporting = [str(x).strip() for x in supporting if str(x).strip()] if isinstance(supporting, list) else []
         normalized_level, normalized_score = normalize_difficulty(difficulty)
