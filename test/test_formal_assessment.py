@@ -77,6 +77,7 @@ def test_assessment_generator_returns_structured_formal_test():
 
     assert result["primary_concept"] == "矩母函数"
     assert result["difficulty_level"] == "postgraduate_plus"
+    assert result["difficulty"] == 1.0
     assert len(result["rubric"]) == 2
     assert result["concepts"] == ["矩母函数", "原点矩"]
 
