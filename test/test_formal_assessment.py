@@ -95,7 +95,7 @@ def test_assessment_generator_rejects_missing_rubric():
     try:
         generator.generate("attention", "graduate")
         assert False
-    except ValueError as exc:
+    except RuntimeError as exc:
         assert "两个" in str(exc)
 
 
