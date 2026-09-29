@@ -854,69 +854,75 @@ role executor
 
 ---
 
-## Recommended Routing Experiments
+## Recommended Agent Experiments
 
-可以直接利用现有 execution_strategy_override 和 model routing hooks 构造实验。
+因为所有请求现在都进入同一个 Agent Loop，实验重点应该放在 **Reasoner policy** 和工具/记忆机制，而不是比较固定 execution mode。
 
-### Experiment A — Fixed vs Adaptive execution
+### Experiment A — Full Loop vs constrained policy
 
-`text
-Fixed Full Harness
-        vs.
-Adaptive Execution
-`
+```text
+Full Agent Loop
+    vs.
+Fixed / constrained action policy
+```
 
 核心问题：
 
-> 所有问题都跑完整 Agent Loop，是否真的比根据任务特征选择执行深度更有效？
+> 自主的逐轮决策是否比固定行动策略更有效？
 
 ### Experiment B — Fixed model vs runtime router
 
-`text
+```text
 Fixed Model
-        vs.
+    vs.
 Runtime Reliability Router
-`
+```
 
 核心问题：
 
-> 模型失败历史是否足以帮助系统改变后续角色分配？
+> 模型失败历史是否能够改善后续 role 分配？
 
 ### Experiment C — Fixed effort vs adaptive effort
 
-`text
+```text
 Fixed effort
-        vs.
+    vs.
 Difficulty-aware effort
-`
+```
 
 核心问题：
 
-> 是否可以在维持回答质量的同时减少不必要的 reasoning budget？
+> 是否可以在维持质量的同时减少不必要的 reasoning budget？
 
-### Experiment D — Adaptive model + adaptive effort
+### Experiment D — Learner-aware vs stateless
 
-`text
-fixed model + fixed effort
-        vs.
-adaptive model + adaptive effort
-`
+```text
+Agent + Learner Model
+    vs.
+Agent without Learner Model
+```
 
-这是当前 routing 机制最完整的实验。
+核心问题：
 
-重点不只是最终质量，而是：
+> 学习者状态是否真正改变后续 Agent 决策和学习结果，而不仅是改变回答措辞？
 
-`text
+重点记录：
+
+```text
 Quality
+Task completion
+Unnecessary tool calls
+Steps
+Latency
 Token usage
 Reasoning tokens
-Latency
 Model calls
 Cost
+Evidence quality
+Learner-state update accuracy
+Personalization gain
 Failure recovery
-`
-
----
+```
 
 ## Detailed Module Review
 
