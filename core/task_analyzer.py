@@ -175,7 +175,7 @@ class TaskAnalyzer:
         text = str(question or "").strip().lower()
         markers = (
             "出题", "给我一道题", "给我一题", "来一道题", "来道题",
-            "测试我", "测测我", "考考我", "检查", "创建测试", "检验一下", "检验我的理解",
+            "测试我", "测试一下", "测测我", "测一下", "考考我", "检查", "创建测试", "检验一下", "检验我的理解",
             "做题", "quiz", "test me", "give me a question", "assess me",
         )
         return any(marker in text for marker in markers)
