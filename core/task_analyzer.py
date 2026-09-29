@@ -102,6 +102,15 @@ class TaskAnalyzer:
                     )
                     analysis = self._parse(raw)
                     analysis.domain = self._normalize_domain(question, analysis.domain)
+                    analysis.assessment_requested = (
+                        analysis.assessment_requested
+                        or self._is_explicit_assessment_request(question)
+                    )
+                    if analysis.assessment_requested and not analysis.assessment_concept:
+                        analysis.assessment_concept = self._extract_assessment_concept(
+                            question,
+                            analysis.domain,
+                        )
                     self.model_router.registry.record_success(
                         model.name,
                         "reasoning",
@@ -158,6 +167,37 @@ class TaskAnalyzer:
             except json.JSONDecodeError:
                 pass
         return text
+
+    @staticmethod
+    def _is_explicit_assessment_request(question: str) -> bool:
+        text = str(question or "").strip().lower()
+        markers = (
+            "出题", "给我一道题", "给我一题", "来一道题", "来道题",
+            "测试我", "测测我", "考考我", "检验一下", "检验我的理解",
+            "做题", "quiz", "test me", "give me a question", "assess me",
+        )
+        return any(marker in text for marker in markers)
+
+    @staticmethod
+    def _extract_assessment_concept(question: str, domain: str) -> str:
+        import re
+        text = str(question or "").strip()
+        # Prefer explicit quoted/topic phrases, then strip common assessment language.
+        quoted = re.findall(r"[“”"]([^“”"]+)[“”"]", text)
+        for candidate in quoted:
+            candidate = candidate.strip()
+            if candidate:
+                return candidate[:120]
+        candidate = re.sub(
+            r"(请|帮我|给我|来|出|一道|一题|个|题目|题|测试|测测|考考|检验|一下|我的理解|quiz|test me|give me a question|assess me)",
+            " ",
+            text,
+            flags=re.I,
+        )
+        candidate = re.sub(r"\s+", " ", candidate).strip(" ：:，,。！？?!")
+        if candidate:
+            return candidate[:120]
+        return str(domain or "").strip()
 
     @staticmethod
     def _normalize_domain(question: str, domain: str) -> str:
@@ -263,17 +303,6 @@ class TaskAnalyzer:
         allowed_assessment_levels = {"basic", "undergraduate", "graduate", "postgraduate", "postgraduate_plus"}
         if assessment_difficulty not in allowed_assessment_levels:
             assessment_difficulty = "graduate"
-
-        question_text = str(question or "").strip().lower()
-        assessment_markers = (
-            "出题", "给我一道题", "给我一题", "来一道题", "来道题",
-            "测试我", "测测我", "考考我", "检验一下", "检验我的理解",
-            "做题", "quiz", "test me", "give me a question", "assess me",
-        )
-        if any(marker in question_text for marker in assessment_markers):
-            assessment_requested = True
-        if assessment_requested and not assessment_concept:
-            assessment_concept = str(data.get("domain", "")).strip() or ""
 
         return TaskAnalysis(
             task_type=task_type,
