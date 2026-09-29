@@ -2,6 +2,7 @@ import json
 
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .knowledge_graph import normalize_difficulty
 
 
 class AssessmentGenerator:
@@ -70,11 +71,13 @@ JSON schema：
         primary = str(data.get("primary_concept", "")).strip() or primary_concept
         supporting = data.get("supporting_concepts", [])
         supporting = [str(x).strip() for x in supporting if str(x).strip()] if isinstance(supporting, list) else []
+        normalized_level, normalized_score = normalize_difficulty(difficulty)
         return {
             "concepts": [primary] + [x for x in supporting if x != primary][:7],
             "primary_concept": primary,
             "supporting_concepts": [x for x in supporting if x != primary][:7],
-            "difficulty_level": difficulty,
+            "difficulty": normalized_score,
+            "difficulty_level": normalized_level,
             "question_type": str(data.get("question_type", "open_ended")),
             "question": question,
             "expected_answer": expected,
