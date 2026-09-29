@@ -32,11 +32,13 @@ class StudyAgent:
         self.student_state = None
         self.knowledge_graph = KnowledgeGraph(storage_path=knowledge_graph_path)
         self.assessment_evaluator = AssessmentEvaluator()
-        self.assessment_generator = AssessmentGenerator(
-            self.reasoner.model_router,
-            self.reasoner.model_factory,
-            allow_paid=self.reasoner.allow_paid,
-        )
+        self.assessment_generator = None
+        if hasattr(self.reasoner, "model_router") and hasattr(self.reasoner, "model_factory"):
+            self.assessment_generator = AssessmentGenerator(
+                self.reasoner.model_router,
+                self.reasoner.model_factory,
+                allow_paid=getattr(self.reasoner, "allow_paid", False),
+            )
         self.last_state = None
         self.pending_assessment_state = None
 
@@ -253,6 +255,8 @@ class StudyAgent:
         self.student_state = self.student_state or StudentState()
         self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
         context = self.knowledge_graph.context_for(concept)
+        if self.assessment_generator is None:
+            raise RuntimeError("当前 Reasoner 未配置可用于正式测评的模型路由。")
         assessment = self.assessment_generator.generate(
             concept,
             level,
