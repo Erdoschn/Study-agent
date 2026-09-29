@@ -72,19 +72,28 @@ Question
    ↓
 Task Analysis
    ↓
-Execution Mode
-   ├── CHAT
+ModelRouter
+   ↓
+Execution Strategy
+   ├── DIRECT
    │    └── Direct Model
    │
-   ├── KNOWLEDGE_DIRECT
-   │    └── Knowledge Graph → Teacher → Answer
+   ├── DIRECT_VERIFIED
+   │    └── Direct Model → TeachingValidator
+   │                         ↓
+   │                    revise if needed
    │
-   └── KNOWLEDGE_AGENT
-        └── Knowledge Graph → Teacher → AgentToolLoop
-                                      ↓
-                               Search / Calculate / Verify
+   └── REASONER
+        └── AgentReasoner → ToolLoop
+                 ↓
+          Search / Calculate / Verify
+                 ↓
+              Teacher
 ```
 
+这里没有固定的“聊天模式 / 直接知识回答模式”。Router 根据任务复杂度、工具需求、外部事实需求和知识风险自动决定执行深度。
+
+## Agent Reasoning Loop
 ## Agent Reasoning Loop
 
 ```mermaid
@@ -305,26 +314,29 @@ pytest -q
 
 ### Adaptive Execution
 
-项目现在不再默认让所有输入进入完整 Harness，而是根据任务性质选择执行深度：
+项目把“执行深度”与“模型选择”分开。正常运行时，Agent 不要求用户指定路径，而是让 ModelRouter 根据 TaskAnalyzer 的任务信号自动选择：
 
 ```text
-CHAT
-    → Direct Model
+简单、低风险
+    → direct
+    → 一个模型直接回答
 
-KNOWLEDGE_DIRECT
-    → Knowledge Graph + Teacher
+中等知识风险
+    → direct_verified
+    → 模型回答 → 独立 Validator → 必要时一次修订
 
-KNOWLEDGE_AGENT
-    → Knowledge Graph + Teacher + AgentToolLoop
+复杂、需要工具或外部事实
+    → reasoner
+    → AgentReasoner → ToolLoop → Teacher
 ```
 
-`StudyAgent` 支持 `execution_strategy_override`，可以在保持同一任务集、模型和用户状态的条件下强制指定路径，用于构造严格对照组。
+因此原来的 CHAT / KNOWLEDGE_DIRECT / KNOWLEDGE_AGENT 不再是产品级执行模式。
 
-`AgentState.metrics` 会记录路由结果、TaskAnalyzer 时间和执行时间，后续可以继续扩展任务完成率、工具调用数、Token/成本等实验指标。
+`StudyAgent` 支持 `execution_strategy_override`，只用于实验时构造固定对照组；正常运行不需要手动指定。
 
+`AgentState.metrics` 会记录执行策略、策略原因、TaskAnalyzer 时间、执行时间以及验证结果，便于后续比较不同策略的质量、成本和工具调用。
 
-如果把这个项目给博士生看，最值得展示的不是代码量，而是其中可以继续形成实验的问题。
-
+### 1. Learner-aware Agent
 ### 1. Learner-aware Agent
 
 普通 Agent 可以抽象成：
@@ -1081,9 +1093,17 @@ supporting_concepts = softmax, matrix multiplication
 
 ### Formal assessment vs Agent ASSESS action
 
-Agent 内部仍然可以通过 ASSESS action 产生 pending assessment，这是 Agent Loop 中的自动测评路径。
+正式测试只在学生明确提出测试请求后生成。
 
-此外，正式 CLI `/test` 直接调用 Assessment Session，不依赖 Reasoner 是否恰好选择 ASSESS。
+正常回答结束后不会自动出题。对于明确的学习类问题，CLI 只给轻量提示：
+
+```text
+📝 要检验一下刚才的理解吗？输入“出题”或“测试我”。
+```
+
+当用户明确要求测试时，TaskAnalyzer 标记 `assessment_requested=true`，StudyAgent 进入 Assessment Session。Agent Loop 的 `ASSESS` 也受同一规则约束，不能因为一次回答完成就主动生成题目。
+
+`/test <知识点> [难度]` 仍然可以直接启动正式测评；自然语言“出题 / 测试我 / 检验理解”等请求则通过普通 Agent 入口触发同一个 Assessment Session。
 
 二者最终都进入同一个状态更新链：
 
@@ -1099,9 +1119,10 @@ LearnerState
 
 | Path | Purpose |
 |---|---|
-| Agent ASSESS | Agent 自主决定何时需要检查学习情况 |
-| /test Formal Assessment | 学生明确要求进行正式测试 |
+| Agent ASSESS | 仅在当前任务已被识别为用户明确要求测试时使用 |
+| /test / natural-language assessment | 学生明确要求进行正式测试 |
 
+## Agent Safety Boundary
 ## Agent Safety Boundary
 
 安全性是 Harness 的硬约束，而不是依赖模型 prompt 自觉遵守。
