@@ -91,8 +91,7 @@ Execution Strategy
               Teacher
 ```
 
-这里没有固定的“聊天模式 / 直接知识回答模式”。Router 根据任务复杂度、工具需求、外部事实需求和知识风险自动决定执行深度。
-
+这里不再存在 CHAT / KNOWLEDGE_DIRECT / KNOWLEDGE_AGENT 等固定执行模式。每个请求都进入同一个 Agent Loop；Reasoner 每一轮自行决定下一步是 ANSWER、SEARCH、CALCULATE、VERIFY、ASSESS 或 STOP。
 ## Agent Reasoning Loop
 ## Agent Reasoning Loop
 
@@ -312,29 +311,31 @@ pytest -q
 
 ## Research Value
 
-### Adaptive Execution
+### Full Agent Loop
 
-项目把“执行深度”与“模型选择”分开。正常运行时，Agent 不要求用户指定路径，而是让 ModelRouter 根据 TaskAnalyzer 的任务信号自动选择：
+项目的运行时执行路径只有一条：
 
 ```text
-简单、低风险
-    → direct
-    → 一个模型直接回答
-
-中等知识风险
-    → direct_verified
-    → 模型回答 → 独立 Validator → 必要时一次修订
-
-复杂、需要工具或外部事实
-    → reasoner
-    → AgentReasoner → ToolLoop → Teacher
+Question
+   ↓
+Task Analysis
+   ↓
+AgentToolLoop
+   ↕
+AgentReasoner
+   ↓
+SEARCH / CALCULATE / VERIFY / ASSESS / ANSWER / STOP
+   ↓
+Observation → State Update → 下一轮 Reasoner
 ```
 
-因此原来的 CHAT / KNOWLEDGE_DIRECT / KNOWLEDGE_AGENT 不再是产品级执行模式。
+TaskAnalyzer 只负责提供初始任务上下文和 difficulty 等观察信息；它不决定执行路径。
+ModelRouter 只负责为当前需要调用的角色选择模型与 reasoning effort；它不决定 Agent 下一步做什么。
 
-`StudyAgent` 支持 `execution_strategy_override`，只用于实验时构造固定对照组；正常运行不需要手动指定。
+因此即使问题非常简单，Agent 也会进入 Loop，只是 Reasoner 可能在第一轮直接选择 ANSWER。
+复杂问题则可以继续搜索、计算、验证，再根据新观察重新决策。
 
-`AgentState.metrics` 会记录执行策略、策略原因、TaskAnalyzer 时间、执行时间以及验证结果，便于后续比较不同策略的质量、成本和工具调用。
+`StudyAgent` 不提供 direct / direct_verified / reasoner 之类的运行模式。任何实验对照应替换 Reasoner policy，而不是绕过 Agent Loop。
 
 ### 1. Learner-aware Agent
 ### 1. Learner-aware Agent
