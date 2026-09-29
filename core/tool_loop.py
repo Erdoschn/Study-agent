@@ -48,7 +48,18 @@ class SearchObservation(list):
 
 
 class ToolExecutor:
-    """Tool harness: LLM 只提出 action，Harness 负责真正执行。"""
+    """Tool harness: LLM 只提出 action，且仅允许受控的学习工具。"""
+
+    # Hard allow-list: the Agent can never expose shell, code execution, or
+    # filesystem mutation tools. ``calculate`` is a restricted arithmetic AST
+    # evaluator, not a general-purpose Python/code execution interface.
+    ALLOWED_TOOL_NAMES = frozenset({"search", "calculate", "assess", "verify"})
+    FORBIDDEN_TOOL_PREFIXES = ("file", "fs", "shell", "exec", "code", "python", "command", "os")
+    FORBIDDEN_TOOL_NAMES = frozenset({
+        "delete", "delete_file", "remove", "remove_file", "write_file", "move_file",
+        "copy_file", "shell", "exec", "execute_code", "run_code", "python",
+        "python_exec", "bash", "powershell", "command", "run_command",
+    })
 
     DEFAULT_SEARCH_RESULTS = 15
     MAX_CALCULATE_EXPRESSION_LENGTH = 200
@@ -129,6 +140,16 @@ class ToolExecutor:
         )
 
     def register(self, spec: ToolSpec, handler: Callable[..., Any] | None = None) -> None:
+        normalized_name = str(spec.name or "").strip().lower()
+        if normalized_name not in self.ALLOWED_TOOL_NAMES:
+            raise PermissionError(
+                f"安全策略禁止注册工具：{spec.name!r}。Agent 只允许使用："
+                + ", ".join(sorted(self.ALLOWED_TOOL_NAMES))
+            )
+        if normalized_name in self.FORBIDDEN_TOOL_NAMES or any(
+            normalized_name.startswith(prefix) for prefix in self.FORBIDDEN_TOOL_PREFIXES
+        ):
+            raise PermissionError(f"安全策略禁止工具：{spec.name!r}")
         handler = handler or spec.handler
         if handler is None:
             raise ValueError("register 需要 handler。")
