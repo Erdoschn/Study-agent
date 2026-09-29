@@ -2,6 +2,7 @@ import json
 import inspect
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .teaching_validator import TeachingValidator
 
 
 class Teacher:
@@ -25,15 +26,24 @@ class Teacher:
 11. 不输出隐藏思维链；可以简洁说明为什么采用某种教学方式。
 12. 学生模型只是可修正的工作假设，不是心理事实；不得推测隐私、人格或其他心理事实。
 13. 不要把 Reasoner 草稿扩写成新的未经证据支持的事实。新增事实只能来自 evidence / verified claims；教学类例子必须明确标为示例或假设。
-14. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
+14. 保持高知识密度：优先覆盖定义、条件、核心公式、关键性质、典型例子和易错点，而不是为了简洁删除重要信息。
+15. 严格区分“直观解释”和“数学/事实定义”。不要把相关概念、特例、近似关系或常见说法压缩成严格等价关系。
+16. 对数学与技术陈述优先保留必要条件、定义域、量词和边界情况。宁可多写一句精确限定，也不要用过度简化的等价说法。
+17. 对定义、性质、推论和例子使用不同层次表达：definition 是严格陈述，interpretation 是直觉说明，consequence 是由定义或性质推出的结论。
+18. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
 
 输出只需要最终教学回答，不要输出 JSON，不要输出“作为 AI”之类的套话。
 """
 
-    def __init__(self, model_router, model_factory, allow_paid: bool = False):
+    def __init__(self, model_router, model_factory, allow_paid: bool = False, validate_teaching: bool = True):
         self.model_router = model_router
         self.model_factory = model_factory
         self.allow_paid = allow_paid
+        self.validate_teaching = bool(validate_teaching)
+        self.teaching_validator = (
+            TeachingValidator(model_router, model_factory, allow_paid=allow_paid)
+            if self.validate_teaching else None
+        )
 
     @staticmethod
     def _derive_strategy(state) -> dict:
@@ -221,6 +231,25 @@ class Teacher:
         )
         return result
 
+    @classmethod
+    def _build_revision_prompt(cls, state, draft_answer: str, findings: list[dict]) -> str:
+        payload = {
+            "question": state.question,
+            "task_type": state.task_type,
+            "domain": state.domain,
+            "task_analysis": state.task_analysis.__dict__ if state.task_analysis else None,
+            "draft_answer": draft_answer,
+            "validator_findings": findings,
+            "revision_rules": [
+                "只修复 validator 明确指出的 major factual or mathematical errors。",
+                "保留原答案的高知识密度、教学结构和有价值的正确内容。",
+                "不要因为风格原因大幅重写。",
+                "修复时补上必要条件、定义域、量词或概念边界。",
+                "不要把直观解释写成严格定义。",
+                "只输出修订后的最终教学回答，不解释校验过程。",
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     def generate(self, state, draft_answer: str | None = None) -> str:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
@@ -250,6 +279,39 @@ class Teacher:
                         difficulty,
                         attempts,
                         True,
+                    )
+
+                state.metrics["teaching_validation_enabled"] = bool(self.validate_teaching)
+                if self.teaching_validator is None:
+                    state.metrics["teaching_validation_status"] = "DISABLED"
+                    return result
+
+                validation = self.teaching_validator.validate(state, result)
+                state.metrics["teaching_validation_status"] = validation.get("status", "UNCERTAIN")
+                state.metrics["teaching_validation_model"] = validation.get("model")
+                state.metrics["teaching_validation_effort"] = validation.get("effort")
+                findings = self.teaching_validator.revision_findings(validation)
+                state.metrics["teaching_validation_major_errors"] = len(findings)
+
+                if not findings:
+                    return result
+
+                debug.log(
+                    "Teacher",
+                    f"VALIDATION → major_errors={len(findings)}, revising with {model.name}",
+                )
+                revision_prompt = self._build_revision_prompt(state, result, findings)
+                try:
+                    revised = self._call_model(model, state, revision_prompt, choice.effort)
+                    revised = str(revised or "").strip()
+                    if revised:
+                        state.metrics["teaching_revision"] = True
+                        return revised
+                except Exception as revision_exc:
+                    state.metrics["teaching_revision"] = False
+                    debug.log(
+                        "Teacher",
+                        f"REVISION FAILED → kept draft: {type(revision_exc).__name__}",
                     )
                 return result
             except Exception as exc:
