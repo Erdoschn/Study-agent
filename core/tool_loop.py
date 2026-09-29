@@ -594,11 +594,13 @@ class AgentToolLoop:
                     state.claims = decision.claims or []
                 if decision.evidence_relevance:
                     state.evidence_relevance = decision.evidence_relevance
-                assessment_requested = getattr(
-                    getattr(state, "task_analysis", None),
-                    "assessment_requested",
-                    None,
-                )
+                assessment_requested = getattr(state, "assessment_requested", None)
+                if assessment_requested is None:
+                    assessment_requested = getattr(
+                        getattr(state, "task_analysis", None),
+                        "assessment_requested",
+                        None,
+                    )
                 if decision.action == "ASSESS" and assessment_requested is False:
                     state.error = "ASSESSMENT_NOT_REQUESTED: 只有用户明确要求测试时才能生成题目。"
                     state.add_step(AgentStep(
