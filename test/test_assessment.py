@@ -80,3 +80,22 @@ def test_rubric_matching_respects_token_boundaries():
     )
     assert result["score"] == 2 / 3
     assert result["correct"] is False
+
+def test_postgraduate_assessment_requires_full_correctness():
+    assessment = _assessment()
+    assessment["difficulty"] = "postgraduate_plus"
+    assessment["rubric"] = ["query", "relevant", "values"]
+
+    partial = AssessmentEvaluator().evaluate(
+        assessment,
+        "attention maps a query to values",
+    )
+    full = AssessmentEvaluator().evaluate(
+        assessment,
+        "attention maps a query to relevant values",
+    )
+
+    assert partial["score"] < 1.0
+    assert partial["correct"] is False
+    assert full["score"] == 1.0
+    assert full["correct"] is True
