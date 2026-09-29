@@ -12,6 +12,13 @@ class ModelSelection:
     effort: str | None = None
 
 
+@dataclass(frozen=True)
+class ExecutionSelection:
+    """Top-level execution policy selected from task signals."""
+    strategy: str
+    reason: str
+
+
 def get_model_choices(
     router,
     capability: str,
@@ -106,6 +113,65 @@ class ModelRouter:
     def __init__(self, registry: ModelRegistry):
         self.registry = registry
         self._cursor = 0
+
+    def select_execution_strategy(
+        self,
+        task_analysis: Any = None,
+        *,
+        tool_available: bool = True,
+    ) -> ExecutionSelection:
+        """Choose execution depth independently from model selection.
+
+        Strategies:
+        - direct: one general model call, no post-generation validator.
+        - direct_verified: direct model call followed by an independent validator.
+        - reasoner: full Observe -> Decide -> Act loop (with Teacher on ANSWER).
+        """
+        difficulty = self._difficulty(task_analysis)
+        task_type = str(getattr(task_analysis, "task_type", "general") or "general").lower()
+        required_tools = {
+            str(item).lower()
+            for item in (getattr(task_analysis, "required_tools", []) or [])
+            if str(item).strip()
+        }
+        external = bool(getattr(task_analysis, "external_facts_needed", False))
+        gaps = list(getattr(task_analysis, "knowledge_gaps", []) or [])
+        issues = list(getattr(task_analysis, "issues", []) or [])
+
+        if tool_available and (
+            required_tools
+            or external
+            or difficulty >= 4
+            or task_type in {"research", "troubleshooting"}
+            or len(gaps) >= 2
+            or len(issues) >= 2
+        ):
+            strategy = "reasoner"
+            reason = (
+                f"complex/tool-demanding task: difficulty={difficulty}, "
+                f"tools={sorted(required_tools)}, external_facts={external}, "
+                f"gaps={len(gaps)}, issues={len(issues)}"
+            )
+        elif (
+            difficulty >= 2
+            or task_type in {"conceptual", "explanation", "factual", "math", "coding", "comparison"}
+            or bool(gaps)
+            or bool(issues)
+        ):
+            strategy = "direct_verified"
+            reason = (
+                f"moderate knowledge risk: difficulty={difficulty}, "
+                f"type={task_type}, gaps={len(gaps)}, issues={len(issues)}"
+            )
+        else:
+            strategy = "direct"
+            reason = f"simple/low-risk task: difficulty={difficulty}, type={task_type}"
+
+        debug.log(
+            "ModelRouter",
+            f"EXECUTION → strategy={strategy}, reason={reason}",
+        )
+        return ExecutionSelection(strategy=strategy, reason=reason)
 
     def select_choice_candidates(
         self,
