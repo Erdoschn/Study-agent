@@ -155,57 +155,94 @@ class StudyAgent:
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
-                analyzed_mode = getattr(state.task_analysis, "execution_mode", None)
-                if analyzed_mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
-                    analyzed_mode = None
-                mode = analyzed_mode
-                if mode is None:
-                    # Preserve compatibility with lightweight/legacy analyzers:
-                    # once a real ToolExecutor exists, their old behavior was
-                    # to enter the Harness loop.
-                    mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
-                state.execution_mode = self.execution_mode_override or mode
-                state.metrics["analyzer_execution_mode"] = analyzed_mode or mode
-                state.metrics["route"] = state.execution_mode
-                state.metrics["route_overridden"] = self.execution_mode_override is not None
+
+                if getattr(state.task_analysis, "assessment_requested", False):
+                    concept = (
+                        getattr(state.task_analysis, "assessment_concept", "")
+                        or state.domain
+                    ).strip()
+                    if not concept or concept == "general":
+                        raise ValueError("用户要求测试，但没有识别出可测的主要知识点。")
+                    self.start_assessment(
+                        concept,
+                        getattr(state.task_analysis, "assessment_difficulty", "graduate"),
+                    )
+                    assessment_state = self.pending_assessment_state
+                    assessment_state.task_analysis = state.task_analysis
+                    assessment_state.task_type = state.task_type
+                    assessment_state.domain = state.domain
+                    assessment_state.goal = state.goal
+                    assessment_state.metrics.update({
+                        "task_analysis_ms": round((time.perf_counter() - analysis_started) * 1000, 2),
+                        "execution_strategy": "assessment",
+                        "assessment_requested": True,
+                    })
+                    self.last_state = assessment_state
+                    return assessment_state
+
+                router = getattr(self.reasoner, "model_router", None)
+                selector = getattr(router, "select_execution_strategy", None)
+                if callable(selector):
+                    selection = selector(
+                        state.task_analysis,
+                        tool_available=self.tool_executor is not None and hasattr(self.tool_executor, "execute"),
+                    )
+                    strategy = selection.strategy
+                    strategy_reason = selection.reason
+                else:
+                    needs_loop = (
+                        self.tool_executor is not None
+                        and hasattr(self.tool_executor, "execute")
+                        and (
+                            bool(getattr(state.task_analysis, "required_tools", []))
+                            or bool(getattr(state.task_analysis, "external_facts_needed", False))
+                            or getattr(state.task_analysis, "difficulty", 3) >= 4
+                        )
+                    )
+                    strategy = "reasoner" if needs_loop else "direct_verified"
+                    strategy_reason = "legacy router fallback"
+
+                state.execution_strategy = self.execution_strategy_override or strategy
+                state.metrics["execution_strategy"] = state.execution_strategy
+                state.metrics["execution_strategy_reason"] = strategy_reason
+                state.metrics["route_overridden"] = self.execution_strategy_override is not None
                 state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
                 state.metrics["route_fallback"] = False
-                mode = state.execution_mode
-                debug.log("StudyAgent", f"ROUTE → {mode}")
+                debug.log("StudyAgent", f"EXECUTION STRATEGY → {state.execution_strategy}")
             except Exception as exc:
                 state.task_analysis = None
                 state.plan = None
-                mode = "knowledge_agent" if self.tool_executor is not None and hasattr(self.tool_executor, "execute") else "chat"
-                state.execution_mode = self.execution_mode_override or mode
-                state.metrics["analyzer_execution_mode"] = None
-                state.metrics["route"] = state.execution_mode
-                state.metrics["route_overridden"] = self.execution_mode_override is not None
+                strategy = "reasoner" if (
+                    self.tool_executor is not None and hasattr(self.tool_executor, "execute")
+                ) else "direct"
+                state.execution_strategy = self.execution_strategy_override or strategy
+                state.metrics["execution_strategy"] = state.execution_strategy
+                state.metrics["execution_strategy_reason"] = "task analysis failed"
+                state.metrics["route_overridden"] = self.execution_strategy_override is not None
                 state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
                 state.metrics["route_fallback"] = True
-                mode = state.execution_mode
-                debug.log("StudyAgent", f"TASK ANALYZER FAILED → fallback mode={mode}: {type(exc).__name__}: {exc}")
+                debug.log(
+                    "StudyAgent",
+                    f"TASK ANALYZER FAILED → fallback strategy={state.execution_strategy}: {type(exc).__name__}: {exc}",
+                )
 
-            state.metrics["route"] = mode
+            state.student.sync_from_knowledge_graph(self.knowledge_graph)
+            self.knowledge_graph.bootstrap_query_context(question)
             execution_started = time.perf_counter()
+            strategy = state.execution_strategy
 
-            if mode != "chat":
-                # Knowledge paths need the persistent learner graph; ordinary
-                # chat must not pay this cost or mutate learning context.
-                state.student.sync_from_knowledge_graph(self.knowledge_graph)
-                self.knowledge_graph.bootstrap_query_context(question)
-
-            if mode == "chat":
+            if strategy == "direct":
                 try:
                     state.final_answer = self._direct_model_answer(state)
                     state.finished = True
                 except Exception as exc:
                     state.error = f"直接回答失败：{type(exc).__name__}: {exc}"
-            elif mode == "knowledge_direct":
+            elif strategy == "direct_verified":
                 try:
-                    self._run_knowledge_direct(state)
+                    state.final_answer = self._direct_verified_answer(state)
                     state.finished = True
                 except Exception as exc:
-                    state.error = f"教学回答失败：{type(exc).__name__}: {exc}"
+                    state.error = f"直接回答校验失败：{type(exc).__name__}: {exc}"
             elif self.tool_executor is None:
                 state.error = "Tool Harness 尚未配置。"
             elif not hasattr(self.tool_executor, "execute"):
@@ -221,7 +258,6 @@ class StudyAgent:
                 except Exception as exc:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
-
             state.metrics["execution_ms"] = round((time.perf_counter() - execution_started) * 1000, 2)
             state.metrics["reasoner_steps"] = state.step_count
             state.metrics["tool_calls"] = sum(
@@ -229,7 +265,7 @@ class StudyAgent:
                 for action in ("SEARCH", "CALCULATE", "VERIFY", "ASSESS")
             )
             state.metrics["total_ms"] = round((time.perf_counter() - run_started) * 1000, 2)
-            debug.log("StudyAgent", f"ROUTE FINISHED → mode={mode}, steps={state.step_count}")
+            debug.log("StudyAgent", f"EXECUTION FINISHED → strategy={state.execution_strategy}, steps={state.step_count}")
 
             if state.pending_assessment:
                 debug.log(
@@ -389,8 +425,6 @@ class StudyAgent:
     def _update_student_model(self, state) -> None:
         # Ordinary chat must not touch the learner graph. Knowledge-path updates
         # are synchronized from explicit assessment evidence only.
-        if state.execution_mode == "chat":
-            return
         if state.knowledge_graph is not None:
             state.student.sync_from_knowledge_graph(state.knowledge_graph)
 
