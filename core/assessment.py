@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .__debug__ import debug
+from .knowledge_graph import normalize_difficulty
 
 
 class AssessmentEvaluator:
@@ -19,10 +20,7 @@ class AssessmentEvaluator:
         if not expected:
             raise ValueError("assessment 缺少 expected_answer，无法进行安全评分。")
         score = self._score(answer, expected, rubric)
-        try:
-            difficulty = float(assessment.get("difficulty", 0.0))
-        except (TypeError, ValueError):
-            difficulty = 0.0
+        _difficulty_level, difficulty = normalize_difficulty(assessment.get("difficulty", 0.0))
         # Advanced mastery evidence is intentionally strict: postgraduate and
         # postgraduate+ assessments require every rubric criterion to match.
         # Easier assessments retain the normal 0.8 threshold and therefore
