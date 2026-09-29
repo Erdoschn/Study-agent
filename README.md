@@ -236,6 +236,8 @@ Assessment 不采用“一次答对 = 掌握、一次答错 = 不会”的简单
 
 ### Teacher — 教学层
 
+Teacher 是教学决策与教学表达模块；其输出会继续进入独立的 TeachingValidator。只有确定的 major factual / mathematical error 才触发一次修订。
+
 Teacher 与 Reasoner 的职责不同：
 
 - **Reasoner**：决定 Agent 下一步做什么。
@@ -965,6 +967,127 @@ Teacher 关心学生已有知识、薄弱点、误解、解释顺序和学习脚
 因此 Teacher 是这个项目从普通 Agent Harness 走向 learning-oriented Agent 的关键模块之一。
 
 
+## Teaching Validation Pipeline
+
+当前 Teacher 不再把“生成得像老师”和“内容严谨”完全交给同一次生成。
+
+正式流程为：
+
+```text
+Reasoner draft
+      ↓
+Teacher
+      ↓
+Teaching Draft
+      ↓
+TeachingValidator
+      ↓
+      ├── PASS / UNCERTAIN → 保留 draft
+      │
+      └── major ERROR
+               ↓
+        Teacher one-shot revision
+               ↓
+          Final Answer
+```
+
+### 为什么增加 Validator？
+
+LLM 在教学过程中容易进行过度概念压缩。例如：
+
+```text
+“A 与 B 有密切关系”
+        ↓
+“A 就是 B”
+```
+
+这种错误在数学、机器学习和概率论教学中可能直接改变概念含义。
+
+Validator 专门检查：
+
+- 定义与必要条件
+- 数学公式、符号与适用范围
+- 概念边界
+- 必要 / 充分条件
+- 近似 / 等价
+- 事实陈述与现有 evidence 的冲突
+- 示例是否被错误推广为普遍规律
+
+Validator 不因为“表述风格不好”就判错；无法确认时使用 `UNCERTAIN`。
+
+只有确定的 `major ERROR` 才会触发一次自动修订，因此不会形成：
+
+```text
+Teacher → Validator → Teacher → Validator → ...
+```
+
+的无限循环。
+
+### 为什么 Validator 独立于 Teacher？
+
+二者优化目标不同：
+
+```text
+Teacher
+    → teaching quality + information density
+
+TeachingValidator
+    → factual / mathematical error detection
+```
+
+因此可以直接做：
+
+```text
+Teacher only
+vs.
+Teacher + Validator
+```
+
+的 ablation experiment。
+
+需要注意：Validator 也是 LLM-based checker，不是形式化定理证明器。因此：
+
+```text
+Validator PASS
+    ≠
+数学定理已经被形式化证明
+```
+
+它的作用是降低明显的知识/数学错误率，而不是声称实现绝对正确性。
+
+## Teaching Quality Contract
+
+Teacher 当前同时优化四个目标：
+
+```text
+Correctness
+   ↓
+Concept precision
+   ↓
+Information density
+   ↓
+Pedagogical structure
+```
+
+输出应尽量保持：
+
+1. **直觉层**：帮助学生建立 mental model。
+2. **严格层**：给出准确的定义、条件、公式和边界。
+3. **关系层**：说明与相邻概念的关系，但不把它们混为一谈。
+4. **应用层**：给出典型例子、性质、推论或使用场景。
+5. **检查层**：必要时给一个很小的理解检查。
+
+特别禁止：
+
+```text
+相关概念 → 强行等同
+直觉解释 → 当成形式定义
+特例 → 推广成普遍规律
+近似 → 写成严格等式
+缺少条件的定理 → 写成无条件结论
+```
+
+这样设计的目标不是让回答“更长”，而是让每一段新增内容都承担明确的知识功能。
 ## Knowledge Graph Persistence
 
 正式运行时，知识图谱使用本地 SQLite 持久化：
