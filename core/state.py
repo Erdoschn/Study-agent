@@ -308,8 +308,8 @@ class AgentState:
     goal_context: list[str] = field(default_factory=list)
     task_type: str = ""
     domain: str = ""
-    execution_strategy: str = "direct"
     task_analysis: Any = None
+    assessment_requested: bool | None = None
     plan: Any = None
     search_sources: list[str] = field(default_factory=list)
     search_sort_by: str = "relevance"
