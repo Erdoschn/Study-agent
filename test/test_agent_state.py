@@ -173,3 +173,43 @@ def test_pending_assessment_survives_a_later_run(monkeypatch):
     )
     assert result["correct"] is True
     assert first.pending_assessment is None
+
+
+
+def test_unrequested_assessment_flag_cannot_trigger_a_test(monkeypatch):
+    from types import SimpleNamespace
+
+    class Analyzer:
+        def __init__(self, reasoner):
+            pass
+
+        def analyze(self, question, student_state=None):
+            return SimpleNamespace(
+                task_type="conceptual",
+                domain="attention",
+                goal="answer",
+                issues=[],
+                knowledge_gaps=[],
+                required_tools=[],
+                external_facts_needed=False,
+                answer_strategy="answer",
+                assessment_requested=True,
+                assessment_concept="attention",
+                assessment_difficulty="graduate",
+            )
+
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="ordinary answer",
+                answer="ok",
+            )
+
+    monkeypatch.setattr("core.agent.TaskAnalyzer", Analyzer)
+    agent = StudyAgent(Reasoner(), tool_executor=ToolExecutor())
+
+    state = agent.run("什么是 attention？")
+
+    assert state.final_answer == "ok"
+    assert state.pending_assessment is None
