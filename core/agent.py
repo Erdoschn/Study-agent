@@ -1,6 +1,6 @@
 from .state import AgentState, StudentState
 from .tool_loop import AgentToolLoop
-from .task_analyzer import TaskAnalyzer
+from .task_analyzer import TaskAnalyzer, is_explicit_assessment_request
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
 from .assessment import AssessmentEvaluator
 from .assessment_generator import AssessmentGenerator
@@ -77,7 +77,7 @@ class StudyAgent:
                 question=question,
                 max_steps=self.max_steps,
                 knowledge_graph=self.knowledge_graph,
-                assessment_requested=TaskAnalyzer._is_explicit_assessment_request(question),
+                assessment_requested=is_explicit_assessment_request(question),
             )
 
             if student_state is not None:
@@ -97,7 +97,7 @@ class StudyAgent:
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
                 # The user's current request is authoritative for assessment permission.
-                state.assessment_requested = TaskAnalyzer._is_explicit_assessment_request(question)
+                state.assessment_requested = is_explicit_assessment_request(question)
                 state.metrics["task_analysis_ms"] = round(
                     (time.perf_counter() - analysis_started) * 1000, 2
                 )
@@ -228,7 +228,6 @@ class StudyAgent:
             student=self.student_state,
             task_type="assessment",
             domain="assessment",
-            execution_strategy="assessment",
             knowledge_graph=self.knowledge_graph,
         )
         state.pending_assessment = pending
