@@ -967,6 +967,84 @@ Teacher 关心学生已有知识、薄弱点、误解、解释顺序和学习脚
 因此 Teacher 是这个项目从普通 Agent Harness 走向 learning-oriented Agent 的关键模块之一。
 
 
+## Agent Safety Boundary
+
+安全性是 Harness 的硬约束，而不是依赖模型 prompt 自觉遵守。
+
+AgentToolLoop 只能通过 ToolExecutor 调用工具。当前内置工具采用白名单：
+
+```text
+search
+calculate
+assess
+verify
+```
+
+除上述四类学习工具之外，任何工具都不能注册到 Agent 的 ToolExecutor，也不能通过 LLM tool call 直接调用。
+
+明确禁止：
+
+```text
+文件删除 / 移动 / 复制
+shell / bash / PowerShell
+任意 Python / JavaScript / 其他代码执行
+subprocess / command execution
+任意文件系统操作工具
+```
+
+未知工具会在 ToolExecutor.execute() 层被拒绝；危险工具名即使尝试动态注册，也会在 register() 层被拒绝。
+
+### Calculator safety
+
+calculate 不是代码执行工具。
+
+它只接受受限的算术表达式，并通过 AST 白名单解释：
+
+- 数字常量
+- + - * / // % **
+- 一元正负号
+
+不会执行函数调用、属性访问、导入、变量、列表构造或任意 Python 表达式。
+
+因此：
+
+```text
+calculate("2 * (3 + 4)")   → allowed
+
+calculate("__import__('os').system(...)")
+                           → rejected
+```
+
+### Internal persistence is not an Agent file tool
+
+Study Agent 可以在内部维护自己的 SQLite Knowledge Graph，例如：
+
+```text
+data/knowledge_graph.sqlite3
+```
+
+这是 Harness 自己管理的持久化状态，不向 LLM 暴露任意文件读写接口。
+
+也就是说：
+
+```text
+Agent can update its own controlled state
+        ≠
+Agent can manipulate arbitrary user files
+```
+
+### Security tests
+
+安全边界通过自动化测试验证，包括：
+
+- 工具白名单
+- 删除/写文件工具注册拒绝
+- shell / Python / command 工具注册拒绝
+- 危险工具调用拒绝
+- 相似但未知工具拒绝
+- calculator 拒绝任意代码
+
+安全策略应该保持 fail-closed：**宁可拒绝一个未知工具，也不能把未知操作交给模型自行执行。**
 ## Teaching Validation Pipeline
 
 当前 Teacher 不再把“生成得像老师”和“内容严谨”完全交给同一次生成。
