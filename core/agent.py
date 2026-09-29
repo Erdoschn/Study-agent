@@ -2,6 +2,7 @@ from .state import AgentState, StudentState
 from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
+from .teaching_validator import TeachingValidator
 from .assessment import AssessmentEvaluator
 from .assessment_generator import AssessmentGenerator
 from .__debug__ import debug
@@ -17,24 +18,30 @@ class StudyAgent:
         teacher=None,
         tool_executor=None,
         max_steps=15,
-        execution_mode_override=None,
+        execution_strategy_override=None,
         knowledge_graph_path=None,
     ):
         self.reasoner = reasoner
         self.teacher = teacher
         self.tool_executor = tool_executor
         self.max_steps = max_steps
-        if execution_mode_override not in {None, "chat", "knowledge_direct", "knowledge_agent"}:
+        if execution_strategy_override not in {None, "direct", "direct_verified", "reasoner"}:
             raise ValueError(
-                "execution_mode_override 必须是 chat / knowledge_direct / knowledge_agent / None。"
+                "execution_strategy_override 必须是 direct / direct_verified / reasoner / None。"
             )
-        self.execution_mode_override = execution_mode_override
+        self.execution_strategy_override = execution_strategy_override
         self.student_state = None
         self.knowledge_graph = KnowledgeGraph(storage_path=knowledge_graph_path)
         self.assessment_evaluator = AssessmentEvaluator()
         self.assessment_generator = None
+        self.teaching_validator = None
         if hasattr(self.reasoner, "model_router") and hasattr(self.reasoner, "model_factory"):
             self.assessment_generator = AssessmentGenerator(
+                self.reasoner.model_router,
+                self.reasoner.model_factory,
+                allow_paid=getattr(self.reasoner, "allow_paid", False),
+            )
+            self.teaching_validator = TeachingValidator(
                 self.reasoner.model_router,
                 self.reasoner.model_factory,
                 allow_paid=getattr(self.reasoner, "allow_paid", False),
