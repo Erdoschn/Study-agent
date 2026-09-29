@@ -17,7 +17,9 @@ class TaskAnalysis:
     external_facts_needed: bool = False
     answer_strategy: str = ""
     difficulty: int = 3
-    execution_mode: str = "chat"
+    assessment_requested: bool = False
+    assessment_concept: str = ""
+    assessment_difficulty: str = "graduate"
 
 
 class TaskAnalyzer:
@@ -37,7 +39,10 @@ class TaskAnalyzer:
 - external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
 - answer_strategy：给后续 Reasoner 的简短行动建议
 - difficulty：任务难度 1-5；1=直接事实/简单解释，3=需要工具或多步推理，5=复杂研究、多轮证据整合或高难度推理
-- execution_mode：必须是 chat / knowledge_direct / knowledge_agent；chat=普通聊天直接回答，knowledge_direct=知识学习但无需工具循环，knowledge_agent=知识学习且需要搜索/计算/验证/外部事实或多步工具循环
+- assessment_requested：只有用户明确要求“出题/测试/测测我/检验理解”等时才为 true；普通教学回答不要主动设置为 true。
+- assessment_concept：用户要检验的主要知识点；若用户明确给出则原样保留，否则尽量从问题中提取，不要凭空创造。
+- assessment_difficulty：若用户明确指定难度，使用 basic/undergraduate/graduate/postgraduate/postgraduate_plus；否则使用 graduate。
+- 不要决定执行路径。不要输出 execution_mode；后续 ModelRouter 会根据任务信号自动决定 direct / direct_verified / reasoner。
 不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。\n不要因为关键词出现就机械判断需要工具。
 不要编造用户没有表达的背景。
 不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
@@ -107,7 +112,7 @@ class TaskAnalyzer:
                     )
                     debug.log(
                         "TaskAnalyzer",
-                        f"RESULT → mode={analysis.execution_mode}, type={analysis.task_type}, domain={analysis.domain}, difficulty={analysis.difficulty}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}",
+                        f"RESULT → type={analysis.task_type}, domain={analysis.domain}, difficulty={analysis.difficulty}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}, assessment={analysis.assessment_requested}",
                     )
                     return analysis
                 except Exception as exc:
@@ -247,14 +252,28 @@ class TaskAnalyzer:
             external_text = str(raw_external).strip().lower()
             external_facts_needed = external_text in {"true", "1", "yes", "y", "on"}
 
-        execution_mode = str(data.get("execution_mode", "")).strip().lower()
-        if execution_mode not in {"chat", "knowledge_direct", "knowledge_agent"}:
-            if tools or external_facts_needed:
-                execution_mode = "knowledge_agent"
-            elif task_type != "general":
-                execution_mode = "knowledge_direct"
-            else:
-                execution_mode = "chat"
+        requested_raw = data.get("assessment_requested", False)
+        if isinstance(requested_raw, bool):
+            assessment_requested = requested_raw
+        else:
+            assessment_requested = str(requested_raw).strip().lower() in {"true", "1", "yes", "y", "on"}
+
+        assessment_concept = str(data.get("assessment_concept", "")).strip()
+        assessment_difficulty = str(data.get("assessment_difficulty", "graduate")).strip().lower()
+        allowed_assessment_levels = {"basic", "undergraduate", "graduate", "postgraduate", "postgraduate_plus"}
+        if assessment_difficulty not in allowed_assessment_levels:
+            assessment_difficulty = "graduate"
+
+        question_text = str(question or "").strip().lower()
+        assessment_markers = (
+            "出题", "给我一道题", "给我一题", "来一道题", "来道题",
+            "测试我", "测测我", "考考我", "检验一下", "检验我的理解",
+            "做题", "quiz", "test me", "give me a question", "assess me",
+        )
+        if any(marker in question_text for marker in assessment_markers):
+            assessment_requested = True
+        if assessment_requested and not assessment_concept:
+            assessment_concept = str(data.get("domain", "")).strip() or ""
 
         return TaskAnalysis(
             task_type=task_type,
@@ -266,5 +285,7 @@ class TaskAnalyzer:
             external_facts_needed=external_facts_needed,
             answer_strategy=str(data.get("answer_strategy", "")).strip(),
             difficulty=difficulty,
-            execution_mode=execution_mode,
+            assessment_requested=assessment_requested,
+            assessment_concept=assessment_concept,
+            assessment_difficulty=assessment_difficulty,
         )
