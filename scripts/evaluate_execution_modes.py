@@ -1,4 +1,4 @@
-"""Evaluate StudyAgent under adaptive or forced execution modes.
+"""Evaluate StudyAgent under the single full Agent Loop.
 
 Input JSONL:
   {"id": "q1", "question": "什么是 Transformer？"}
@@ -25,12 +25,7 @@ from config.loader import load_config
 from examples.study_agent_api import build_agent
 
 
-MODES = {
-    "adaptive": None,
-    "chat": "chat",
-    "knowledge_direct": "knowledge_direct",
-    "knowledge_agent": "knowledge_agent",
-}
+CONDITION = "full_agent_loop"
 
 
 def load_cases(path: str | Path) -> list[dict[str, Any]]:
@@ -58,10 +53,8 @@ def load_cases(path: str | Path) -> list[dict[str, Any]]:
     return cases
 
 
-def run_condition(config: dict[str, Any], cases: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+def run_condition(config: dict[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     agent = build_agent(config)
-    agent.execution_mode_override = MODES[mode]
-
     rows: list[dict[str, Any]] = []
     for case in cases:
         started = time.perf_counter()
@@ -72,11 +65,7 @@ def run_condition(config: dict[str, Any], cases: list[dict[str, Any]], mode: str
             "id": case["id"],
             "question": case["question"],
             "reference": case["reference"],
-            "condition": mode,
-            "execution_mode": state.execution_mode,
-            "analyzer_execution_mode": state.metrics.get("analyzer_execution_mode"),
-            "route_overridden": state.metrics.get("route_overridden", False),
-            "route_fallback": state.metrics.get("route_fallback", False),
+            "condition": CONDITION,
             "task_type": state.task_type,
             "domain": state.domain,
             "finished": state.finished,
@@ -90,6 +79,8 @@ def run_condition(config: dict[str, Any], cases: list[dict[str, Any]], mode: str
             "execution_ms": state.metrics.get("execution_ms"),
             "total_ms": state.metrics.get("total_ms"),
             "wall_ms": wall_ms,
+            "assessment_requested": state.assessment_requested,
+            "assessment_pending": bool(state.pending_assessment),
         })
     return rows
 
@@ -101,14 +92,8 @@ def write_jsonl(path: str | Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate StudyAgent execution routing.")
+    parser = argparse.ArgumentParser(description="Evaluate StudyAgent's full autonomous Agent Loop.")
     parser.add_argument("dataset", help="JSONL dataset containing question fields.")
-    parser.add_argument(
-        "--mode",
-        choices=list(MODES) + ["all"],
-        default="adaptive",
-        help="adaptive uses the analyzer route; other modes force a controlled condition.",
-    )
     parser.add_argument("--output", required=True, help="Output JSONL path.")
     args = parser.parse_args()
 
@@ -117,17 +102,12 @@ def main() -> None:
         raise ValueError("数据集为空。")
 
     config = load_config()
-    modes = list(MODES) if args.mode == "all" else [args.mode]
+    print(f"[evaluate] condition={CONDITION}, cases={len(cases)}", flush=True)
+    rows = run_condition(config, cases)
+    write_jsonl(args.output, rows)
 
-    all_rows: list[dict[str, Any]] = []
-    for mode in modes:
-        print(f"[evaluate] condition={mode}, cases={len(cases)}", flush=True)
-        all_rows.extend(run_condition(config, cases, mode))
+    print(f"[evaluate] wrote {len(rows)} rows → {args.output}", flush=True)
 
-    write_jsonl(args.output, all_rows)
-
-    print(f"[evaluate] wrote {len(all_rows)} rows → {args.output}", flush=True)
-    print("[evaluate] modes:", ", ".join(modes), flush=True)
 
 
 if __name__ == "__main__":
