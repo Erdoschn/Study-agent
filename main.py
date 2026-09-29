@@ -280,7 +280,7 @@ def main() -> None:
     )
 
     print(
-        "正式测评：/test <知识点> [难度]；查看学习状态：/learner [知识点]\n"
+        "测试：可直接输入“出题 / 测试我 / 检验理解”，也可用 /test <知识点> [难度]；查看学习状态：/learner [知识点]\n"
     )
 
     # -----------------------------
@@ -384,6 +384,28 @@ def main() -> None:
         # -------------------------
         # 输出 Trace
         # -------------------------
+        if result.pending_assessment:
+            assessment = result.pending_assessment
+            print("\n========== Formal Assessment ==========\n")
+            print(f"Concept: {assessment.get('primary_concept', '')}")
+            print(f"Difficulty: {assessment.get('difficulty_level', '')}")
+            print(f"\n{assessment.get('question', '')}\n")
+            try:
+                answer = input("Student Answer > ").strip()
+                result = agent.submit_assessment_answer(answer)
+                primary = assessment.get("primary_concept", "")
+                learner = result.get("learner_state", {}).get(primary, {})
+                print("\n========== Assessment Result ==========\n")
+                print(f"Score: {result['score']:.3f}")
+                print(f"Correct: {result['correct']}")
+                print(f"Learning Stage: {learner.get('learning_stage', 'unknown')}")
+                print(f"Familiarity: {learner.get('familiarity', 0):.3f}")
+                print(f"Confidence: {learner.get('confidence', 0):.3f}")
+                print()
+            except Exception as exc:
+                print(f"❌ 测评失败：{type(exc).__name__}: {exc}\n")
+            continue
+
         print_trace(
             result
         )
@@ -399,6 +421,9 @@ def main() -> None:
             result.final_answer
             or ""
         )
+
+        if result.metrics.get("assessment_offer"):
+            print("\n📝 要检验一下刚才的理解吗？输入“出题”或“测试我”，我会等你明确要求后再出题。")
 
         print(
             "\n========== Student BDI =========="
