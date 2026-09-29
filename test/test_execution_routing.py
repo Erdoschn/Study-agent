@@ -1,59 +1,90 @@
 from core.model_router import ModelRouter
-from core.task_analyzer import TaskAnalysis
 
 
-def test_router_direct_for_simple_low_risk_task():
+def test_model_router_has_no_execution_strategy():
     router = ModelRouter(None)
-    choice = router.select_execution_strategy(
-        TaskAnalysis(task_type="general", difficulty=1)
-    )
-    assert choice.strategy == "direct"
+    assert not hasattr(router, "select_execution_strategy")
 
 
-def test_router_verifies_moderate_knowledge_task():
-    router = ModelRouter(None)
-    choice = router.select_execution_strategy(
-        TaskAnalysis(task_type="conceptual", difficulty=2)
-    )
-    assert choice.strategy == "direct_verified"
+def test_model_router_only_selects_model_and_effort():
+    # The execution path is decided by AgentReasoner inside AgentToolLoop,
+    # while ModelRouter only supplies a model/effort for the current role.
+    assert hasattr(ModelRouter, "select")
+    assert hasattr(ModelRouter, "select_effort")
 
 
-def test_router_enters_reasoner_for_tool_or_external_fact_tasks():
-    router = ModelRouter(None)
+def test_study_agent_always_enters_agent_loop_for_simple_question(monkeypatch):
+    from core.agent import StudyAgent
+    from core.task_analyzer import TaskAnalysis
+    from core.reasoner import ReasoningDecision
 
-    search_task = router.select_execution_strategy(
-        TaskAnalysis(
-            task_type="research",
-            difficulty=2,
-            required_tools=["search"],
-            external_facts_needed=True,
-        )
-    )
-    assert search_task.strategy == "reasoner"
+    class Model:
+        name = "fake"
 
-    difficult_task = router.select_execution_strategy(
-        TaskAnalysis(task_type="general", difficulty=4)
-    )
-    assert difficult_task.strategy == "reasoner"
+    class Registry:
+        def record_success(self, *args): pass
+        def record_failure(self, *args, **kwargs): pass
+        def record_task_outcome(self, *args, **kwargs): pass
+        def is_provider_level_failure(self, exc): return False
+
+    class Router:
+        registry = Registry()
+
+        def select_candidates(self, capability, **kwargs):
+            return [Model()]
+
+    class Factory:
+        def create(self, model): return object()
+
+    class Reasoner:
+        model_router = Router()
+        model_factory = Factory()
+        allow_paid = False
+
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ANSWER",
+                reasoning_summary="直接回答是当前最优动作",
+                answer="ok",
+                model="fake",
+            )
+
+    class Analyzer:
+        def __init__(self, reasoner): pass
+
+        def analyze(self, question, student_state=None):
+            return TaskAnalysis(
+                task_type="general",
+                domain="general",
+                difficulty=1,
+            )
+
+    class Executor:
+        def execute(self, tool, arguments, state=None):
+            raise AssertionError("Reasoner should have answered without a tool")
+
+        def tool_specs(self):
+            return []
+
+    monkeypatch.setattr("core.agent.TaskAnalyzer", Analyzer)
+    agent = StudyAgent(Reasoner(), teacher=None, tool_executor=Executor())
+    state = agent.run("你好")
+
+    assert state.final_answer == "ok"
+    assert state.step_count == 1
+    assert state.steps[0].action == "ANSWER"
+    assert state.metrics["agent_loop"] is True
 
 
-def test_router_does_not_require_tools_to_select_direct_verification():
-    router = ModelRouter(None)
-    choice = router.select_execution_strategy(
-        TaskAnalysis(task_type="conceptual", difficulty=3),
-        tool_available=False,
-    )
-    assert choice.strategy == "direct_verified"
+def test_explicit_assessment_permission_is_carried_into_agent_state():
+    from core.state import AgentState
 
+    assert AgentState(
+        question="请测试我",
+        assessment_requested=True,
+    ).assessment_requested is True
 
-def test_task_analysis_has_no_fixed_execution_mode():
-    analysis = TaskAnalysis(task_type="general", difficulty=1)
-    assert not hasattr(analysis, "execution_mode")
-    assert analysis.assessment_requested is False
-
-
-def test_explicit_assessment_signal_is_not_proactive():
-    from core.task_analyzer import TaskAnalyzer
-
-    assert TaskAnalyzer._is_explicit_assessment_request("解释一下 self-attention") is False
-    assert TaskAnalyzer._is_explicit_assessment_request("给我一道 self-attention 的题测试一下我") is True
+    assert AgentState(
+        question="什么是 attention？",
+        assessment_requested=False,
+    ).assessment_requested is False
