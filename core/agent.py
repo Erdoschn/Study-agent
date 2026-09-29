@@ -324,6 +324,16 @@ class StudyAgent:
                 state.error = "Agent 在没有产生最终 ANSWER 的情况下结束。"
                 state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
 
+            learning_task_types = {
+                "conceptual", "explanation", "math", "coding",
+                "factual", "comparison", "research", "troubleshooting",
+            }
+            state.metrics["assessment_offer"] = bool(
+                state.final_answer
+                and not state.pending_assessment
+                and state.task_type in learning_task_types
+            )
+
             self._record_reasoning_efficiency(state)
             self._update_student_model(state)
             self._update_knowledge_graph(state)
