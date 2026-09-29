@@ -103,7 +103,8 @@ class AgentReasoner:
 - 只选择一个下一步行动。
 - 工具由 Harness 执行；不要假设工具成功。
 - SEARCH 的 HTTP 成功不代表证据有效。优先参考 Harness 提供的 relevance、recency 和 coverage。
-- 证据不足或存在关键缺口时继续行动；但任何情况下都可以 ANSWER。VERIFY 是可选核查工具，不是回答门禁。使用外部证据时，尽量把回答中的可核查事实拆成 claims，并填写 evidence_refs；无法获得直接证据支持的内容应明确标注为基于已有知识/推断，而不是装作已被证据证实。
+- 证据不足或存在关键缺口时继续行动；但任何情况下都可以 ANSWER。VERIFY 是可选核查工具，不是回答门禁。
+- 不要主动出题。只有 task_analysis.assessment_requested=true 且用户明确要求测试时，才允许使用 ASSESS；正常 ANSWER 之后不要自动生成测试题。使用外部证据时，尽量把回答中的可核查事实拆成 claims，并填写 evidence_refs；无法获得直接证据支持的内容应明确标注为基于已有知识/推断，而不是装作已被证据证实。
 - 不要重复任何已经执行过的完全相同工具调用；失败后必须真正改变 query、source 或参数。
 - SEARCH 的 source 由你在每轮决定；TaskAnalyzer 的 search_sources 只是参考，不是强制路由。
 - 搜索失败后的策略由 Harness 提供 search_strategy。必须遵守 required_change：查询过长时缩短；中文连续无结果时改用英文核心关键词；连续失败后只用 1~2 个核心词并可更换来源。
