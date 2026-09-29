@@ -180,11 +180,20 @@ class StudyAgent:
         return revised
 
     def run(self, question: str, student_state=None) -> AgentState:
+        """Every request enters the same Observe → Decide → Act agent loop."""
         import time
+
         run_started = time.perf_counter()
         with debug.scope("StudyAgent", "RUN"):
+            question = str(question or "").strip()
             debug.log("StudyAgent", f"QUESTION → {question}")
-            state = AgentState(question=question, max_steps=self.max_steps, knowledge_graph=self.knowledge_graph)
+            state = AgentState(
+                question=question,
+                max_steps=self.max_steps,
+                knowledge_graph=self.knowledge_graph,
+                assessment_requested=TaskAnalyzer._is_explicit_assessment_request(question),
+            )
+
             if student_state is not None:
                 self.student_state = student_state
             elif self.student_state is None:
@@ -201,122 +210,88 @@ class StudyAgent:
                 state.task_type = state.task_analysis.task_type
                 state.domain = state.task_analysis.domain
                 state.goal = state.task_analysis.goal or state.goal
-
-                assessment_requested = TaskAnalyzer._is_explicit_assessment_request(question)
-                if assessment_requested:
-                    concept = (
-                        getattr(state.task_analysis, "assessment_concept", "")
-                        or state.domain
-                    ).strip()
-                    if not concept or concept == "general":
-                        raise ValueError("用户要求测试，但没有识别出可测的主要知识点。")
-                    self.start_assessment(
-                        concept,
-                        getattr(state.task_analysis, "assessment_difficulty", "graduate"),
-                    )
-                    assessment_state = self.pending_assessment_state
-                    assessment_state.task_analysis = state.task_analysis
-                    assessment_state.task_type = state.task_type
-                    assessment_state.domain = state.domain
-                    assessment_state.goal = state.goal
-                    assessment_state.metrics.update({
-                        "task_analysis_ms": round((time.perf_counter() - analysis_started) * 1000, 2),
-                        "execution_strategy": "assessment",
-                        "assessment_requested": True,
-                    })
-                    self.last_state = assessment_state
-                    return assessment_state
-
-                router = getattr(self.reasoner, "model_router", None)
-                selector = getattr(router, "select_execution_strategy", None)
-                if callable(selector):
-                    selection = selector(
-                        state.task_analysis,
-                        tool_available=self.tool_executor is not None and hasattr(self.tool_executor, "execute"),
-                    )
-                    strategy = selection.strategy
-                    strategy_reason = selection.reason
-                else:
-                    if router is None:
-                        strategy = "reasoner"
-                        strategy_reason = "legacy reasoner fallback"
-                    else:
-                        needs_loop = (
-                            self.tool_executor is not None
-                            and hasattr(self.tool_executor, "execute")
-                            and (
-                                bool(getattr(state.task_analysis, "required_tools", []))
-                                or bool(getattr(state.task_analysis, "external_facts_needed", False))
-                                or getattr(state.task_analysis, "difficulty", 3) >= 4
-                            )
-                        )
-                        strategy = "reasoner" if needs_loop else "direct_verified"
-                        strategy_reason = "legacy router fallback"
-
-                state.execution_strategy = self.execution_strategy_override or strategy
-                state.metrics["execution_strategy"] = state.execution_strategy
-                state.metrics["execution_strategy_reason"] = strategy_reason
-                state.metrics["route_overridden"] = self.execution_strategy_override is not None
-                state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
+                # The user's current request is authoritative for assessment permission.
+                state.assessment_requested = TaskAnalyzer._is_explicit_assessment_request(question)
+                state.metrics["task_analysis_ms"] = round(
+                    (time.perf_counter() - analysis_started) * 1000, 2
+                )
                 state.metrics["route_fallback"] = False
-                debug.log("StudyAgent", f"EXECUTION STRATEGY → {state.execution_strategy}")
             except Exception as exc:
                 state.task_analysis = None
                 state.plan = None
-                strategy = "reasoner" if (
-                    self.tool_executor is not None and hasattr(self.tool_executor, "execute")
-                ) else "direct"
-                state.execution_strategy = self.execution_strategy_override or strategy
-                state.metrics["execution_strategy"] = state.execution_strategy
-                state.metrics["execution_strategy_reason"] = "task analysis failed"
-                state.metrics["route_overridden"] = self.execution_strategy_override is not None
-                state.metrics["task_analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000, 2)
+                state.metrics["task_analysis_ms"] = round(
+                    (time.perf_counter() - analysis_started) * 1000, 2
+                )
                 state.metrics["route_fallback"] = True
                 debug.log(
                     "StudyAgent",
-                    f"TASK ANALYZER FAILED → fallback strategy={state.execution_strategy}: {type(exc).__name__}: {exc}",
+                    f"TASK ANALYZER FAILED → continuing full agent loop: "
+                    f"{type(exc).__name__}: {exc}",
                 )
 
             state.student.sync_from_knowledge_graph(self.knowledge_graph)
             self.knowledge_graph.bootstrap_query_context(question)
-            execution_started = time.perf_counter()
-            strategy = state.execution_strategy
 
-            if strategy == "direct":
-                try:
-                    state.final_answer = self._direct_model_answer(state)
-                    state.finished = True
-                except Exception as exc:
-                    state.error = f"直接回答失败：{type(exc).__name__}: {exc}"
-            elif strategy == "direct_verified":
-                try:
-                    state.final_answer = self._direct_verified_answer(state)
-                    state.finished = True
-                except Exception as exc:
-                    state.error = f"直接回答校验失败：{type(exc).__name__}: {exc}"
-            elif self.tool_executor is None:
-                state.error = "Tool Harness 尚未配置。"
-            elif not hasattr(self.tool_executor, "execute"):
+            execution_started = time.perf_counter()
+            executor = self.tool_executor
+            if executor is None:
+                # The Agent always needs a Harness boundary. An empty executor is
+                # still safe: tool calls fail closed, while ANSWER remains possible.
+                from .tool_loop import ToolExecutor
+                executor = ToolExecutor()
+            elif not hasattr(executor, "execute"):
                 state.error = "Tool Harness 接口无效：缺少 execute 方法。"
-            else:
+
+            if state.error is None:
                 try:
-                    state = AgentToolLoop(self.reasoner, self.tool_executor).run(state)
+                    state = AgentToolLoop(self.reasoner, executor).run(state)
                     if state.pending_assessment:
                         self.pending_assessment_state = state
-                        debug.log("StudyAgent", "ASSESSMENT PENDING → preserved interactive state")
-                    if state.final_answer is not None and state.steps and state.steps[-1].action == "ANSWER":
+                        debug.log(
+                            "StudyAgent",
+                            "ASSESSMENT PENDING → preserved interactive state",
+                        )
+                    if (
+                        state.final_answer is not None
+                        and state.steps
+                        and state.steps[-1].action == "ANSWER"
+                    ):
                         self._teach_final_answer(state)
                 except Exception as exc:
                     state.error = f"Agent Loop 执行失败：{type(exc).__name__}: {exc}"
                     debug.log("StudyAgent", state.error)
-            state.metrics["execution_ms"] = round((time.perf_counter() - execution_started) * 1000, 2)
+
+            state.metrics["execution_ms"] = round(
+                (time.perf_counter() - execution_started) * 1000, 2
+            )
             state.metrics["reasoner_steps"] = state.step_count
             state.metrics["tool_calls"] = sum(
                 state.action_counts.get(action, 0)
                 for action in ("SEARCH", "CALCULATE", "VERIFY", "ASSESS")
             )
-            state.metrics["total_ms"] = round((time.perf_counter() - run_started) * 1000, 2)
-            debug.log("StudyAgent", f"EXECUTION FINISHED → strategy={state.execution_strategy}, steps={state.step_count}")
+            state.metrics["total_ms"] = round(
+                (time.perf_counter() - run_started) * 1000, 2
+            )
+            state.metrics["agent_loop"] = True
+            state.metrics["assessment_offer"] = bool(
+                state.final_answer
+                and not state.pending_assessment
+                and state.task_type in {
+                    "conceptual",
+                    "explanation",
+                    "math",
+                    "coding",
+                    "factual",
+                    "comparison",
+                    "research",
+                    "troubleshooting",
+                }
+            )
+
+            debug.log(
+                "StudyAgent",
+                f"EXECUTION FINISHED → agent_loop steps={state.step_count}",
+            )
 
             if state.pending_assessment:
                 debug.log(
@@ -329,23 +304,17 @@ class StudyAgent:
                 state.error = "Agent 在没有产生最终 ANSWER 的情况下结束。"
                 state.final_answer = f"Agent 未能完成任务。\n\n原因：{state.error}"
 
-            learning_task_types = {
-                "conceptual", "explanation", "math", "coding",
-                "factual", "comparison", "research", "troubleshooting",
-            }
-            state.metrics["assessment_offer"] = bool(
-                state.final_answer
-                and not state.pending_assessment
-                and state.task_type in learning_task_types
-            )
-
             self._record_reasoning_efficiency(state)
             self._update_student_model(state)
             self._update_knowledge_graph(state)
             self.last_state = state
             debug.log(
                 "StudyAgent",
-                f"FINAL STATE → finished={state.finished}, answer={'yes' if state.final_answer else 'no'}, pending_assessment={'yes' if state.pending_assessment else 'no'}, steps={state.step_count}, evidence={len(state.evidence)}, claims={len(state.claims)}",
+                f"FINAL STATE → finished={state.finished}, "
+                f"answer={'yes' if state.final_answer else 'no'}, "
+                f"pending_assessment={'yes' if state.pending_assessment else 'no'}, "
+                f"steps={state.step_count}, evidence={len(state.evidence)}, "
+                f"claims={len(state.claims)}",
             )
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
