@@ -122,16 +122,62 @@ class StudyAgent:
         state.metrics["direct_model_attempts"] = attempts
         raise RuntimeError("所有直接回答模型均调用失败：\n" + "\n".join(errors))
 
-    def _run_knowledge_direct(self, state) -> None:
-        """Use the learner graph and Teacher, but skip the full tool loop."""
-        if self.teacher is None:
-            state.final_answer = self._direct_model_answer(state)
-            return
-        try:
-            state.final_answer = self.teacher.generate(state)
-        except Exception as exc:
-            debug.log("StudyAgent", f"TEACHER DIRECT FAILED → {type(exc).__name__}: {exc}")
-            state.final_answer = self._direct_model_answer(state)
+    def _direct_model_revision(self, state, draft_answer: str, findings: list[dict]) -> str:
+        """Revise a direct answer once using only validator findings."""
+        choices = get_model_choices(
+            self.reasoner.model_router,
+            "general",
+            allow_paid=self.reasoner.allow_paid,
+            task_analysis=state.task_analysis,
+        )
+        prompt = (
+            "只修复校验器明确指出的 major factual / mathematical errors；"
+            "保留原有正确内容、知识密度和结构。不要解释校验过程，只输出修订后的最终回答。\n\n"
+            f"问题：{state.question}\n原回答：{draft_answer}\n校验发现：{findings}"
+        )
+        errors = []
+        for choice in choices:
+            try:
+                result = call_model_with_effort(
+                    self.reasoner.model_router,
+                    self.reasoner.model_factory.create(choice.model),
+                    "你是 Study Agent 的答案修订器。",
+                    prompt,
+                    reasoning_effort=choice.effort,
+                    reasoning_effort_param=getattr(choice.model, "reasoning_effort_param", None),
+                )
+                self.reasoner.model_router.registry.record_success(choice.model.name, "general")
+                return str(result or "").strip() or draft_answer
+            except Exception as exc:
+                try:
+                    registry = self.reasoner.model_router.registry
+                    registry.record_failure(
+                        choice.model.name, "general",
+                        provider_level=registry.is_provider_level_failure(exc),
+                    )
+                except TypeError:
+                    self.reasoner.model_router.registry.record_failure(choice.model.name, "general")
+                errors.append(f"{choice.model.name}: {type(exc).__name__}: {exc}")
+        state.metrics["direct_revision_error"] = "; ".join(errors)
+        return draft_answer
+
+    def _direct_verified_answer(self, state) -> str:
+        """Generate directly, then perform one independent validation pass."""
+        draft = self._direct_model_answer(state)
+        if self.teaching_validator is None:
+            state.metrics["direct_validation_status"] = "DISABLED"
+            return draft
+        validation = self.teaching_validator.validate(state, draft)
+        state.metrics["direct_validation_status"] = validation.get("status", "UNCERTAIN")
+        state.metrics["direct_validation_model"] = validation.get("model")
+        state.metrics["direct_validation_effort"] = validation.get("effort")
+        findings = self.teaching_validator.revision_findings(validation)
+        state.metrics["direct_validation_major_errors"] = len(findings)
+        if not findings:
+            return draft
+        revised = self._direct_model_revision(state, draft, findings)
+        state.metrics["direct_revision"] = revised != draft
+        return revised
 
     def run(self, question: str, student_state=None) -> AgentState:
         import time
@@ -312,7 +358,7 @@ class StudyAgent:
             student=self.student_state,
             task_type="assessment",
             domain="assessment",
-            execution_mode="knowledge_direct",
+            execution_strategy="assessment",
             knowledge_graph=self.knowledge_graph,
         )
         state.pending_assessment = pending
@@ -470,8 +516,6 @@ class StudyAgent:
 
     def _update_knowledge_graph(self, state) -> None:
         """Record explicit assessment signals; ordinary exposure is not treated as mastery."""
-        if state.execution_mode == "chat":
-            return
         graph = state.knowledge_graph
         if graph is None: return
         # TaskAnalyzer.domain is a scope label, not necessarily a learner concept.
