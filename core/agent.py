@@ -246,15 +246,15 @@ class StudyAgent:
                     else:
                         needs_loop = (
                             self.tool_executor is not None
-                        and hasattr(self.tool_executor, "execute")
-                        and (
-                            bool(getattr(state.task_analysis, "required_tools", []))
-                            or bool(getattr(state.task_analysis, "external_facts_needed", False))
-                            or getattr(state.task_analysis, "difficulty", 3) >= 4
+                            and hasattr(self.tool_executor, "execute")
+                            and (
+                                bool(getattr(state.task_analysis, "required_tools", []))
+                                or bool(getattr(state.task_analysis, "external_facts_needed", False))
+                                or getattr(state.task_analysis, "difficulty", 3) >= 4
+                            )
                         )
-                    )
-                    strategy = "reasoner" if needs_loop else "direct_verified"
-                    strategy_reason = "legacy router fallback"
+                        strategy = "reasoner" if needs_loop else "direct_verified"
+                        strategy_reason = "legacy router fallback"
 
                 state.execution_strategy = self.execution_strategy_override or strategy
                 state.metrics["execution_strategy"] = state.execution_strategy
