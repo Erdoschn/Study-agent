@@ -40,6 +40,7 @@ from .model_factory import (
 
 
 from .assessment import AssessmentEvaluator
+from .assessment_generator import AssessmentGenerator
 from .goal import GoalMatcher
 from .knowledge_graph import (
     KnowledgeEdge,
@@ -72,6 +73,7 @@ __all__ = [
     "ModelSelection",
     "ModelClientFactory",
     "AssessmentEvaluator",
+    "AssessmentGenerator",
     "GoalMatcher",
     "KnowledgeEdge",
     "KnowledgeGraph",
