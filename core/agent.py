@@ -3,6 +3,7 @@ from .tool_loop import AgentToolLoop
 from .task_analyzer import TaskAnalyzer
 from .knowledge_graph import KnowledgeGraph, normalize_difficulty
 from .assessment import AssessmentEvaluator
+from .assessment_generator import AssessmentGenerator
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 
@@ -31,6 +32,11 @@ class StudyAgent:
         self.student_state = None
         self.knowledge_graph = KnowledgeGraph(storage_path=knowledge_graph_path)
         self.assessment_evaluator = AssessmentEvaluator()
+        self.assessment_generator = AssessmentGenerator(
+            self.reasoner.model_router,
+            self.reasoner.model_factory,
+            allow_paid=self.reasoner.allow_paid,
+        )
         self.last_state = None
         self.pending_assessment_state = None
 
@@ -238,6 +244,61 @@ class StudyAgent:
             debug.log("StudyAgent", "STUDENT MODEL → updated")
             return state
 
+    def start_assessment(self, concept: str, difficulty: str = "graduate") -> dict:
+        """Start an explicit formal assessment session for one primary concept."""
+        concept = str(concept or "").strip()
+        if not concept:
+            raise ValueError("正式测评需要指定主要知识点。")
+        level, _score = normalize_difficulty(difficulty)
+        self.student_state = self.student_state or StudentState()
+        self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
+        context = self.knowledge_graph.context_for(concept)
+        assessment = self.assessment_generator.generate(
+            concept,
+            level,
+            learner_context=context,
+        )
+        self.knowledge_graph.add_concept(assessment["primary_concept"])
+        pending = dict(assessment)
+        state = AgentState(
+            question=assessment["question"],
+            student=self.student_state,
+            task_type="assessment",
+            domain="assessment",
+            execution_mode="knowledge_direct",
+            knowledge_graph=self.knowledge_graph,
+        )
+        state.pending_assessment = pending
+        self.pending_assessment_state = state
+        self.last_state = state
+        debug.log(
+            "StudyAgent",
+            f"ASSESSMENT START → concept={assessment['primary_concept']!r}, difficulty={level}, question_type={assessment['question_type']}",
+        )
+        return {
+            "status": "ASSESSMENT_READY",
+            "question": assessment["question"],
+            "primary_concept": assessment["primary_concept"],
+            "supporting_concepts": assessment["supporting_concepts"],
+            "difficulty_level": assessment["difficulty_level"],
+            "question_type": assessment["question_type"],
+        }
+
+    def learner_state(self, concept: str | None = None) -> dict:
+        """Return explicit learner evidence without changing it."""
+        self.student_state = self.student_state or StudentState()
+        self.student_state.sync_from_knowledge_graph(self.knowledge_graph)
+        if concept is None or not str(concept).strip():
+            return {
+                "known_topics": sorted(self.student_state.known_topics),
+                "weak_topics": sorted(self.student_state.weak_topics),
+                "learning_topics": sorted(self.student_state.learning_topics),
+            }
+        key = self.knowledge_graph._id(str(concept).strip())
+        node = self.knowledge_graph.nodes.get(key)
+        if node is None:
+            return {"concept": str(concept).strip(), "learning_stage": "unassessed"}
+        return {"concept": node.name, "learner": node.learner.as_dict()}
     def submit_assessment_answer(self, answer: str, confidence: float | None = None) -> dict:
         """Evaluate the pending assessment and update the persistent learner graph."""
         state = self.pending_assessment_state or self.last_state
