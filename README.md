@@ -967,6 +967,139 @@ Teacher 关心学生已有知识、薄弱点、误解、解释顺序和学习脚
 因此 Teacher 是这个项目从普通 Agent Harness 走向 learning-oriented Agent 的关键模块之一。
 
 
+## Formal Assessment and Learner-State Update
+
+KnowledgeGraph 中的学习程度不是由聊天次数自动推断，也不是由 Teacher 自己决定。
+
+正式学习状态更新必须经过显式 Assessment：
+
+```text
+Start Assessment
+      ↓
+Generate structured question
+      ↓
+Student answers
+      ↓
+AssessmentEvaluator
+      ↓
+score / correct / confidence
+      ↓
+KnowledgeGraph.record_assessment
+      ↓
+LearnerState
+```
+
+当前正式测评提供两个入口：
+
+`/test <知识点> [难度]`
+
+CLI 示例：
+
+```text
+/test multi-head attention postgraduate_plus
+```
+
+系统会生成一道结构化题目，然后等待学生作答。作答后会立即显示：
+
+- score
+- correct
+- learning_stage
+- familiarity
+- confidence
+
+也可以使用：
+
+`/learner <知识点>`
+
+读取该概念当前的学习状态，而不会修改状态。
+
+### Why assessment is explicit
+
+普通对话中的“学生看过某个知识点”不能直接证明学生掌握了它。
+
+因此系统采用：
+
+```text
+Exposure / conversation
+        ↓
+不能直接认证 mastery
+
+Explicit assessment
+        ↓
+evidence for learner-state update
+```
+
+### Mastery policy
+
+当前学习阶段包括：
+
+```text
+unknown → new → learning → familiar → mastered
+                         ↘ weak
+```
+
+状态更新采用保守规则：
+
+1. 一次答对不能直接认为 mastered。
+2. 一次答错不能直接认为 weak。
+3. basic / undergraduate / graduate 题只能提供较低层级的学习证据，不能单独认证完整 mastery。
+4. postgraduate / postgraduate_plus 测评必须达到**完整正确**，才可以作为 advanced mastery evidence。
+5. 当前实现还要求多次高难度成功表现，而不是一次考试直接晋升 mastered。
+6. 已达到 mastered 后，一次错误或一次简单题不会立即撤销 mastered；持续的高难度失败才会产生反向证据。
+
+这意味着 LearnerState 是一个随独立测评逐步更新的状态估计，而不是一次分类结果。
+
+### Assessment data model
+
+每次正式测评会保存：
+
+```text
+concepts
+primary_concept
+question
+expected_answer
+rubric
+difficulty
+correct
+score
+confidence
+timestamp
+```
+
+其中 primary_concept 用于避免一道包含多个知识点的题目，把所有 supporting concepts 同时错误地认证为 mastered。
+
+例如：
+
+```text
+primary_concept = attention
+supporting_concepts = softmax, matrix multiplication
+```
+
+答对只能主要更新 attention 的学习证据；supporting concepts 不会自动获得同等级 mastery。
+
+### Formal assessment vs Agent ASSESS action
+
+Agent 内部仍然可以通过 ASSESS action 产生 pending assessment，这是 Agent Loop 中的自动测评路径。
+
+此外，正式 CLI `/test` 直接调用 Assessment Session，不依赖 Reasoner 是否恰好选择 ASSESS。
+
+二者最终都进入同一个状态更新链：
+
+```text
+submit_assessment_answer()
+        ↓
+AssessmentEvaluator
+        ↓
+KnowledgeGraph
+        ↓
+LearnerState
+```
+
+| Path | Purpose |
+|---|---|
+| Agent ASSESS | Agent 自主决定何时需要检查学习情况 |
+| /test Formal Assessment | 学生明确要求进行正式测试 |
+
 ## Agent Safety Boundary
 
 安全性是 Harness 的硬约束，而不是依赖模型 prompt 自觉遵守。
