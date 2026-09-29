@@ -886,3 +886,34 @@ def test_tool_fingerprint_normalizes_effective_search_defaults():
         },
     )
     assert first == second
+
+
+
+def test_unrequested_assess_action_is_blocked_by_harness():
+    from types import SimpleNamespace
+    from core.state import AgentState
+    from core.tool_loop import AgentToolLoop, ToolExecutor
+
+    class Reasoner:
+        def decide(self, state):
+            return ReasoningDecision(
+                action="ASSESS",
+                reasoning_summary="try to assess without user request",
+                tool="assess",
+                arguments={
+                    "concepts": ["attention"],
+                    "question": "Explain attention.",
+                    "expected_answer": "attention maps queries to values",
+                    "rubric": ["queries", "values"],
+                },
+            )
+
+    state = AgentState(question="什么是 attention")
+    state.task_analysis = SimpleNamespace(assessment_requested=False)
+
+    state = AgentToolLoop(Reasoner(), ToolExecutor()).run(state)
+
+    assert state.finished is True
+    assert state.pending_assessment is None
+    assert state.steps[-1].action == "ASSESS_BLOCKED"
+    assert "ASSESSMENT_NOT_REQUESTED" in state.error
