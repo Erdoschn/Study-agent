@@ -277,7 +277,9 @@ def main() -> None:
 
     print(
         "输入 exit 或 quit 退出。\n"
-    )
+    print(
+        "正式测评：/test <知识点> [难度]；查看学习状态：/learner [知识点]\n"
+    )    )
 
     # -----------------------------
     # 交互循环
@@ -313,6 +315,50 @@ def main() -> None:
             )
 
             break
+
+        # Explicit formal assessment session:
+        # /test <concept> [difficulty]
+        # This path never exposes shell, file, or arbitrary code tools.
+        if question.lower().startswith("/test "):
+            parts = question.split(maxsplit=2)
+            concept = parts[1].strip() if len(parts) > 1 else ""
+            difficulty = parts[2].strip() if len(parts) > 2 else "postgraduate_plus"
+            if not concept:
+                print("用法：/test <知识点> [难度]\n")
+                continue
+            try:
+                assessment = agent.start_assessment(concept, difficulty)
+                print("\n========== Formal Assessment ==========\n")
+                print(f"Concept: {assessment['primary_concept']}")
+                print(f"Difficulty: {assessment['difficulty_level']}")
+                print(f"\n{assessment['question']}\n")
+                answer = input("Student Answer > ").strip()
+                result = agent.submit_assessment_answer(answer)
+                learner = result.get("learner_state", {}).get(
+                    assessment["primary_concept"], {}
+                )
+                print("\n========== Assessment Result ==========\n")
+                print(f"Score: {result['score']:.3f}")
+                print(f"Correct: {result['correct']}")
+                print(f"Learning Stage: {learner.get('learning_stage', 'unknown')}")
+                print(f"Familiarity: {learner.get('familiarity', 0):.3f}")
+                print(f"Confidence: {learner.get('confidence', 0):.3f}")
+                print()
+            except Exception as exc:
+                print(f"❌ 正式测评失败：{type(exc).__name__}: {exc}\n")
+            continue
+
+        if question.lower().startswith("/learner"):
+            parts = question.split(maxsplit=1)
+            concept = parts[1].strip() if len(parts) > 1 else None
+            try:
+                learner = agent.learner_state(concept)
+                print("\n========== Learner State ==========\n")
+                print(learner)
+                print()
+            except Exception as exc:
+                print(f"❌ 学习状态读取失败：{type(exc).__name__}: {exc}\n")
+            continue
 
         print(
             "\n========== Agent Run ==========\n"
