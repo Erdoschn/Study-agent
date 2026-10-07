@@ -80,9 +80,9 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
-        before_counts = self._response_counts(page)
+        before_snapshot = self._response_snapshot(page)
         self._send_prompt(page, prompt)
-        answer = self._wait_for_response(page, before_counts)
+        answer = self._wait_for_response(page, before_snapshot)
 
         if not answer:
             raise RuntimeError("DeepSeek Web 返回为空。")
@@ -221,13 +221,24 @@ class BrowserModel(ModelClient):
         textbox.press("Enter")
 
     def _response_counts(self, page) -> list[int]:
-        counts = []
+        return [
+            page.locator(selector).count()
+            for selector in self.response_selectors
+        ]
+
+    def _response_snapshot(self, page) -> list[tuple[int, str]]:
+        snapshot: list[tuple[int, str]] = []
         for selector in self.response_selectors:
             try:
-                counts.append(page.locator(selector).count())
+                locator = page.locator(selector)
+                count = locator.count()
+                latest = ""
+                if count > 0:
+                    latest = locator.nth(count - 1).inner_text().strip()
+                snapshot.append((count, latest))
             except Exception:
-                counts.append(0)
-        return counts
+                snapshot.append((0, ""))
+        return snapshot
 
     def _loading_visible(self, page) -> bool:
         for selector in self.loading_selectors:
@@ -240,7 +251,11 @@ class BrowserModel(ModelClient):
                 continue
         return False
 
-    def _latest_response(self, page, before_counts: list[int]) -> str:
+    def _latest_response(
+        self,
+        page,
+        before_snapshot: list[tuple[int, str]],
+    ) -> str:
         for index, selector in enumerate(self.response_selectors):
             try:
                 locator = page.locator(selector)
@@ -248,23 +263,40 @@ class BrowserModel(ModelClient):
                 if count <= 0:
                     continue
                 candidate = locator.nth(count - 1).inner_text().strip()
-                if candidate:
+                if not candidate:
+                    continue
+
+                before_count, before_text = (
+                    before_snapshot[index]
+                    if index < len(before_snapshot)
+                    else (0, "")
+                )
+
+                # A response is considered new only when the DOM gained an
+                # assistant element or the latest element's text changed.
+                # This prevents a later model call from immediately reusing the
+                # previous turn's final answer.
+                if count > before_count or candidate != before_text:
                     return candidate
             except Exception:
                 continue
         return ""
 
-    def _wait_for_response(self, page, before_counts: list[int]) -> str:
+    def _wait_for_response(
+        self,
+        page,
+        before_snapshot: list[tuple[int, str]],
+    ) -> str:
         deadline = time.monotonic() + self.timeout
-        saw_response = False
+        saw_new_response = False
         latest = ""
         stable_since: float | None = None
         previous = ""
 
         while time.monotonic() < deadline:
-            candidate = self._latest_response(page, before_counts)
+            candidate = self._latest_response(page, before_snapshot)
             if candidate:
-                saw_response = True
+                saw_new_response = True
                 if candidate != previous:
                     previous = candidate
                     latest = candidate
@@ -281,12 +313,12 @@ class BrowserModel(ModelClient):
 
             time.sleep(self.poll_interval)
 
-        if saw_response and latest:
+        if saw_new_response and latest:
             raise TimeoutError(
                 f"等待 DeepSeek Web 回答完成超时：{self.timeout}s"
             )
         raise TimeoutError(
-            f"等待 DeepSeek Web 回答超时：{self.timeout}s"
+            f"等待 DeepSeek Web 新回答超时：{self.timeout}s"
         )
 
     @staticmethod

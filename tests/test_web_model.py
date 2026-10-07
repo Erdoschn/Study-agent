@@ -151,6 +151,26 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
     assert answer == "answer for: User request:\nhello"
 
 
+def test_browser_model_does_not_reuse_previous_response(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        response_selectors=('[data-message-author-role="assistant"]',),
+        poll_interval=0.05,
+        stable_seconds=0.1,
+    )
+    page = FakePage()
+    page.responses.append("previous answer")
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+
+    def send(_page, _prompt):
+        # Simulate a UI implementation that mutates/replaces the latest
+        # assistant element after the new prompt is submitted.
+        page.responses[-1] = "new answer"
+
+    monkeypatch.setattr(model, "_send_prompt", send)
+    assert model.generate("", "hello") == "new answer"
+
+
 def test_browser_model_uses_page_ui_without_http(monkeypatch):
     model = BrowserModel(
         timeout=2,
