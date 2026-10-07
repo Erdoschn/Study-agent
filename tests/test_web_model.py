@@ -1,7 +1,7 @@
 import pytest
 
 from core.model_factory import ModelClientFactory
-from core.model_registry import ModelInfo, ModelRegistry
+from core.model_registry import ModelRegistry
 from core.web_model import BrowserModel
 
 
@@ -16,7 +16,7 @@ class FakeLocator:
 
     def nth(self, index):
         return FakeLocator(
-            [self.values[index]],
+            self.values[index:index + 1],
             visible=self.visible,
             on_press=self.on_press,
         )
@@ -41,9 +41,9 @@ class FakePage:
         self.responses = []
         self.logged_in = logged_in
         self.input = FakeLocator(
-            [""] if logged_in else [],
+            [""],
             on_press=self._press,
-        )
+        ) if logged_in else FakeLocator([], on_press=self._press)
 
     def locator(self, selector):
         if selector in {"textarea", '[contenteditable="true"]'}:
