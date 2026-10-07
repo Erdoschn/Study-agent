@@ -70,6 +70,7 @@ class BrowserModel(ModelClient):
             f"REQUEST → model={self.model}, chars={len(prompt)}, url={self.url}",
         )
 
+        self._ensure_logged_in(page)
         before_counts = self._response_counts(page)
         self._send_prompt(page, prompt)
         answer = self._wait_for_response(page, before_counts)
@@ -149,11 +150,47 @@ class BrowserModel(ModelClient):
         self._page.goto(self.url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
         return self._page
 
+    def _ensure_logged_in(self, page) -> None:
+        """Give the user time to complete the first manual web login.
+
+        A browser-backed model cannot safely infer or automate authentication.
+        If the chat input is not visible, keep the browser alive and wait for
+        the user to finish logging in. Pressing Enter in the terminal resumes
+        the request; the input is checked again before sending the prompt.
+        """
+        if self._find_visible(
+            page,
+            (
+                "textarea",
+                '[contenteditable="true"]',
+            ),
+        ) is not None:
+            return
+
+        print(
+            "\n[BrowserModel] DeepSeek Web 尚未检测到聊天输入框。"
+            "\n[BrowserModel] 请在打开的 Edge 中完成登录。"
+            "\n[BrowserModel] 登录完成后回到终端按 Enter 继续。"
+        )
+        input()
+
+        if self._find_visible(
+            page,
+            (
+                "textarea",
+                '[contenteditable="true"]',
+            ),
+        ) is None:
+            raise RuntimeError(
+                "登录后仍未找到 DeepSeek Web 输入框。"
+                "请确认已经进入聊天页面，再重试。"
+            )
+
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(
             page,
             (
-                'textarea',
+                "textarea",
                 '[contenteditable="true"]',
             ),
         )
