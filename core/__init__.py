@@ -8,6 +8,8 @@ from .reasoner import (
     ReasoningDecision,
 )
 
+from .web_model import BrowserModel
+
 from .state import (
     AgentState,
     AgentStep,
@@ -57,6 +59,7 @@ __all__ = [
     "AgentReasoner",
     "ModelClient",
     "OpenAICompatibleClient",
+    "BrowserModel",
     "ReasoningDecision",
     "AgentState",
     "AgentStep",
