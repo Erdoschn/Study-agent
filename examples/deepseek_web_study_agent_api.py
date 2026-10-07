@@ -34,13 +34,29 @@ def build_web_only_config(config: dict[str, Any]) -> dict[str, Any]:
     models = config.get("models", {})
     provider = providers.get("deepseek_web")
     model = models.get(MODEL_ID)
+
+    # providers.json may predate the browser-model addition. Keep this API
+    # self-contained: use the BrowserModel defaults when those entries are absent.
     if not isinstance(provider, dict):
-        raise RuntimeError("配置中找不到 browser provider：deepseek_web")
+        provider = {
+            "type": "browser",
+            "url": "https://chat.deepseek.com/",
+            "browser_channel": "msedge",
+            "user_data_dir": ".study-agent-browser",
+            "timeout": 180,
+            "enabled": True,
+        }
     if not isinstance(model, dict):
-        raise RuntimeError("配置中找不到 browser model：deepseek-web")
+        model = {
+            "provider": "deepseek_web",
+            "model": MODEL_ID,
+            "enabled": True,
+            "paid": False,
+        }
+
     return {
-        "providers": {"deepseek_web": dict(provider)},
-        "models": {MODEL_ID: dict(model, enabled=True, paid=False)},
+        "providers": {"deepseek_web": dict(provider, enabled=True)},
+        "models": {MODEL_ID: dict(model, provider="deepseek_web", model=MODEL_ID, enabled=True, paid=False)},
     }
 
 
