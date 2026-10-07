@@ -32,6 +32,7 @@ class BrowserModel(ModelClient):
     DEFAULT_NEW_CHAT_LABELS = ("New chat", "新对话", "新建对话")
     DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
+    DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
 
     def __init__(
         self,
@@ -99,7 +100,10 @@ class BrowserModel(ModelClient):
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
 
-            if not answer:
+            markdown = self._copy_latest_response_markdown(page)
+            if markdown:
+                answer = markdown
+            elif not answer:
                 raise RuntimeError("DeepSeek Web 返回为空。")
 
             completed = True
@@ -348,6 +352,100 @@ class BrowserModel(ModelClient):
         except Exception:
             pass
         return False
+
+    def _find_copy_button(self, page):
+        """Find DeepSeek's icon-only Copy button by its SVG path."""
+        selector = (
+            'button:has(svg path[d^="'
+            + self.DEFAULT_COPY_PATH_PREFIX
+            + '"])'
+        )
+        try:
+            buttons = page.locator(selector)
+            for index in range(buttons.count() - 1, -1, -1):
+                button = buttons.nth(index)
+                if button.is_visible():
+                    return button
+        except Exception:
+            pass
+        return None
+
+    def _read_browser_clipboard(self, page) -> str:
+        """Read the content copied by the web UI through a temporary textarea."""
+        probe_id = "__study_agent_clipboard_probe"
+        try:
+            page.evaluate(
+                """id => {
+                    const old = document.getElementById(id);
+                    if (old) old.remove();
+
+                    const el = document.createElement("textarea");
+                    el.id = id;
+                    el.setAttribute("aria-hidden", "true");
+                    el.style.position = "fixed";
+                    el.style.left = "-10000px";
+                    el.style.top = "0";
+                    el.style.width = "1px";
+                    el.style.height = "1px";
+                    el.style.opacity = "0";
+                    document.body.appendChild(el);
+                }""",
+                probe_id,
+            )
+            probe = page.locator(f"#{probe_id}")
+            page.evaluate(
+                "id => document.getElementById(id)?.focus()",
+                probe_id,
+            )
+            page.keyboard.press("Control+V")
+            value = probe.input_value()
+            page.evaluate(
+                "id => document.getElementById(id)?.remove()",
+                probe_id,
+            )
+            return value if isinstance(value, str) else str(value or "")
+        except Exception as exc:
+            try:
+                page.evaluate(
+                    "id => document.getElementById(id)?.remove()",
+                    probe_id,
+                )
+            except Exception:
+                pass
+            debug.log("BrowserModel", f"CLIPBOARD READ SKIP → {exc}")
+            return ""
+
+    def _copy_latest_response_markdown(self, page) -> str:
+        """Click DeepSeek's native Copy button and capture its Markdown payload."""
+        deadline = time.monotonic() + min(3.0, float(self.timeout))
+
+        while time.monotonic() < deadline:
+            button = self._find_copy_button(page)
+            if button is not None:
+                try:
+                    button.click()
+                except Exception as exc:
+                    debug.log("BrowserModel", f"COPY BUTTON SKIP → {exc}")
+                    return ""
+
+                read_deadline = time.monotonic() + min(2.0, float(self.timeout))
+                while time.monotonic() < read_deadline:
+                    markdown = self._read_browser_clipboard(page)
+                    if markdown.strip():
+                        debug.log(
+                            "BrowserModel",
+                            f"COPY SUCCESS → markdown_chars={len(markdown)}",
+                        )
+                        return markdown
+                    time.sleep(min(0.1, self.poll_interval))
+
+                debug.log("BrowserModel", "COPY WARNING → clipboard remained empty")
+                return ""
+
+            time.sleep(self.poll_interval)
+
+        debug.log("BrowserModel", "COPY SKIP → native Copy button not found")
+        return ""
 
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(
