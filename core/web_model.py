@@ -354,20 +354,48 @@ class BrowserModel(ModelClient):
         return False
 
     def _find_copy_button(self, page):
-        """Find DeepSeek's icon-only Copy button by its SVG path."""
-        selector = (
-            'button:has(svg path[d^="'
-            + self.DEFAULT_COPY_PATH_PREFIX
-            + '"])'
-        )
+        """Find Copy only inside the latest assistant message's virtual-list item."""
+        response = None
+        for selector in self.response_selectors:
+            try:
+                locator = page.locator(selector)
+                for index in range(locator.count() - 1, -1, -1):
+                    candidate = locator.nth(index)
+                    if candidate.is_visible():
+                        response = candidate
+                        break
+                if response is not None:
+                    break
+            except Exception:
+                continue
+
+        if response is None:
+            return None
+
         try:
-            buttons = page.locator(selector)
+            item = response.locator(
+                'xpath=ancestor::*[@data-virtual-list-item-key][1]'
+            )
+            if item.count() == 0:
+                debug.log(
+                    "BrowserModel",
+                    "COPY SKIP → latest response has no virtual-list item",
+                )
+                return None
+
+            copy_selector = (
+                'button:has(svg path[d^="'
+                + self.DEFAULT_COPY_PATH_PREFIX
+                + '"])'
+            )
+            buttons = item.locator(copy_selector)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 if button.is_visible():
                     return button
-        except Exception:
-            pass
+        except Exception as exc:
+            debug.log("BrowserModel", f"COPY LOOKUP SKIP → {exc}")
+
         return None
 
     def _read_browser_clipboard(self, page) -> str:
