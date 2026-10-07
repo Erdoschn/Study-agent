@@ -59,11 +59,48 @@ function clearChat(){const c=active();if(!c)return;c.messages=[];c.title="新对
 function selectChat(cid){if(state.running)return;if(!state.conversations.some(c=>c.id===cid))return;state.active=cid;render();persist();closeSide();input.focus()}
 function renderList(){list.textContent="";for(const c of state.conversations){const row=document.createElement("div");row.className="conv"+(c.id===state.active?" active":"");const b=document.createElement("button");b.className="conv-open";b.type="button";b.textContent=c.title;b.title=c.title;b.onclick=()=>selectChat(c.id);const d=document.createElement("button");d.className="conv-del";d.type="button";d.textContent="×";d.title="删除";d.onclick=e=>{e.stopPropagation();removeChat(c.id)};row.append(b,d);list.append(row)}}
 function render(){renderList();messages.textContent="";const c=active();welcome.classList.toggle("hidden",!!c?.messages.length);if(c)for(const m of c.messages)renderMessage(m)}
-function renderMessage(m){const el=document.createElement("article");el.className="msg "+m.role;const av=document.createElement("div");av.className="avatar";av.textContent=m.role==="user"?"你":"S";const b=document.createElement("div");b.className="bubble";const body=document.createElement("div");body.className="content";if(m.role==="user"){body.className+=" text";body.textContent=m.content||""}else body.innerHTML=markdown(m.content||"");b.append(body);if(m.role==="assistant"&&m.statuses?.length)b.append(renderStatus(m.statuses,!m.done));el.append(av,b);messages.append(el);enhance(el)}
-function markdown(x){const html=window.marked?marked.parse(x):escapeHtml(x).replace(/\n/g,"<br>");return window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html}
+function renderMessage(m){const el=document.createElement("article");el.className="msg "+m.role;const av=document.createElement("div");av.className="avatar";av.textContent=m.role==="user"?"你":"S";const b=document.createElement("div");b.className="bubble";const body=document.createElement("div");body.className="content";if(m.role==="assistant"&&m.statuses?.length)b.append(renderStatus(m.statuses,!m.done));if(m.role==="user"){body.className+=" text";body.textContent=m.content||""}else body.innerHTML=markdown(m.content||"");b.append(body);el.append(av,b);messages.append(el);enhance(el)}
+function markdown(x){
+ const stash=[];
+ const token=i=>"__STUDY_AGENT_MATH_"+i+"__";
+ const keep=value=>{const i=stash.length;stash.push(value);return token(i)};
+ const outsideCode=(source,fn)=>{
+  const parts=String(source).split(/(```[\\s\\S]*?```|~~~[\\s\\S]*?~~~)/g);
+  return parts.map((part,i)=>i%2?part:fn(part)).join("");
+ };
+ let source=String(x??"");
+ source=outsideCode(source,part=>part
+  .replace(/\\\\[[\\s\\S]*?\\\\]/g,keep)
+  .replace(/\\$\\$[\\s\\S]*?\\$\\$/g,keep)
+  .replace(/\\\\([\\s\\S]*?)\\\\\)/g,keep)
+  .replace(/\\[([^\\[\\]\\n]*(?:\\\\[A-Za-z]+|[_^]\\{?)[^\\[\\]]*)\\](?!\\()/g,value=>{
+   const inner=value.slice(1,-1);
+   return keep((/\\\\begin\\{/.test(inner)||inner.includes("\\n"))?"$"+inner+"$":"\\("+inner+"\\)");
+  })
+ );
+ const html=window.marked?marked.parse(source):escapeHtml(source).replace(/\\n/g,"<br>");
+ return stash.reduce((result,value,i)=>result.replaceAll(token(i),value),window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html);
+}
 function escapeHtml(x){const d=document.createElement("div");d.textContent=String(x);return d.innerHTML}
 function enhance(root){root.querySelectorAll("pre code").forEach(code=>{if(code.dataset.enhanced)return;code.dataset.enhanced="1";if(window.hljs)hljs.highlightElement(code);const pre=code.parentElement,wrap=document.createElement("div");wrap.className="code";const head=document.createElement("div");head.className="code-head";const label=document.createElement("span");const cls=[...code.classList].find(x=>x.startsWith("language-"));label.textContent=cls?cls.slice(9):"code";const copy=document.createElement("button");copy.className="copy";copy.type="button";copy.textContent="复制";copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.innerText);copy.textContent="已复制";setTimeout(()=>copy.textContent="复制",900)}catch(_){copy.textContent="失败"}};head.append(label,copy);pre.replaceWith(wrap);wrap.append(head,pre)});if(window.MathJax?.typesetPromise)MathJax.typesetPromise([root]).catch(()=>{})}
-function renderStatus(arr,isRunning){const box=document.createElement("div");box.className="status"+(isRunning?"":" done");const line=document.createElement("div");line.className="status-line";const sp=document.createElement("span");sp.className="spin";const now=document.createElement("span");now.textContent=isRunning?(arr[arr.length-1]||"处理中…"):"完成";line.append(sp,now);box.append(line);if(arr.length>1){const h=document.createElement("div");h.className="hist";arr.slice(0,-1).forEach(s=>{const d=document.createElement("div");d.textContent=s;h.append(d)});box.append(h)}return box}
+function renderStatus(arr,isRunning){
+ const box=document.createElement("div");
+ box.className="status"+(isRunning?"":" done");
+ if(!arr.length){
+  if(isRunning){const line=document.createElement("div");line.className="status-line";const sp=document.createElement("span");sp.className="spin";const now=document.createElement("span");now.textContent="处理中…";line.append(sp,now);box.append(line)}
+  return box;
+ }
+ if(arr.length>1){
+  const h=document.createElement("div");h.className="hist";
+  arr.slice(0,-1).forEach(s=>{const d=document.createElement("div");d.textContent=s;h.append(d)});
+  box.append(h);
+ }
+ const line=document.createElement("div");line.className="status-line";
+ const sp=document.createElement("span");sp.className="spin";sp.style.display=isRunning?"":"none";
+ const now=document.createElement("span");now.textContent=arr[arr.length-1]||"处理中…";
+ line.append(sp,now);box.append(line);
+ return box;
+}
 function running(x){state.running=x;send.textContent=x?"取消等待":"发送";send.classList.toggle("stop",x);input.disabled=x}
 async function health(){try{const r=await fetch(url("/health"),{headers:headers(),cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("#dot").className="dot ok";$("#health").textContent="API 在线";$("#healthDetail").textContent=d.model||"StudyAgent"}catch(e){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(e.message||e)}}
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
