@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from core import web_model as web_model_module
@@ -80,6 +82,49 @@ def test_build_prompt_keeps_system_and_user_separate():
     assert "You are a reasoner." in prompt
     assert "What is attention?" in prompt
     assert "return only valid JSON" in prompt
+
+
+def test_browser_model_prefers_markdown_response_selector():
+    assert BrowserModel.DEFAULT_RESPONSE_SELECTORS[0] == ".ds-assistant-message-main-content"
+    assert ".ds-markdown" in BrowserModel.DEFAULT_RESPONSE_SELECTORS
+
+
+def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
+    class Page:
+        def __init__(self):
+            self.responses = ["partial"]
+            self.loading = True
+            self.input = FakeLocator([""], on_press=lambda key: None)
+
+        def locator(self, selector):
+            if selector in {"textarea", '[contenteditable="true"]'}:
+                return self.input
+            if selector == ".ds-markdown":
+                return FakeLocator(self.responses)
+            if selector == ".ds-message-loading":
+                return FakeLocator(["loading"] if self.loading else [])
+            return FakeLocator([])
+
+    model = BrowserModel(
+        timeout=2,
+        response_selectors=(".ds-markdown",),
+        loading_selectors=(".ds-message-loading",),
+        poll_interval=0.05,
+        stable_seconds=0.15,
+    )
+    page = Page()
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, _prompt: None)
+
+    def finish_generation():
+        time.sleep(0.25)
+        page.responses[:] = ["partial complete JSON"]
+        page.loading = False
+
+    import threading
+    threading.Thread(target=finish_generation, daemon=True).start()
+
+    assert model.generate("", "hello") == "partial complete JSON"
 
 
 def test_browser_model_waits_for_manual_login(monkeypatch):

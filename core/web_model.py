@@ -18,8 +18,15 @@ class BrowserModel(ModelClient):
 
     DEFAULT_URL = "https://chat.deepseek.com/"
     DEFAULT_RESPONSE_SELECTORS = (
-        '[data-message-author-role="assistant"]',
+        ".ds-assistant-message-main-content",
         ".ds-markdown",
+        '[data-message-author-role="assistant"]',
+    )
+    DEFAULT_LOADING_SELECTORS = (
+        ".ds-message-loading",
+        '[class*="message-loading"]',
+        '[class*="streaming"]',
+        '[class*="thinking"]',
     )
 
     def __init__(
@@ -31,6 +38,7 @@ class BrowserModel(ModelClient):
         browser_channel: str | None = None,
         timeout: int = 180,
         response_selectors: tuple[str, ...] | None = None,
+        loading_selectors: tuple[str, ...] | None = None,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
     ):
@@ -47,6 +55,7 @@ class BrowserModel(ModelClient):
         )
         self.timeout = max(1, int(timeout))
         self.response_selectors = response_selectors or self.DEFAULT_RESPONSE_SELECTORS
+        self.loading_selectors = loading_selectors or self.DEFAULT_LOADING_SELECTORS
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
 
@@ -220,60 +229,65 @@ class BrowserModel(ModelClient):
                 counts.append(0)
         return counts
 
+    def _loading_visible(self, page) -> bool:
+        for selector in self.loading_selectors:
+            try:
+                locator = page.locator(selector)
+                for index in range(locator.count() - 1, -1, -1):
+                    if locator.nth(index).is_visible():
+                        return True
+            except Exception:
+                continue
+        return False
+
+    def _latest_response(self, page, before_counts: list[int]) -> str:
+        for index, selector in enumerate(self.response_selectors):
+            try:
+                locator = page.locator(selector)
+                count = locator.count()
+                if count <= 0:
+                    continue
+                candidate = locator.nth(count - 1).inner_text().strip()
+                if candidate:
+                    return candidate
+            except Exception:
+                continue
+        return ""
+
     def _wait_for_response(self, page, before_counts: list[int]) -> str:
         deadline = time.monotonic() + self.timeout
+        saw_response = False
         latest = ""
+        stable_since: float | None = None
+        previous = ""
 
         while time.monotonic() < deadline:
-            for index, selector in enumerate(self.response_selectors):
-                try:
-                    locator = page.locator(selector)
-                    count = locator.count()
-                    baseline = before_counts[index] if index < len(before_counts) else 0
-                    if count <= baseline:
-                        continue
-
-                    candidate = locator.nth(count - 1).inner_text().strip()
-                    if not candidate:
-                        continue
-
+            candidate = self._latest_response(page, before_counts)
+            if candidate:
+                saw_response = True
+                if candidate != previous:
+                    previous = candidate
                     latest = candidate
-                    if self._is_stable(page, selector, count - 1, candidate, deadline):
-                        return latest
-                except Exception:
-                    continue
+                    stable_since = None
+                elif stable_since is None:
+                    stable_since = time.monotonic()
+
+                if (
+                    stable_since is not None
+                    and time.monotonic() - stable_since >= self.stable_seconds
+                    and not self._loading_visible(page)
+                ):
+                    return latest
 
             time.sleep(self.poll_interval)
 
+        if saw_response and latest:
+            raise TimeoutError(
+                f"等待 DeepSeek Web 回答完成超时：{self.timeout}s"
+            )
         raise TimeoutError(
             f"等待 DeepSeek Web 回答超时：{self.timeout}s"
         )
-
-    def _is_stable(
-        self,
-        page,
-        selector: str,
-        index: int,
-        initial: str,
-        deadline: float,
-    ) -> bool:
-        stable_until = time.monotonic() + self.stable_seconds
-        previous = initial
-        while time.monotonic() < stable_until and time.monotonic() < deadline:
-            time.sleep(self.poll_interval)
-            try:
-                current = page.locator(selector).nth(index).inner_text().strip()
-            except Exception:
-                return False
-            if not current:
-                return False
-            if current != previous:
-                previous = current
-                stable_until = min(
-                    deadline,
-                    time.monotonic() + self.stable_seconds,
-                )
-        return True
 
     @staticmethod
     def _find_visible(page, selectors: tuple[str, ...]):
