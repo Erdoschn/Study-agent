@@ -36,16 +36,19 @@ class FakeLocator:
 
 
 class FakePage:
-    def __init__(self):
+    def __init__(self, *, logged_in=True):
         self.prompt = ""
         self.responses = []
+        self.logged_in = logged_in
         self.input = FakeLocator(
-            [""],
+            [""] if logged_in else [],
             on_press=self._press,
         )
 
     def locator(self, selector):
         if selector in {"textarea", '[contenteditable="true"]'}:
+            if self.logged_in and not self.input.values:
+                self.input = FakeLocator([""], on_press=self._press)
             return self.input
         if selector == '[data-message-author-role="assistant"]':
             return FakeLocator(self.responses)
@@ -70,6 +73,30 @@ def test_build_prompt_keeps_system_and_user_separate():
     assert "return only valid JSON" in prompt
 
 
+def test_browser_model_waits_for_manual_login(monkeypatch):
+    model = BrowserModel(
+        timeout=2,
+        response_selectors=('[data-message-author-role="assistant"]',),
+        poll_interval=0.1,
+        stable_seconds=0.3,
+    )
+    page = FakePage(logged_in=False)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+
+    calls = []
+
+    def fake_input():
+        calls.append("enter")
+        page.logged_in = True
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    answer = model.generate("", "hello")
+
+    assert calls == ["enter"]
+    assert answer == "answer for: User request:\nhello"
+
+
 def test_browser_model_uses_page_ui_without_http(monkeypatch):
     model = BrowserModel(
         timeout=2,
@@ -90,6 +117,16 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
         "You are a teacher.\n\n"
         "User request:\nExplain self-attention."
     )
+
+
+def test_browser_model_raises_if_login_was_not_completed(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = FakePage(logged_in=False)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr("builtins.input", lambda: None)
+
+    with pytest.raises(RuntimeError, match="登录后仍未找到 DeepSeek Web 输入框"):
+        model.generate("", "hello")
 
 
 def test_browser_model_raises_when_response_does_not_arrive(monkeypatch):
