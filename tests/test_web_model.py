@@ -254,7 +254,10 @@ def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
 
         def get_by_role(self, role, name=None):
             if role == "button" and name is not None:
-                return FakeLocator(["new chat"])
+                return FakeLocator(
+                    ["new chat"],
+                    on_press=lambda key: self.new_chat.click() if key == "click" else None,
+                )
 
         def get_by_text(self, pattern):
             return FakeLocator([])
