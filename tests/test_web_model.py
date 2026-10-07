@@ -155,20 +155,11 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
     ]
 
 
-def test_browser_model_reuses_existing_page_without_relaunch(monkeypatch):
+def test_browser_model_reuses_existing_page_without_relaunch():
     model = BrowserModel(timeout=2)
     page = FakePage()
     page.is_closed = lambda: False
     model._page = page
-
-    class ForbiddenPlaywright:
-        def start(self):
-            raise AssertionError("should not start Playwright")
-
-    monkeypatch.setattr(
-        "core.web_model.os.getenv",
-        lambda key, default=None: default,
-    )
 
     assert model._ensure_page() is page
 
