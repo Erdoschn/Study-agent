@@ -237,6 +237,9 @@ def test_browser_model_does_not_reuse_previous_response(monkeypatch):
         timeout=1,
         response_selectors=('[data-message-author-role="assistant"]',),
         poll_interval=0.05,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.1,
     )
     page = FakePage()
@@ -257,6 +260,9 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
         timeout=2,
         response_selectors=('[data-message-author-role="assistant"]',),
         poll_interval=0.1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.3,
     )
     page = FakePage()
@@ -279,6 +285,9 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
         timeout=2,
         response_selectors=('[data-message-author-role="assistant"]',),
         poll_interval=0.1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.3,
     )
     page = FakePage()
