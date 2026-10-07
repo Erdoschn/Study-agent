@@ -179,47 +179,53 @@ def test_browser_model_finds_copy_button_inside_latest_message_item():
         def count(self):
             return 1
 
+        def get_attribute(self, name):
+            assert name == "data-virtual-list-item-key"
+            return self.name
+
         def locator(self, selector):
             assert selector == (
                 '[role="button"]:has(svg path[d^="M6.14929 4.02032"])'
             )
             return self.copy_button
 
-    class Response:
-        def __init__(self, item):
+    class Message:
+        def __init__(self, item, has_response=True):
             self.item = item
+            self.has_response = has_response
 
         def is_visible(self):
             return True
 
         def locator(self, selector):
-            assert selector == (
-                'xpath=ancestor::*[@data-virtual-list-item-key][1]'
-            )
-            return self.item
+            if selector == 'xpath=ancestor::*[@data-virtual-list-item-key][1]':
+                return self.item
+            if selector == ".ds-markdown":
+                return FakeLocator(["answer"]) if self.has_response else FakeLocator([])
+            return FakeLocator([])
 
-    class Responses:
-        def __init__(self, responses):
-            self.responses = responses
+    class Messages:
+        def __init__(self, messages):
+            self.messages = messages
 
         def count(self):
-            return len(self.responses)
+            return len(self.messages)
 
         def nth(self, index):
-            return self.responses[index]
+            return self.messages[index]
 
     class Page:
         def __init__(self):
             self.old_item = Item("old")
             self.latest_item = Item("latest")
-            self.responses = Responses([
-                Response(self.old_item),
-                Response(self.latest_item),
+            self.messages = Messages([
+                Message(self.old_item),
+                Message(self.latest_item),
             ])
 
         def locator(self, selector):
-            assert selector == ".ds-markdown"
-            return self.responses
+            assert selector == ".ds-message"
+            return self.messages
 
     model = BrowserModel(response_selectors=(".ds-markdown",))
     page = Page()
@@ -228,6 +234,48 @@ def test_browser_model_finds_copy_button_inside_latest_message_item():
 
     assert button is page.latest_item.copy_button
     assert button is not page.old_item.copy_button
+
+
+def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
+    class Page:
+        def __init__(self):
+            self.messages_present = True
+            self.input = FakeLocator([""])
+
+            class NewChatButton:
+                def is_visible(inner_self):
+                    return True
+
+                def click(inner_self):
+                    page.messages_present = False
+
+            page = self
+            self.new_chat = NewChatButton()
+
+        def get_by_role(self, role, name=None):
+            if role == "button" and name is not None:
+                return FakeLocator(["new chat"])
+
+        def get_by_text(self, pattern):
+            return FakeLocator([])
+
+        def locator(self, selector):
+            if selector == ".ds-message":
+                return FakeLocator(["message"] if self.messages_present else [])
+            if selector in {"textarea", '[contenteditable="true"]'}:
+                return self.input
+            return FakeLocator([])
+
+    model = BrowserModel(
+        timeout=1,
+        poll_interval=0.05,
+        session_pause_seconds=0,
+    )
+    page = Page()
+
+    model._start_fresh_chat(page)
+
+    assert page.messages_present is False
 
 
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
