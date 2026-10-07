@@ -156,78 +156,78 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
     assert events == ["start", "send", "cleanup"]
 
 
-def test_browser_model_finds_native_copy_button_by_svg_path():
-    class Page:
-        def __init__(self):
-            self.selector = None
-            self.button = FakeLocator(["copy"])
-
-        def locator(self, selector):
-            self.selector = selector
-            return self.button
-
-    model = BrowserModel()
-    page = Page()
-
-    assert model._find_copy_button(page) is page.button
-    assert page.selector == (
-        'button:has(svg path[d^="M6.14929 4.02032"])'
-    )
-
-
-def test_browser_model_scopes_copy_button_to_latest_virtual_list_item():
-    class Locator:
-        def __init__(self, *, values=None, visible=True):
-            self.values = values or []
-            self.visible = visible
-            self.index = None
-            self.parent = None
-            self.selector = None
+def test_browser_model_finds_copy_button_inside_latest_message_item():
+    class Button:
+        def __init__(self, name):
+            self.name = name
 
         def count(self):
-            return len(self.values)
+            return 1
 
         def nth(self, index):
-            loc = Locator(values=self.values, visible=self.visible)
-            loc.index = index
-            loc.parent = self.parent
-            loc.selector = self.selector
-            return loc
+            assert index == 0
+            return self
 
         def is_visible(self):
-            return self.visible
+            return True
+
+    class Item:
+        def __init__(self, name):
+            self.name = name
+            self.copy_button = Button(name)
+
+        def count(self):
+            return 1
 
         def locator(self, selector):
-            self.selector = selector
-            return self.parent
+            assert selector == (
+                'button:has(svg path[d^="M6.14929 4.02032"])'
+            )
+            return self.copy_button
 
-    class Response(Locator):
+    class Response:
         def __init__(self, item):
-            super().__init__(values=["response"], visible=True)
             self.item = item
 
+        def is_visible(self):
+            return True
+
         def locator(self, selector):
+            assert selector == (
+                'xpath=ancestor::*[@data-virtual-list-item-key][1]'
+            )
             return self.item
+
+    class Responses:
+        def __init__(self, responses):
+            self.responses = responses
+
+        def count(self):
+            return len(self.responses)
+
+        def nth(self, index):
+            return self.responses[index]
 
     class Page:
         def __init__(self):
-            self.item = Locator(values=["copy"], visible=True)
-            self.response = Response(self.item)
-            self.response.selector = ".ds-markdown"
-            self.item.parent = self.item
+            self.old_item = Item("old")
+            self.latest_item = Item("latest")
+            self.responses = Responses([
+                Response(self.old_item),
+                Response(self.latest_item),
+            ])
 
         def locator(self, selector):
-            if selector == ".ds-markdown":
-                return self.response
-            return Locator()
+            assert selector == ".ds-markdown"
+            return self.responses
 
     model = BrowserModel(response_selectors=(".ds-markdown",))
     page = Page()
 
     button = model._find_copy_button(page)
 
-    assert button is not None
-    assert page.response.item is page.item
+    assert button is page.latest_item.copy_button
+    assert button is not page.old_item.copy_button
 
 
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
