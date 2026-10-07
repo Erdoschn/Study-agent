@@ -384,7 +384,7 @@ class BrowserModel(ModelClient):
                 return None
 
             copy_selector = (
-                'button:has(svg path[d^="'
+                '[role="button"]:has(svg path[d^="'
                 + self.DEFAULT_COPY_PATH_PREFIX
                 + '"])'
             )
