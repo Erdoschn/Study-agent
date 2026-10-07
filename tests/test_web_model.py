@@ -175,6 +175,61 @@ def test_browser_model_finds_native_copy_button_by_svg_path():
     )
 
 
+def test_browser_model_scopes_copy_button_to_latest_virtual_list_item():
+    class Locator:
+        def __init__(self, *, values=None, visible=True):
+            self.values = values or []
+            self.visible = visible
+            self.index = None
+            self.parent = None
+            self.selector = None
+
+        def count(self):
+            return len(self.values)
+
+        def nth(self, index):
+            loc = Locator(values=self.values, visible=self.visible)
+            loc.index = index
+            loc.parent = self.parent
+            loc.selector = self.selector
+            return loc
+
+        def is_visible(self):
+            return self.visible
+
+        def locator(self, selector):
+            self.selector = selector
+            return self.parent
+
+    class Response(Locator):
+        def __init__(self, item):
+            super().__init__(values=["response"], visible=True)
+            self.item = item
+
+        def locator(self, selector):
+            return self.item
+
+    class Page:
+        def __init__(self):
+            self.item = Locator(values=["copy"], visible=True)
+            self.response = Response(self.item)
+            self.response.selector = ".ds-markdown"
+            self.item.parent = self.item
+
+        def locator(self, selector):
+            if selector == ".ds-markdown":
+                return self.response
+            return Locator()
+
+    model = BrowserModel(response_selectors=(".ds-markdown",))
+    page = Page()
+
+    button = model._find_copy_button(page)
+
+    assert button is not None
+    assert page.response.item is page.item
+
+
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
     model = BrowserModel(timeout=1)
     page = object()
