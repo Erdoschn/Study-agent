@@ -10,6 +10,15 @@
       "enabled": false
     },
 
+    "deepseek_web": {
+      "type": "browser",
+      "url": "https://chat.deepseek.com/",
+      "browser_channel": "msedge",
+      "user_data_dir": ".study-agent-browser",
+      "timeout": 180,
+      "enabled": true
+    },
+
     "deepseek": {
       "type": "openai_compatible",
       "base_url": "https://api.deepseek.com",
@@ -42,6 +51,13 @@
   },
 
   "models": {
+    "deepseek-web": {
+      "provider": "deepseek_web",
+      "model": "deepseek-web",
+      "enabled": true,
+      "paid": false
+    },
+
     "gpt-4o-free": {
       "provider": "AiHubMix",
       "model": "gpt-4o-free",
