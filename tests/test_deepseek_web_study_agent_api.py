@@ -75,6 +75,12 @@ def test_web_api_resolves_only_files_inside_web_root():
     assert web_asset_path("/../examples/deepseek_web_study_agent_api.py") is None
 
 
+def test_web_frontend_does_not_force_markdown_line_breaks():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "breaks:false" in source
+    assert "breaks:true" not in source
+
+
 def test_web_frontend_exists():
     path = WEB_ROOT / "index.html"
     assert path.is_file()

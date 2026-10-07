@@ -44,7 +44,7 @@ const DEF="/v1",KEY="studyagent.ui.v3";
 const $=s=>document.querySelector(s);
 const state={conversations:[],active:null,running:false,ctrl:null,base:localStorage.getItem("studyagent.apiBase")||DEF,key:localStorage.getItem("studyagent.apiKey")||""};
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list");
-if(window.marked)marked.setOptions({gfm:true,breaks:true});
+if(window.marked)marked.setOptions({gfm:true,breaks:false});
 function id(){return"c-"+Date.now()+"-"+Math.random().toString(36).slice(2,8)}
 function active(){return state.conversations.find(c=>c.id===state.active)||null}
 function base(){let x=(state.base||DEF).trim()||DEF;if(!/^https?:\/\//i.test(x)&&!x.startsWith("/"))x="/"+x;return x.replace(/\/$/,"")}
