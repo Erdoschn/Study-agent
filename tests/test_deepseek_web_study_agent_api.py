@@ -1,12 +1,16 @@
-from examples.deepseek_web_study_agent_api import Handler, build_web_only_config
+from examples.deepseek_web_study_agent_api import Handler, WEB_ROOT, build_web_only_config, web_asset_path
 
 
-def test_web_api_extracts_latest_user_message():
-    assert Handler._prompt([
+def test_web_api_extracts_latest_user_message_from_history():
+    prompt = Handler._prompt([
+        {"role": "system", "content": "teach clearly"},
         {"role": "user", "content": "old"},
         {"role": "assistant", "content": "answer"},
         {"role": "user", "content": "new"},
-    ]) == "new"
+    ])
+    assert "【用户】" in prompt
+    assert "new" in prompt
+    assert "teach clearly" in prompt
 
 
 def test_web_api_rejects_missing_user_message():
@@ -16,6 +20,13 @@ def test_web_api_rejects_missing_user_message():
         assert "user" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_web_api_accepts_multimodal_text_content():
+    assert Handler._message_text([
+        {"type": "input_text", "text": "hello"},
+        {"type": "text", "text": "world"},
+    ]) == "hello\nworld"
 
 
 def test_web_api_isolates_browser_model():
@@ -41,3 +52,15 @@ def test_web_api_supplies_browser_defaults_when_local_config_lacks_them():
     assert provider["url"] == "https://chat.deepseek.com/"
     assert provider["browser_channel"] == "msedge"
     assert isolated["models"]["deepseek-web"]["paid"] is False
+
+
+def test_web_api_resolves_only_files_inside_web_root():
+    assert web_asset_path("/") == WEB_ROOT / "index.html"
+    assert web_asset_path("/index.html") == WEB_ROOT / "index.html"
+    assert web_asset_path("/../examples/deepseek_web_study_agent_api.py") is None
+
+
+def test_web_frontend_exists():
+    path = WEB_ROOT / "index.html"
+    assert path.is_file()
+    assert path.stat().st_size > 1000
