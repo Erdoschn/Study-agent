@@ -160,6 +160,14 @@ def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
             self.loading = True
             self.input = FakeLocator([""], on_press=lambda key: None)
 
+        def get_by_role(self, role, name=None):
+            if role == "button" and name is not None:
+                return FakeLocator(["New chat"])
+            return FakeLocator([])
+
+        def get_by_text(self, pattern):
+            return FakeLocator([])
+
         def locator(self, selector):
             if selector in {"textarea", '[contenteditable="true"]'}:
                 return self.input
