@@ -80,6 +80,22 @@ def test_web_frontend_does_not_force_markdown_line_breaks():
     assert "breaks:false" in source
     assert "breaks:true" not in source
 
+def test_web_frontend_protects_latex_before_markdown():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "function markdown(x)" in source
+    assert ".replace(/\\\\[[\\s\\S]*?\\\\]/g,keep)" in source
+    assert ".replace(/\\$\\$[\\s\\S]*?\\$\\$/g,keep)" in source
+    assert ".replace(/\\\\([\\s\\S]*?\\\\\\)/g,keep)" in source
+    assert "outsideCode" in source
+    assert "MathJax.typesetPromise([root])" in source
+
+
+def test_web_frontend_shows_agent_status_before_final_answer():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    status_marker = 'b.append(renderStatus(m.statuses,!m.done));'
+    body_marker = 'b.append(body);el.append(av,b);'
+    assert source.index(status_marker) < source.index(body_marker)
+
 
 def test_web_frontend_exists():
     path = WEB_ROOT / "index.html"
