@@ -6,33 +6,41 @@ from core.web_model import BrowserModel
 
 
 class FakeLocator:
-    def __init__(self, values, *, visible=True, on_press=None):
+    def __init__(self, values, *, visible=True, on_press=None, index=None):
         self.values = values
         self.visible = visible
         self.on_press = on_press
+        self.index = index
 
     def count(self):
         return len(self.values)
 
     def nth(self, index):
         return FakeLocator(
-            self.values[index:index + 1],
+            self.values,
             visible=self.visible,
             on_press=self.on_press,
+            index=index,
         )
 
     def is_visible(self):
         return self.visible
 
     def fill(self, value):
-        self.values[:] = [value]
+        if self.index is None:
+            self.values[:] = [value]
+        else:
+            self.values[self.index] = value
 
     def press(self, key):
         if self.on_press is not None:
             self.on_press(key)
 
     def inner_text(self):
-        return str(self.values[0]) if self.values else ""
+        if not self.values:
+            return ""
+        index = 0 if self.index is None else self.index
+        return str(self.values[index])
 
 
 class FakePage:
