@@ -127,6 +127,83 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
     )
 
 
+def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
+    model = BrowserModel(
+        timeout=2,
+        response_selectors=('[data-message-author-role="assistant"]',),
+        poll_interval=0.1,
+        stable_seconds=0.3,
+    )
+    page = FakePage()
+    calls = []
+
+    def ensure_page():
+        calls.append("ensure")
+        return page
+
+    monkeypatch.setattr(model, "_ensure_page", ensure_page)
+
+    first = model.generate("", "first")
+    second = model.generate("", "second")
+
+    assert first == "answer for: User request:\nfirst"
+    assert second == "answer for: User request:\nsecond"
+    assert calls == ["ensure", "ensure"]
+    assert page.responses == [
+        "answer for: User request:\nfirst",
+        "answer for: User request:\nsecond",
+    ]
+
+
+def test_browser_model_reuses_existing_page_without_relaunch(monkeypatch):
+    model = BrowserModel(timeout=2)
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+
+    class ForbiddenPlaywright:
+        def start(self):
+            raise AssertionError("should not start Playwright")
+
+    monkeypatch.setattr(
+        "core.web_model.os.getenv",
+        lambda key, default=None: default,
+    )
+
+    assert model._ensure_page() is page
+
+
+def test_browser_model_close_releases_browser_resources():
+    class FakeContext:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakePlaywright:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    model = BrowserModel()
+    context = FakeContext()
+    playwright = FakePlaywright()
+    model._context = context
+    model._page = object()
+    model._playwright = playwright
+
+    model.close()
+
+    assert context.closed is True
+    assert playwright.stopped is True
+    assert model._context is None
+    assert model._page is None
+    assert model._playwright is None
+
+
 def test_browser_model_raises_if_login_was_not_completed(monkeypatch):
     model = BrowserModel(timeout=1)
     page = FakePage(logged_in=False)
