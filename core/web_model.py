@@ -318,7 +318,7 @@ class BrowserModel(ModelClient):
                 f"等待 DeepSeek Web 回答完成超时：{self.timeout}s"
             )
         raise TimeoutError(
-            f"等待 DeepSeek Web 新回答超时：{self.timeout}s"
+            f"等待 DeepSeek Web 回答超时：{self.timeout}s"
         )
 
     @staticmethod
