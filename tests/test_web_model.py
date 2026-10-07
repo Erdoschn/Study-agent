@@ -39,6 +39,10 @@ class FakeLocator:
         if self.on_press is not None:
             self.on_press(key)
 
+    def click(self):
+        if self.on_press is not None:
+            self.on_press("click")
+
     def inner_text(self):
         if not self.values:
             return ""
@@ -55,6 +59,15 @@ class FakePage:
             [""],
             on_press=self._press,
         ) if logged_in else FakeLocator([], on_press=self._press)
+
+    def get_by_role(self, role, name=None):
+        # Unit-test stand-in for DeepSeek's visible "New chat" button.
+        if role == "button" and name is not None:
+            return FakeLocator(["New chat"])
+        return FakeLocator([])
+
+    def get_by_text(self, pattern):
+        return FakeLocator([])
 
     def locator(self, selector):
         if selector in {"textarea", '[contenteditable="true"]'}:
@@ -97,6 +110,42 @@ def test_browser_model_session_cleanup_defaults_are_paced():
     assert model.cleanup_pause_seconds == 3.0
     assert model.post_cleanup_pause_seconds == 1.5
     assert model.cleanup_after_generate is True
+
+
+def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        response_selectors=('[data-message-author-role="assistant"]',),
+        poll_interval=0.05,
+        stable_seconds=0.1,
+    )
+    page = FakePage()
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page: events.append("start"),
+    )
+    monkeypatch.setattr(
+        model,
+        "_send_prompt",
+        lambda _page, _prompt: events.append("send"),
+    )
+    monkeypatch.setattr(
+        model,
+        "_wait_for_response",
+        lambda _page, _snapshot: "answer",
+    )
+    monkeypatch.setattr(
+        model,
+        "_cleanup_current_chat",
+        lambda _page: events.append("cleanup"),
+    )
+
+    assert model.generate("", "hello") == "answer"
+    assert events == ["start", "send", "cleanup"]
 
 
 def test_browser_model_prefers_markdown_response_selector():
