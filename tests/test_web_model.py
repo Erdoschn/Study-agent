@@ -129,7 +129,7 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
     monkeypatch.setattr(
         model,
         "_copy_latest_response_markdown",
-        lambda _page: "",
+        lambda _page: "## 原始 Markdown\n\n$x^2$",
     )
     monkeypatch.setattr(
         model,
@@ -152,7 +152,7 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
         lambda _page: events.append("cleanup"),
     )
 
-    assert model.generate("", "hello") == "answer"
+    assert model.generate("", "hello") == "## 原始 Markdown\n\n$x^2$"
     assert events == ["start", "send", "cleanup"]
 
 
