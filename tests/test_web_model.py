@@ -117,6 +117,9 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
         timeout=1,
         response_selectors=('[data-message-author-role="assistant"]',),
         poll_interval=0.05,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.1,
     )
     page = FakePage()
@@ -182,6 +185,9 @@ def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
         response_selectors=(".ds-markdown",),
         loading_selectors=(".ds-message-loading",),
         poll_interval=0.05,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.15,
     )
     page = Page()
@@ -204,6 +210,9 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
         timeout=2,
         response_selectors=('[data-message-author-role="assistant"]',),
         poll_interval=0.1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
         stable_seconds=0.3,
     )
     page = FakePage(logged_in=False)
