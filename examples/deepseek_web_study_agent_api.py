@@ -63,6 +63,13 @@ def build_web_only_config(config: dict[str, Any]) -> dict[str, Any]:
 def build_agent(config: dict[str, Any]) -> StudyAgent:
     isolated = build_web_only_config(config)
     registry = ModelRegistry(isolated)
+    # This endpoint intentionally has exactly one LLM candidate. Core routing
+    # cooldowns would turn one transient browser error into "no available model"
+    # for the rest of the same request, so the isolated registry retries the
+    # browser backend instead of hiding the only candidate.
+    registry.BASE_COOLDOWN_SECONDS = 0.0
+    registry.MAX_COOLDOWN_SECONDS = 0.0
+    registry.PROVIDER_COOLDOWN_SECONDS = 0.0
     router = ModelRouter(registry)
     factory = ModelClientFactory(isolated)
     reasoner = AgentReasoner(router, factory, allow_paid=False)

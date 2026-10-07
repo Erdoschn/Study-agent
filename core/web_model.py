@@ -127,13 +127,7 @@ class BrowserModel(ModelClient):
         Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
         self._playwright = sync_playwright().start()
 
-        launch_kwargs: dict[str, Any] = {
-            "user_data_dir": self.user_data_dir,
-            "headless": False,
-        }
-        if self.browser_channel:
-            launch_kwargs["channel"] = self.browser_channel
-
+        launch_kwargs = self._browser_launch_kwargs()
         try:
             self._context = self._playwright.chromium.launch_persistent_context(
                 **launch_kwargs
@@ -149,6 +143,20 @@ class BrowserModel(ModelClient):
         self._page = pages[0] if pages else self._context.new_page()
         self._page.goto(self.url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
         return self._page
+
+    def _browser_launch_kwargs(self) -> dict[str, Any]:
+        launch_kwargs: dict[str, Any] = {
+            "user_data_dir": self.user_data_dir,
+            "headless": False,
+        }
+        if self.browser_channel:
+            launch_kwargs["channel"] = self.browser_channel
+        # Edge on Windows does not need Chromium's --no-sandbox default arg.
+        # Filtering it avoids Edge's unsupported-command warning while keeping
+        # the visible browser session fully sandboxed by the OS/browser.
+        if os.name == "nt":
+            launch_kwargs["ignore_default_args"] = ["--no-sandbox"]
+        return launch_kwargs
 
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.

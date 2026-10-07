@@ -45,6 +45,21 @@ def test_web_api_isolates_browser_model():
     assert list(isolated["models"]) == ["deepseek-web"]
 
 
+def test_web_api_does_not_cooldown_its_only_browser_model():
+    config = {"providers": {}, "models": {}}
+    isolated = build_web_only_config(config)
+
+    from examples.deepseek_web_study_agent_api import build_agent
+
+    agent = build_agent(config)
+    registry = agent.reasoner.model_router.registry
+
+    assert list(isolated["models"]) == ["deepseek-web"]
+    assert registry.BASE_COOLDOWN_SECONDS == 0.0
+    assert registry.MAX_COOLDOWN_SECONDS == 0.0
+    assert registry.PROVIDER_COOLDOWN_SECONDS == 0.0
+
+
 def test_web_api_supplies_browser_defaults_when_local_config_lacks_them():
     isolated = build_web_only_config({"providers": {}, "models": {}})
     provider = isolated["providers"]["deepseek_web"]
