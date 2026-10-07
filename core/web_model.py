@@ -28,6 +28,9 @@ class BrowserModel(ModelClient):
         '[class*="streaming"]',
         '[class*="thinking"]',
     )
+    DEFAULT_NEW_CHAT_LABELS = ("New chat", "新对话", "新建对话")
+    DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
+    DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
 
     def __init__(
         self,
@@ -39,6 +42,10 @@ class BrowserModel(ModelClient):
         timeout: int = 180,
         response_selectors: tuple[str, ...] | None = None,
         loading_selectors: tuple[str, ...] | None = None,
+        session_pause_seconds: float = 1.5,
+        cleanup_pause_seconds: float = 3.0,
+        post_cleanup_pause_seconds: float = 1.5,
+        cleanup_after_generate: bool = True,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
     ):
@@ -56,6 +63,10 @@ class BrowserModel(ModelClient):
         self.timeout = max(1, int(timeout))
         self.response_selectors = response_selectors or self.DEFAULT_RESPONSE_SELECTORS
         self.loading_selectors = loading_selectors or self.DEFAULT_LOADING_SELECTORS
+        self.session_pause_seconds = max(0.0, float(session_pause_seconds))
+        self.cleanup_pause_seconds = max(0.0, float(cleanup_pause_seconds))
+        self.post_cleanup_pause_seconds = max(0.0, float(post_cleanup_pause_seconds))
+        self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
 
@@ -80,18 +91,25 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
-        before_snapshot = self._response_snapshot(page)
-        self._send_prompt(page, prompt)
-        answer = self._wait_for_response(page, before_snapshot)
+        self._start_fresh_chat(page)
+        completed = False
+        try:
+            before_snapshot = self._response_snapshot(page)
+            self._send_prompt(page, prompt)
+            answer = self._wait_for_response(page, before_snapshot)
 
-        if not answer:
-            raise RuntimeError("DeepSeek Web 返回为空。")
+            if not answer:
+                raise RuntimeError("DeepSeek Web 返回为空。")
 
-        debug.log(
-            "BrowserModel",
-            f"SUCCESS → model={self.model}, chars={len(answer)}",
-        )
-        return answer
+            completed = True
+            debug.log(
+                "BrowserModel",
+                f"SUCCESS → model={self.model}, chars={len(answer)}",
+            )
+            return answer
+        finally:
+            if completed and self.cleanup_after_generate:
+                self._cleanup_current_chat(page)
 
     def close(self) -> None:
         """Close the browser context owned by this client."""
@@ -202,6 +220,133 @@ class BrowserModel(ModelClient):
                 "登录后仍未找到 DeepSeek Web 输入框。"
                 "请确认已经进入聊天页面，再重试。"
             )
+
+    @staticmethod
+    def _session_id_from_url(url: str) -> str | None:
+        match = re.search(r"/a/chat/s/([^/?#]+)", str(url or ""))
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+        import re as _re
+        patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in labels]
+        for pattern in patterns:
+            try:
+                locator = page.get_by_role(role, name=pattern) if role else page.get_by_text(pattern)
+                for index in range(locator.count() - 1, -1, -1):
+                    candidate = locator.nth(index)
+                    if candidate.is_visible():
+                        candidate.click()
+                        return True
+            except Exception:
+                continue
+        try:
+            buttons = page.locator("button, [role='button']")
+            for index in range(buttons.count() - 1, -1, -1):
+                button = buttons.nth(index)
+                if not button.is_visible():
+                    continue
+                text = " ".join(str(value or "") for value in (
+                    button.inner_text(),
+                    button.get_attribute("aria-label"),
+                    button.get_attribute("title"),
+                )).strip()
+                if any(pattern.search(text) for pattern in patterns):
+                    button.click()
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _start_fresh_chat(self, page) -> None:
+        if self.session_pause_seconds:
+            time.sleep(self.session_pause_seconds)
+        if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS, role="button"):
+            if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS):
+                raise RuntimeError(
+                    "DeepSeek Web 未找到“New chat/新对话”控件，无法保证每个 Agent 角色使用独立上下文。"
+                )
+        deadline = time.monotonic() + min(15.0, float(self.timeout))
+        while time.monotonic() < deadline:
+            if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+                return
+            time.sleep(self.poll_interval)
+        raise TimeoutError("创建新的 DeepSeek Web 对话后未找到输入框。")
+
+    def _cleanup_current_chat(self, page) -> None:
+        if self.cleanup_pause_seconds:
+            time.sleep(self.cleanup_pause_seconds)
+        session_id = self._session_id_from_url(getattr(page, "url", ""))
+        if not session_id:
+            debug.log("BrowserModel", "CLEANUP SKIP → current page has no session id")
+            return
+
+        row_link = None
+        try:
+            links = page.locator(f'a[href*="/a/chat/s/{session_id}"]')
+            for index in range(links.count() - 1, -1, -1):
+                candidate = links.nth(index)
+                if candidate.is_visible():
+                    row_link = candidate
+                    break
+        except Exception:
+            pass
+        if row_link is None:
+            debug.log("BrowserModel", f"CLEANUP SKIP → session row not found: {session_id}")
+            return
+
+        try:
+            row_link.hover()
+        except Exception:
+            pass
+        if not self._click_session_more(page, row_link):
+            debug.log("BrowserModel", f"CLEANUP SKIP → session menu not found: {session_id}")
+            return
+        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
+            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+                debug.log("BrowserModel", f"CLEANUP SKIP → delete action not found: {session_id}")
+                return
+        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="button"):
+            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+                debug.log("BrowserModel", f"CLEANUP SKIP → delete confirmation not found: {session_id}")
+                return
+
+        deadline = time.monotonic() + min(15.0, float(self.timeout))
+        while time.monotonic() < deadline:
+            try:
+                if page.locator(f'a[href*="/a/chat/s/{session_id}"]').count() == 0:
+                    if self.post_cleanup_pause_seconds:
+                        time.sleep(self.post_cleanup_pause_seconds)
+                    debug.log("BrowserModel", f"CLEANUP SUCCESS → session={session_id}")
+                    return
+            except Exception:
+                pass
+            time.sleep(self.poll_interval)
+        debug.log("BrowserModel", f"CLEANUP WARNING → session may still exist: {session_id}")
+
+    def _click_session_more(self, page, row_link) -> bool:
+        import re as _re
+        patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in self.DEFAULT_MORE_LABELS]
+        try:
+            parent = row_link.locator("xpath=..")
+            for _ in range(6):
+                buttons = parent.locator("button, [role='button']")
+                for index in range(buttons.count() - 1, -1, -1):
+                    button = buttons.nth(index)
+                    if not button.is_visible():
+                        continue
+                    text = " ".join(str(value or "") for value in (
+                        button.inner_text(),
+                        button.get_attribute("aria-label"),
+                        button.get_attribute("title"),
+                    )).strip()
+                    if any(pattern.search(text) for pattern in patterns):
+                        button.click()
+                        return True
+                parent = parent.locator("xpath=..")
+        except Exception:
+            pass
+        return False
 
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(

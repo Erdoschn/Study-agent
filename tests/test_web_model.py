@@ -84,6 +84,21 @@ def test_build_prompt_keeps_system_and_user_separate():
     assert "return only valid JSON" in prompt
 
 
+def test_browser_model_extracts_session_id_from_deepseek_url():
+    assert BrowserModel._session_id_from_url(
+        "https://chat.deepseek.com/a/chat/s/123e4567-e89b-12d3-a456-426614174000"
+    ) == "123e4567-e89b-12d3-a456-426614174000"
+    assert BrowserModel._session_id_from_url("https://chat.deepseek.com/") is None
+
+
+def test_browser_model_session_cleanup_defaults_are_paced():
+    model = BrowserModel()
+    assert model.session_pause_seconds == 1.5
+    assert model.cleanup_pause_seconds == 3.0
+    assert model.post_cleanup_pause_seconds == 1.5
+    assert model.cleanup_after_generate is True
+
+
 def test_browser_model_prefers_markdown_response_selector():
     assert BrowserModel.DEFAULT_RESPONSE_SELECTORS[0] == ".ds-assistant-message-main-content"
     assert ".ds-markdown" in BrowserModel.DEFAULT_RESPONSE_SELECTORS
