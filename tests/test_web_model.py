@@ -181,7 +181,7 @@ def test_browser_model_finds_copy_button_inside_latest_message_item():
 
         def locator(self, selector):
             assert selector == (
-                'button:has(svg path[d^="M6.14929 4.02032"])'
+                '[role="button"]:has(svg path[d^="M6.14929 4.02032"])'
             )
             return self.copy_button
 
