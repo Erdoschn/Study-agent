@@ -65,20 +65,20 @@ function markdown(x){
  const token=i=>"__STUDY_AGENT_MATH_"+i+"__";
  const keep=value=>{const i=stash.length;stash.push(value);return token(i)};
  const outsideCode=(source,fn)=>{
-  const parts=String(source).split(/(```[\\s\\S]*?```|~~~[\\s\\S]*?~~~)/g);
+  const parts=String(source).split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g);
   return parts.map((part,i)=>i%2?part:fn(part)).join("");
  };
  let source=String(x??"");
  source=outsideCode(source,part=>part
-  .replace(/\\\\[[\\s\\S]*?\\\\]/g,keep)
-  .replace(/\\$\\$[\\s\\S]*?\\$\\$/g,keep)
-  .replace(/\\\\([\\s\\S]*?)\\\\\)/g,keep)
-  .replace(/\\[([^\\[\\]\\n]*(?:\\\\[A-Za-z]+|[_^]\\{?)[^\\[\\]]*)\\](?!\\()/g,value=>{
+  .replace(/\\\[[\s\S]*?\\\]/g,keep)
+  .replace(/\$\$[\s\S]*?\$\$/g,keep)
+  .replace(/\\\([\s\S]*?\\\)/g,keep)
+  .replace(/\[([^\[\]\n]*(?:\\[A-Za-z]+|[_^]\{?)[^\[\]]*)\](?!\()/g,value=>{
    const inner=value.slice(1,-1);
-   return keep((/\\\\begin\\{/.test(inner)||inner.includes("\\n"))?"$"+inner+"$":"\\("+inner+"\\)");
+   return keep((/\\begin\{/.test(inner)||inner.includes("\n"))?"$$"+inner+"$$":"\\("+inner+"\\)");
   })
  );
- const html=window.marked?marked.parse(source):escapeHtml(source).replace(/\\n/g,"<br>");
+ const html=window.marked?marked.parse(source):escapeHtml(source).replace(/\n/g,"<br>");
  return stash.reduce((result,value,i)=>result.replaceAll(token(i),value),window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html);
 }
 function escapeHtml(x){const d=document.createElement("div");d.textContent=String(x);return d.innerHTML}
