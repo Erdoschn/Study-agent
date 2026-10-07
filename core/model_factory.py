@@ -12,6 +12,7 @@ class ModelClientFactory:
         config: dict[str, Any],
     ):
         self.config = config
+        self._browser_clients: dict[str, Any] = {}
 
     def create(
         self,
@@ -47,6 +48,9 @@ class ModelClientFactory:
                 f"type={provider_type}",
             )
 
+            if provider_type == "browser":
+                return self._create_browser_client(model, provider)
+
             if provider_type != (
                 "openai_compatible"
             ):
@@ -62,3 +66,35 @@ class ModelClientFactory:
                 timeout=int(provider.get("timeout", 120)),
                 headers=provider.get("headers", {}),
             )
+
+    def _create_browser_client(
+        self,
+        model: ModelInfo,
+        provider: dict[str, Any],
+    ):
+        cached = self._browser_clients.get(model.name)
+        if cached is not None:
+            return cached
+
+        from .web_model import BrowserModel
+
+        response_selectors = provider.get("response_selectors")
+        if isinstance(response_selectors, list):
+            response_selectors = tuple(
+                str(selector)
+                for selector in response_selectors
+                if str(selector).strip()
+            )
+        else:
+            response_selectors = None
+
+        client = BrowserModel(
+            model=model.model,
+            url=provider.get("url"),
+            user_data_dir=provider.get("user_data_dir"),
+            browser_channel=provider.get("browser_channel"),
+            timeout=int(provider.get("timeout", 180)),
+            response_selectors=response_selectors,
+        )
+        self._browser_clients[model.name] = client
+        return client
