@@ -266,17 +266,51 @@ class BrowserModel(ModelClient):
     def _start_fresh_chat(self, page) -> None:
         if self.session_pause_seconds:
             time.sleep(self.session_pause_seconds)
+
+        old_session = self._session_id_from_url(getattr(page, "url", ""))
         if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS, role="button"):
             if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS):
                 raise RuntimeError(
                     "DeepSeek Web 未找到“New chat/新对话”控件，无法保证每个 Agent 角色使用独立上下文。"
                 )
+
         deadline = time.monotonic() + min(15.0, float(self.timeout))
         while time.monotonic() < deadline:
-            if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+            current_session = self._session_id_from_url(getattr(page, "url", ""))
+
+            # Prefer an explicit session transition when DeepSeek exposes it.
+            if old_session and current_session and current_session != old_session:
+                debug.log(
+                    "BrowserModel",
+                    f"FRESH CHAT → session {old_session} -> {current_session}",
+                )
+                if self._find_visible(
+                    page, ("textarea", '[contenteditable="true"]')
+                ) is not None:
+                    return
+
+            # Also accept a cleared message list: some DeepSeek UI states
+            # create the new session lazily and update the URL later.
+            visible_messages = page.locator(".ds-message")
+            has_visible_message = False
+            for index in range(visible_messages.count() - 1, -1, -1):
+                try:
+                    message = visible_messages.nth(index)
+                    if message.is_visible():
+                        has_visible_message = True
+                        break
+                except Exception:
+                    continue
+
+            if not has_visible_message and self._find_visible(
+                page, ("textarea", '[contenteditable="true"]')
+            ) is not None:
+                debug.log("BrowserModel", "FRESH CHAT → previous visible messages cleared")
                 return
+
             time.sleep(self.poll_interval)
-        raise TimeoutError("创建新的 DeepSeek Web 对话后未找到输入框。")
+
+        raise TimeoutError("创建新的 DeepSeek Web 对话后未确认旧消息已清除。")
 
     def _cleanup_current_chat(self, page) -> None:
         if self.cleanup_pause_seconds:
@@ -354,32 +388,43 @@ class BrowserModel(ModelClient):
         return False
 
     def _find_copy_button(self, page):
-        """Find Copy only inside the latest assistant message's virtual-list item."""
-        response = None
-        for selector in self.response_selectors:
+        """Find Copy in the item belonging to the latest visible assistant message."""
+        message = None
+        messages = page.locator(".ds-message")
+
+        for index in range(messages.count() - 1, -1, -1):
             try:
-                locator = page.locator(selector)
-                for index in range(locator.count() - 1, -1, -1):
-                    candidate = locator.nth(index)
-                    if candidate.is_visible():
-                        response = candidate
-                        break
-                if response is not None:
+                candidate = messages.nth(index)
+                if not candidate.is_visible():
+                    continue
+
+                has_response = False
+                for response_selector in self.response_selectors:
+                    try:
+                        if candidate.locator(response_selector).count() > 0:
+                            has_response = True
+                            break
+                    except Exception:
+                        continue
+
+                if has_response:
+                    message = candidate
                     break
             except Exception:
                 continue
 
-        if response is None:
+        if message is None:
+            debug.log("BrowserModel", "COPY SKIP → latest visible ds-message not found")
             return None
 
         try:
-            item = response.locator(
+            item = message.locator(
                 'xpath=ancestor::*[@data-virtual-list-item-key][1]'
             )
             if item.count() == 0:
                 debug.log(
                     "BrowserModel",
-                    "COPY SKIP → latest response has no virtual-list item",
+                    "COPY SKIP → latest ds-message has no virtual-list item",
                 )
                 return None
 
@@ -392,6 +437,10 @@ class BrowserModel(ModelClient):
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 if button.is_visible():
+                    debug.log(
+                        "BrowserModel",
+                        f"COPY TARGET → virtual_key={item.get_attribute('data-virtual-list-item-key')}",
+                    )
                     return button
         except Exception as exc:
             debug.log("BrowserModel", f"COPY LOOKUP SKIP → {exc}")
