@@ -128,6 +128,11 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
     monkeypatch.setattr(
         model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
+    monkeypatch.setattr(
+        model,
         "_start_fresh_chat",
         lambda _page: events.append("start"),
     )
@@ -149,6 +154,47 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
 
     assert model.generate("", "hello") == "answer"
     assert events == ["start", "send", "cleanup"]
+
+
+def test_browser_model_finds_native_copy_button_by_svg_path():
+    class Page:
+        def __init__(self):
+            self.selector = None
+            self.button = FakeLocator(["copy"])
+
+        def locator(self, selector):
+            self.selector = selector
+            return self.button
+
+    model = BrowserModel()
+    page = Page()
+
+    assert model._find_copy_button(page) is page.button
+    assert page.selector == (
+        'button:has(svg path[d^="M6.14929 4.02032"])'
+    )
+
+
+def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = object()
+    events = []
+    button = FakeLocator(
+        ["copy"],
+        on_press=lambda key: events.append(key),
+    )
+
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: button)
+    monkeypatch.setattr(
+        model,
+        "_read_browser_clipboard",
+        lambda _page: "## 原始 Markdown\n\n$x^2$",
+    )
+
+    assert model._copy_latest_response_markdown(page) == (
+        "## 原始 Markdown\n\n$x^2$"
+    )
+    assert events == ["click"]
 
 
 def test_browser_model_prefers_markdown_response_selector():
@@ -192,6 +238,11 @@ def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
     )
     page = Page()
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
     monkeypatch.setattr(model, "_send_prompt", lambda _page, _prompt: None)
 
     def finish_generation():
@@ -217,6 +268,11 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
     )
     page = FakePage(logged_in=False)
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
 
     calls = []
 
@@ -245,6 +301,11 @@ def test_browser_model_does_not_reuse_previous_response(monkeypatch):
     page = FakePage()
     page.responses.append("previous answer")
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
 
     def send(_page, _prompt):
         # Simulate a UI implementation that mutates/replaces the latest
@@ -267,6 +328,11 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
     )
     page = FakePage()
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
 
     answer = model.generate(
         "You are a teacher.",
@@ -298,6 +364,11 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
         return page
 
     monkeypatch.setattr(model, "_ensure_page", ensure_page)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
 
     first = model.generate("", "first")
     second = model.generate("", "second")
