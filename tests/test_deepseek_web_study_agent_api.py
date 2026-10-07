@@ -32,3 +32,12 @@ def test_web_api_isolates_browser_model():
     isolated = build_web_only_config(config)
     assert list(isolated["providers"]) == ["deepseek_web"]
     assert list(isolated["models"]) == ["deepseek-web"]
+
+
+def test_web_api_supplies_browser_defaults_when_local_config_lacks_them():
+    isolated = build_web_only_config({"providers": {}, "models": {}})
+    provider = isolated["providers"]["deepseek_web"]
+    assert provider["type"] == "browser"
+    assert provider["url"] == "https://chat.deepseek.com/"
+    assert provider["browser_channel"] == "msedge"
+    assert isolated["models"]["deepseek-web"]["paid"] is False
