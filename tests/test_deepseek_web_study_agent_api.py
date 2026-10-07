@@ -83,9 +83,10 @@ def test_web_frontend_does_not_force_markdown_line_breaks():
 def test_web_frontend_protects_latex_before_markdown():
     source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "function markdown(x)" in source
-    assert ".replace(/\\\\[[\\s\\S]*?\\\\]/g,keep)" in source
-    assert ".replace(/\\$\\$[\\s\\S]*?\\$\\$/g,keep)" in source
-    assert ".replace(/\\\\([\\s\\S]*?\\\\\\)/g,keep)" in source
+    assert r".replace(/\\\[[\s\S]*?\\\]/g,keep)" in source
+    assert r".replace(/\$\$[\s\S]*?\$\$/g,keep)" in source
+    assert r".replace(/\\\([\s\S]*?\\\)/g,keep)" in source
+    assert r'return keep((/\\begin\{/.test(inner)||inner.includes("\n"))' in source
     assert "outsideCode" in source
     assert "MathJax.typesetPromise([root])" in source
 
