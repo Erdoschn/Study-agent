@@ -55,9 +55,15 @@ def test_harness_rejects_unapproved_actions(tmp_path):
 def test_harness_never_uses_shell_for_sandbox(tmp_path, monkeypatch):
     calls = []
 
+    class FakeStream:
+        def read(self, _size):
+            return b""
+
     class FakeProc:
         def __init__(self, *args, **kwargs):
             calls.append((args, kwargs))
+            self.stdout = FakeStream()
+            self.stderr = FakeStream()
         def poll(self): return 0
         def wait(self): return 0
 
@@ -99,9 +105,9 @@ def test_agent_does_not_finish_before_goal_is_verified(tmp_path):
             self.model = SimpleNamespace(close=lambda: None)
         def decide(self, state, tools):
             self.calls += 1
-            if self.calls == 1:
+            if self.calls <= 2:
                 return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
-            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+            raise RuntimeError("test stop")
 
     class FakeHarness(CoderHarness):
         def _verify_goal(self, args, state):
