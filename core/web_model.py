@@ -77,7 +77,7 @@ class BrowserModel(ModelClient):
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
         self.debug_mode = bool(debug_mode)
-        self._edge_window_handles: set[int] = set()
+        self._created_edge_window_handles: set[int] = set()
         self._json_mode_active = False
 
         self._playwright = None
@@ -299,7 +299,7 @@ class BrowserModel(ModelClient):
         pages = self._context.pages
         self._page = pages[0] if pages else self._context.new_page()
         self._page.goto(self.url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-        self._edge_window_handles = self._find_new_edge_window_handles(edge_windows_before)
+        self._created_edge_window_handles = self._find_new_edge_window_handles(edge_windows_before)
         return self._page
 
     def _browser_launch_kwargs(self) -> dict[str, Any]:
@@ -367,7 +367,7 @@ class BrowserModel(ModelClient):
             return
         try:
             import ctypes
-            handles = set(self._edge_window_handles)
+            handles = set(self._created_edge_window_handles)
             if not handles:
                 debug.log("BrowserModel", "WINDOW MINIMIZE SKIP → new Edge window not identified")
                 return
