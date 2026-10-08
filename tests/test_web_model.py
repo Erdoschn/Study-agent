@@ -111,7 +111,10 @@ def test_build_prompt_keeps_system_and_user_separate():
     assert "Current Agent state:" in prompt
     assert "You are a reasoner." in prompt
     assert "What is attention?" in prompt
-    assert "return only valid JSON" in prompt
+    assert (
+        "Return ONLY the JSON object requested by the Agent decision instructions."
+        in prompt
+    )
 
 
 def test_browser_model_extracts_session_id_from_deepseek_url():
