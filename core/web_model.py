@@ -40,6 +40,7 @@ class BrowserModel(ModelClient):
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
     SEND_ACTION_TIMEOUT_MS = 1500
+    CLICK_ACTION_TIMEOUT_MS = 1500
 
     def __init__(
         self,
@@ -460,7 +461,7 @@ class BrowserModel(ModelClient):
                 for index in range(locator.count() - 1, -1, -1):
                     candidate = locator.nth(index)
                     if candidate.is_visible():
-                        candidate.click()
+                        candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                         return True
             except Exception:
                 continue
@@ -476,7 +477,7 @@ class BrowserModel(ModelClient):
                     button.get_attribute("title"),
                 )).strip()
                 if any(pattern.search(text) for pattern in patterns):
-                    button.click()
+                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                     return True
         except Exception:
             pass
@@ -592,7 +593,7 @@ class BrowserModel(ModelClient):
             try:
                 button = row_link.locator(f"xpath={xpath}")
                 if button.count() > 0 and button.is_visible():
-                    button.click()
+                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                     debug.log(
                         "BrowserModel",
                         f"CLEANUP MENU → structural selector {xpath}",
@@ -617,7 +618,7 @@ class BrowserModel(ModelClient):
                         button.get_attribute("title"),
                     )).strip()
                     if any(pattern.search(text) for pattern in patterns):
-                        button.click()
+                        button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                         return True
                 parent = parent.locator("xpath=..")
         except Exception:
