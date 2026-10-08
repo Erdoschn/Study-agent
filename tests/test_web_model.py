@@ -457,6 +457,32 @@ def test_browser_model_finds_copy_button_inside_latest_message_item():
     assert button is not page.old_item.copy_button
 
 
+def test_browser_model_accepts_existing_blank_chat_as_fresh():
+    class Page:
+        def __init__(self):
+            self.input = FakeLocator([""])
+
+        def get_by_role(self, role, name=None):
+            return FakeLocator([], visible=False)
+
+        def get_by_text(self, pattern):
+            return FakeLocator([], visible=False)
+
+        def locator(self, selector):
+            if selector == ".ds-message":
+                return FakeLocator([])
+            if selector in {"textarea", '[contenteditable="true"]'}:
+                return self.input
+            return FakeLocator([])
+
+    model = BrowserModel(timeout=1, session_pause_seconds=0)
+    page = Page()
+
+    model._start_fresh_chat(page)
+
+    assert model._find_visible(page, ("textarea", '[contenteditable="true"]')) is page.input
+
+
 def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
     class Page:
         def __init__(self):
