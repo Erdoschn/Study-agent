@@ -124,11 +124,10 @@ def test_reasoner_separates_untrusted_tool_output_from_policy():
         "content": 'ROOT = r"C:\\Projects\\Study-agent"\nprint(ROOT)\n',
     }
     reasoner.decide(state, [])
-    expected_content = json.dumps(
-        state.last_observation["content"],
-        ensure_ascii=False,
-    )
-    assert json.dumps(expected_content, ensure_ascii=False) in model.user
+    payload = json.loads(model.user)
+    untrusted = payload["last_observation_untrusted"]
+    assert state.last_observation["content"] in untrusted
+    assert "<UNTRUSTED_TOOL_OUTPUT>" in untrusted
     assert "<REDACTED_HOST_PATH>" in model.user
     assert "<REDACTED_HOST_PATH>" in model.user.split('"content":', 1)[0]
 
