@@ -1016,7 +1016,7 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", "COPY WARNING → clipboard remained empty")
                 return ""
 
-            time.sleep(self.poll_interval)
+            self._sleep(self.poll_interval)
 
         debug.log("BrowserModel", "COPY SKIP → native Copy button not found")
         return ""
