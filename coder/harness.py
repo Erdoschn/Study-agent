@@ -232,6 +232,8 @@ class CoderHarness:
 
     def _create_test(self, args, state):
         path = str(args.get("path", "")).strip()
+        if not path.casefold().endswith(".py"):
+            raise WorkspaceSecurityError("CREATE_TEST 目标必须是 .py pytest 文件。")
         self._remember_baseline(path)
         self.fs.write_text(path, str(args.get("content", "")), test=True)
         self._record_write(path, state, created_test=True)
