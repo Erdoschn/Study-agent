@@ -202,8 +202,12 @@ class CoderHarness:
 
     def _write_file(self, args, state):
         path = str(args.get("path", "")).strip()
+        content = str(args.get("content", ""))
         self._remember_baseline(path)
-        self.fs.write_text(path, str(args.get("content", "")))
+        if path.casefold().endswith(".ipynb"):
+            self.fs.write_notebook(path, content)
+        else:
+            self.fs.write_text(path, content)
         self._record_write(path, state)
         return {"status": "written", "path": path}
 
@@ -217,6 +221,10 @@ class CoderHarness:
 
     def _patch_file(self, args, state):
         path = str(args.get("path", "")).strip()
+        if path.casefold().endswith(".ipynb"):
+            raise WorkspaceSecurityError(
+                "PATCH_FILE 不直接修改 .ipynb；请使用 WRITE_NOTEBOOK 保持 Notebook 结构有效。"
+            )
         self._remember_baseline(path)
         self.fs.patch_text(path, str(args.get("old_text", "")), str(args.get("new_text", "")))
         self._record_write(path, state)
