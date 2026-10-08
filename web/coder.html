@@ -478,10 +478,11 @@ async function requestCancel(){
 }
 
 async function run(){
+  if(state.running)return;
   const request=$("task").value.trim();
+  if(!request)return;
   const project=readSelectedProject();
   if(project!==state.project)setProject(project);
-  if(!request||state.running)return;
 
   resetFeedback();
   state.running=true;
