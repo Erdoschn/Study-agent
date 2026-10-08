@@ -81,6 +81,29 @@ class CoderAgent:
                     state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
                     continue
 
+                if action == "NEW_CHAT":
+                    new_chat = getattr(self.reasoner, "new_chat", None)
+                    if not callable(new_chat):
+                        raise RuntimeError("当前 Coder Reasoner 不支持 NEW_CHAT。")
+                    try:
+                        new_chat()
+                        state.chat_resets += 1
+                        observation = {
+                            "status": "NEW_CHAT",
+                            "reset_count": state.chat_resets,
+                        }
+                        state.add_step(CoderStep(
+                            state.step_count + 1, action, arguments, observation,
+                        ))
+                    except Exception as exc:
+                        state.add_step(CoderStep(
+                            state.step_count + 1, action, arguments,
+                            {"error": f"{type(exc).__name__}: {exc}"},
+                            success=False,
+                            error=str(exc),
+                        ))
+                    continue
+
                 if action == "FINISH":
                     observation = self.harness.execute("VERIFY_GOAL", {}, state)
                     ok = bool(observation.get("verified"))
@@ -104,6 +127,7 @@ class CoderAgent:
                     ))
             state.metrics["steps"] = state.step_count
             state.metrics["modified_files"] = len(state.modified_files)
+            state.metrics["chat_resets"] = state.chat_resets
             state.metrics["test_runs"] = sum(
                 1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
             )

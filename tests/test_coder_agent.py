@@ -36,3 +36,55 @@ def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
     )
 
     assert seen == [False]
+
+
+def test_coder_agent_handles_model_selected_new_chat():
+    actions = iter([
+        {"action": "NEW_CHAT", "arguments": {}},
+        {"action": "FINISH", "arguments": {}},
+    ])
+    new_chat_calls = []
+
+    class FakeReasoner:
+        def decide(self, state, tool_specs):
+            return next(actions)
+
+        def new_chat(self):
+            new_chat_calls.append(True)
+
+    class FakeHarness:
+        sandbox = object()
+        backup = object()
+
+        def tool_specs(self):
+            return []
+
+        def execute(self, action, arguments, state):
+            assert action == "VERIFY_GOAL"
+            return {"verified": True}
+
+    agent = agent_module.CoderAgent(
+        workspace=".",
+        reasoner=FakeReasoner(),
+        harness=FakeHarness(),
+        max_runtime_seconds=30,
+    )
+    state = agent.run("修复一个小 bug")
+
+    assert state.finished is True
+    assert state.goal_verified is True
+    assert state.chat_resets == 1
+    assert state.metrics["chat_resets"] == 1
+    assert new_chat_calls == [True]
+    assert [step.action for step in state.steps] == ["NEW_CHAT", "FINISH"]
+
+
+def test_coder_reasoner_accepts_new_chat_action():
+    from coder.reasoner import CoderReasoner
+
+    decision = CoderReasoner._parse(
+        '{"action":"NEW_CHAT","arguments":{},"reasoning_summary":"上下文需要重置"}'
+    )
+
+    assert decision["action"] == "NEW_CHAT"
+    assert decision["arguments"] == {}
