@@ -28,6 +28,19 @@ def test_coder_prompt_documents_new_chat_policy():
     assert "不要为了普通的 READ_FILE、PATCH_FILE 或测试循环而主动新建聊天" in prompt
 
 
+def test_coder_prompt_is_independent_from_study_agent_role():
+    prompt = get_prompt("coder.reasoner")
+    assert "独立的 Python Coding Agent 决策器" in prompt
+    assert "负责控制、调用或扮演 StudyAgent" in prompt
+    assert "StudyAgent 的 Python Coding Agent" not in prompt
+
+
+def test_shared_web_model_contract_is_role_neutral():
+    prompt = get_prompt("web_model.json_contract")
+    assert "You are a browser-backed agent runtime." in prompt
+    assert "You are controlling StudyAgent through a browser UI." not in prompt
+
+
 def test_prompt_config_matches_runtime_role_prompts():
     assert task_analyzer.TaskAnalyzer.SYSTEM_PROMPT == get_prompt("study_agent.task_analyzer")
     assert reasoner.AgentReasoner.SYSTEM_PROMPT == get_prompt("study_agent.reasoner")
