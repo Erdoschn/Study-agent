@@ -389,7 +389,10 @@ class BrowserModel(ModelClient):
 
     def _find_copy_button(self, page):
         """Find Copy in the item belonging to the current response."""
+        user_index = self._current_user_message_index(page)
         message = self._latest_response_message(page)
+        if message is None and user_index is not None:
+            return None
         if message is None:
             messages = page.locator(".ds-message")
             for index in range(messages.count() - 1, -1, -1):
@@ -626,8 +629,11 @@ class BrowserModel(ModelClient):
         page,
         before_snapshot: list[tuple[int, str]],
     ) -> str:
-        current_message = self._latest_response_message(page)
-        if current_message is not None:
+        user_index = self._current_user_message_index(page)
+        if user_index is not None:
+            current_message = self._latest_response_message(page)
+            if current_message is None:
+                return ""
             for selector in self.response_selectors:
                 try:
                     locator = current_message.locator(selector)
