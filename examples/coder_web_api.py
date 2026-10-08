@@ -40,6 +40,7 @@ from coder import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
 from coder.reasoner import CoderReasoner
 from coder.memory import CoderMemoryStore
+from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
 from core.web_model import BrowserModel
 
@@ -98,25 +99,24 @@ def _new_coder_browser_model() -> BrowserModel:
     )
 
 
-def _prewarm_coder_browser() -> BrowserModel | None:
-    """Open the Coder browser profile before the web API starts serving."""
-    model = _new_coder_browser_model()
+def _prewarm_coder_browser() -> CoderBrowserSession | None:
+    """Open the Coder browser profile on its dedicated Playwright thread."""
     try:
-        model.prepare_browser()
+        session = CoderBrowserSession(
+            user_data_dir=".coder-browser",
+            reuse_chat=True,
+            min_send_interval_seconds=5.0,
+        )
         debug.log(
             "CoderWebAPI",
-            f"BROWSER PREWARM → model={model.model}, profile={model.user_data_dir}",
+            f"BROWSER PREWARM → model={session.model}, profile={session.user_data_dir}",
         )
-        return model
+        return session
     except Exception as exc:
         debug.log(
             "CoderWebAPI",
             f"BROWSER PREWARM FAILED → {type(exc).__name__}: {exc}",
         )
-        try:
-            model.close()
-        except Exception:
-            pass
         return None
 
 
@@ -675,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def build_agent(
     project: str,
-    browser_model: BrowserModel | None = None,
+    browser_model: CoderBrowserSession | None = None,
 ) -> CoderAgent:
     reasoner = (
         CoderReasoner(
