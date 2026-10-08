@@ -1,6 +1,7 @@
 import ntpath
 import os
 import stat
+import re
 from pathlib import Path
 
 
@@ -23,6 +24,11 @@ class WorkspaceFS:
     BLOCKED_SUFFIXES = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
     BLOCKED_PREFIXES = (".coder-sandbox-",)
     MAX_FILE_BYTES = 1_048_576
+    WINDOWS_DEVICE_NAMES = frozenset(
+        {"con", "prn", "aux", "nul"}
+        | {f"com{i}" for i in range(1, 10)}
+        | {f"lpt{i}" for i in range(1, 10)}
+    )
 
     def __init__(self, root: str | Path):
         raw_root = str(root)
@@ -65,8 +71,14 @@ class WorkspaceFS:
             not parts
             or any(p == ".." for p in parts)
             or any(p.startswith("-") for p in parts)
+            or any(p.endswith((" ", ".")) for p in parts)
         ):
             raise WorkspaceSecurityError("路径包含禁止形式。")
+        if os.name == "nt":
+            for part in parts:
+                stem = re.split(r"[.]", part, maxsplit=1)[0].casefold()
+                if stem in self.WINDOWS_DEVICE_NAMES:
+                    raise WorkspaceSecurityError("禁止访问 Windows 设备名。")
         return Path(*parts)
 
     def _target(self, value: str, *, allow_empty: bool = False) -> tuple[Path, Path]:
