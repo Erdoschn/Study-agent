@@ -1049,9 +1049,14 @@ class BrowserModel(ModelClient):
                 saw_new_response = True
                 if not candidate_seen:
                     candidate_seen = True
+                    json_mode = bool(getattr(self, "_json_mode_active", False))
+                    json_ready = not json_mode or self._is_json_object(candidate)
+                    preview = " ".join(candidate[:120].split())
                     debug.log(
                         "BrowserModel",
-                        f"WAIT RESPONSE → candidate detected chars={len(candidate)}",
+                        "WAIT RESPONSE → candidate detected "
+                        f"chars={len(candidate)}, json_ready={json_ready}, "
+                        f"preview={preview!r}",
                     )
                 if candidate != previous:
                     previous = candidate
@@ -1069,9 +1074,17 @@ class BrowserModel(ModelClient):
                 )
                 loading = self._loading_visible(page)
 
-                # Structured Coder decisions are complete once they are valid
-                # JSON and stable. DeepSeek may keep a visual thinking/loading
-                # indicator alive briefly after the structured response is done.
+                # Coder decisions are complete as soon as DeepSeek has
+                # produced a valid JSON object. Waiting for extra DOM stability
+                # only adds latency and can race with the web UI's late loading
+                # indicator. Incomplete JSON still remains subject to the timeout.
+                if json_mode and json_ready:
+                    debug.log(
+                        "BrowserModel",
+                        f"WAIT RESPONSE → valid JSON ready chars={len(latest)}, loading={loading}",
+                    )
+                    return latest
+
                 ready = stable and json_ready and (json_mode or not loading)
                 if ready:
                     debug.log(
