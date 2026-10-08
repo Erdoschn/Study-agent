@@ -39,7 +39,8 @@ class FakeLocator:
         if self.on_press is not None:
             self.on_press(key)
 
-    def click(self):
+    def click(self, timeout=None):
+        del timeout
         if self.on_press is not None:
             self.on_press("click")
 
@@ -424,6 +425,65 @@ def test_browser_model_does_not_accept_stale_clipboard(monkeypatch):
 
     assert model._copy_latest_response_markdown(object()) == ""
     assert cleared == [True]
+
+
+def test_browser_model_uses_bounded_copy_click_timeout(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = object()
+    calls = []
+
+    class Button:
+        def click(self, *, timeout):
+            calls.append(timeout)
+
+    button = Button()
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: button)
+    monkeypatch.setattr(
+        model,
+        "_clear_browser_clipboard",
+        lambda _page: "__study_agent_clipboard_pending__",
+    )
+    monkeypatch.setattr(
+        model,
+        "_read_browser_clipboard",
+        lambda _page: '{"action":"LIST_FILES"}',
+    )
+
+    assert model._copy_latest_response_markdown(page) == '{"action":"LIST_FILES"}'
+    assert calls == [BrowserModel.COPY_CLICK_TIMEOUT_MS]
+
+
+def test_browser_model_falls_back_to_dom_click_when_pointer_click_is_blocked(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = object()
+    events = []
+
+    class Button:
+        def click(self, *, timeout):
+            events.append(("pointer", timeout))
+            raise RuntimeError("intercepted by overlay")
+
+        def evaluate(self, script):
+            events.append(("dom", script))
+
+    button = Button()
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: button)
+    monkeypatch.setattr(
+        model,
+        "_clear_browser_clipboard",
+        lambda _page: "__study_agent_clipboard_pending__",
+    )
+    monkeypatch.setattr(
+        model,
+        "_read_browser_clipboard",
+        lambda _page: '{"action":"LIST_FILES"}',
+    )
+
+    assert model._copy_latest_response_markdown(page) == '{"action":"LIST_FILES"}'
+    assert events == [
+        ("pointer", BrowserModel.COPY_CLICK_TIMEOUT_MS),
+        ("dom", "(element) => element.click()"),
+    ]
 
 
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
