@@ -67,6 +67,18 @@ class ModelClientFactory:
                 headers=provider.get("headers", {}),
             )
 
+    def close(self) -> None:
+        """Close cached browser-backed model clients."""
+        for client in tuple(self._browser_clients.values()):
+            try:
+                client.close()
+            except Exception as exc:
+                debug.log(
+                    "ModelClientFactory",
+                    f"BROWSER CLOSE SKIP → {type(exc).__name__}: {exc}",
+                )
+        self._browser_clients.clear()
+
     def _create_browser_client(
         self,
         model: ModelInfo,
