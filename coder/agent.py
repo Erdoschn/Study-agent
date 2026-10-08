@@ -27,6 +27,8 @@ class CoderAgent:
         sandbox=None,
         max_runtime_seconds: float = 1800,
         debug_mode: bool = False,
+        reuse_chat: bool = True,
+        min_send_interval_seconds: float = 5.0,
     ):
         self.workspace = Path(workspace)
         self.debug_mode = bool(debug_mode)
@@ -38,7 +40,11 @@ class CoderAgent:
         self.reasoner = reasoner
         self.harness = harness or CoderHarness(str(self.workspace), search_router=search_router, sandbox=sandbox)
         if self.reasoner is None:
-            self.reasoner = CoderReasoner(debug_mode=self.debug_mode)
+            self.reasoner = CoderReasoner(
+                debug_mode=self.debug_mode,
+                reuse_chat=reuse_chat,
+                min_send_interval_seconds=min_send_interval_seconds,
+            )
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
     def run(self, request: str) -> CoderState:

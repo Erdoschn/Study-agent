@@ -21,6 +21,13 @@ def test_prompt_config_loads_role_specific_prompts():
     assert get_prompt("web_model.json_recovery")
 
 
+def test_coder_prompt_documents_new_chat_policy():
+    prompt = get_prompt("coder.reasoner")
+    assert "NEW_CHAT" in prompt
+    assert "默认复用当前 DeepSeek Web 对话" in prompt
+    assert "不要为了普通的 READ_FILE、PATCH_FILE 或测试循环而主动新建聊天" in prompt
+
+
 def test_prompt_config_matches_runtime_role_prompts():
     assert task_analyzer.TaskAnalyzer.SYSTEM_PROMPT == get_prompt("study_agent.task_analyzer")
     assert reasoner.AgentReasoner.SYSTEM_PROMPT == get_prompt("study_agent.reasoner")

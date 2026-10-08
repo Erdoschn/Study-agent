@@ -88,3 +88,52 @@ def test_coder_reasoner_accepts_new_chat_action():
 
     assert decision["action"] == "NEW_CHAT"
     assert decision["arguments"] == {}
+
+
+def test_coder_reasoner_new_chat_delegates_to_browser_model():
+    from coder.reasoner import CoderReasoner
+
+    class FakeModel:
+        def __init__(self):
+            self.calls = 0
+
+        def new_chat(self):
+            self.calls += 1
+
+    model = FakeModel()
+    reasoner = CoderReasoner(model=model)
+
+    reasoner.new_chat()
+
+    assert model.calls == 1
+
+
+def test_coder_reasoner_defaults_to_reused_chat():
+    from coder.reasoner import CoderReasoner
+
+    class FakeModel:
+        reuse_chat = True
+
+    reasoner = CoderReasoner(model=FakeModel())
+
+    assert reasoner.model.reuse_chat is True
+
+
+def test_coder_reasoner_accepts_configurable_chat_policy(monkeypatch):
+    from coder.reasoner import CoderReasoner
+
+    seen = {}
+
+    class FakeBrowserModel:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr("coder.reasoner.BrowserModel", FakeBrowserModel)
+    reasoner = CoderReasoner(
+        reuse_chat=False,
+        min_send_interval_seconds=9.0,
+    )
+
+    assert reasoner.model is not None
+    assert seen["reuse_chat"] is False
+    assert seen["min_send_interval_seconds"] == 9.0
