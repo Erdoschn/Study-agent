@@ -314,6 +314,7 @@ class BrowserModel(ModelClient):
             "WRITE_FILE",
             "WRITE_NOTEBOOK",
             "PATCH_FILE",
+            "PATCH_NOTEBOOK",
             "CREATE_TEST",
             "RUN_PYTHON",
             "RUN_PYTEST",
