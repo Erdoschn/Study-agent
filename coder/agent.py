@@ -51,13 +51,16 @@ class CoderAgent:
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
     def _validate_workspace_boundary(self) -> None:
-        """Prevent Coder from operating on its own runtime source tree."""
+        """Prevent Coder from operating on or above its own runtime source tree."""
         try:
             self.workspace.relative_to(RUNTIME_ROOT)
         except ValueError:
-            return
+            try:
+                RUNTIME_ROOT.relative_to(self.workspace)
+            except ValueError:
+                return
         raise WorkspaceSecurityError(
-            "Coder workspace 不能位于 Study-agent 自身源码目录；"
+            "Coder workspace 不能覆盖 Study-agent 自身源码目录；"
             "请使用独立的目标项目 workspace。"
         )
 
