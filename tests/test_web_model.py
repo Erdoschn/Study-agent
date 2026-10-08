@@ -1301,6 +1301,31 @@ def test_browser_model_extracts_nested_json_with_braces_inside_strings():
     assert '"content":"value = {\\"key\\": 1}\\n"' in extracted
 
 
+def test_browser_model_extracts_last_complete_agent_json_from_response():
+    response = (
+        '分析阶段示例：{"action":"LIST_FILES","arguments":{}}。'
+        '最终决定：{"action":"READ_FILE","arguments":{"path":"score_utils.py"},'
+        '"reasoning_summary":"读取目标文件"}'
+    )
+
+    assert BrowserModel._extract_json_object(response) == (
+        '{"action":"READ_FILE","arguments":{"path":"score_utils.py"},'
+        '"reasoning_summary":"读取目标文件"}'
+    )
+
+
+def test_browser_model_json_recovery_validation_accepts_mixed_response():
+    response = (
+        '思考过程……'
+        '{"action":"LIST_FILES","arguments":{}}'
+        '……'
+        '{"action":"READ_FILE","arguments":{"path":"score_utils.py"},'
+        '"reasoning_summary":"读取目标文件"}'
+    )
+
+    assert BrowserModel._needs_json_recovery(response) is False
+
+
 def test_browser_model_accepts_coder_agent_actions_in_json_mode():
     response = '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect workspace"}'
 
