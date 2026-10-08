@@ -1,3 +1,11 @@
+from examples.coder_web_api import (
+    MAX_RUNTIME_SECONDS,
+    UPLOAD_MAX_BYTES,
+    _frontend_path as coder_frontend_path,
+    parse_multipart_upload,
+)
+
+
 from types import SimpleNamespace
 from examples.deepseek_web_study_agent_api import Handler, WEB_ROOT, build_web_only_config, web_asset_path
 
@@ -144,6 +152,44 @@ def test_web_frontend_exists():
     path = WEB_ROOT / "index.html"
     assert path.is_file()
     assert path.stat().st_size > 1000
+
+
+def test_coder_web_frontend_exists():
+    path = coder_frontend_path("/")
+    assert path is not None
+    assert path.name == "coder.html"
+    assert path.stat().st_size > 5000
+
+
+def test_coder_web_multipart_upload_parser_reads_browser_file():
+    boundary = "----study-agent-test"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="demo.ipynb"\r\n'
+        "Content-Type: application/json\r\n\r\n"
+        '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}\r\n'
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    filename, payload = parse_multipart_upload(
+        f"multipart/form-data; boundary={boundary}",
+        body,
+    )
+    assert filename == "demo.ipynb"
+    assert payload.startswith(b'{"cells":[]')
+
+
+def test_coder_web_limits_upload_and_runtime():
+    assert UPLOAD_MAX_BYTES <= 1_048_576
+    assert MAX_RUNTIME_SECONDS >= 30.0
+
+
+def test_coder_web_frontend_has_drag_drop_and_notebook_ui():
+    source = coder_frontend_path("/").read_text(encoding="utf-8")
+    assert "拖到这里" in source
+    assert "dataTransfer.files" in source
+    assert ".ipynb" in source
+    assert "fetchTimeout" in source
+    assert "AbortController" in source
 
 
 def test_web_api_exposes_health_under_v1_prefix():
