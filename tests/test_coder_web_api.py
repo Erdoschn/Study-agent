@@ -160,6 +160,8 @@ def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
     assert "UI_IDS" in source
     assert 'const missing=UI_IDS.filter(id=>!document.getElementById(id));' in source
     assert "Coder UI 元素不可用" in source
+    assert "async async function" not in source
+    assert "async function fetchTimeout" in source
 
 
 def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
