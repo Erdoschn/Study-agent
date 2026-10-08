@@ -831,6 +831,35 @@ def test_browser_model_minimizes_only_new_edge_window_on_windows(monkeypatch):
     assert fake_ctypes.windll.user32.calls == [(5678, 6)]
 
 
+def test_browser_model_does_not_guess_between_multiple_new_edge_windows(monkeypatch):
+    class User32:
+        def __init__(self):
+            self.calls = []
+
+        def IsWindow(self, hwnd):
+            return True
+
+        def GetWindowTextW(self, hwnd, buffer, size):
+            buffer.value = "Unrelated"
+
+        def ShowWindow(self, hwnd, command):
+            self.calls.append((hwnd, command))
+
+    class FakeCtypes:
+        def __init__(self):
+            self.windll = type("Windll", (), {"user32": User32()})()
+
+    fake_ctypes = FakeCtypes()
+    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
+
+    model = BrowserModel()
+    model._created_edge_window_handles = {5678, 6789}
+    model._minimize_browser_window(object())
+
+    assert fake_ctypes.windll.user32.calls == []
+
+
 def test_browser_model_debug_mode_does_not_minimize_edge_window(monkeypatch):
     class User32:
         def __init__(self):
