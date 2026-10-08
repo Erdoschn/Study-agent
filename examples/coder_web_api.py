@@ -152,6 +152,8 @@ def _llm_project_name(task: str, model: BrowserModel | None = None) -> str:
             debug.log("CoderWebAPI", f"PROJECT NAME → {name}")
             return name
         debug.log("CoderWebAPI", "PROJECT NAME → model output unusable; using coder-project")
+    except RunCancelled:
+        raise
     except Exception as exc:
         debug.log(
             "CoderWebAPI",
