@@ -378,6 +378,11 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert 'e.type==="named"' in source
 
 
+def test_coder_web_api_imports_memory_store():
+    import examples.coder_web_api as api
+    assert api.CoderMemoryStore is CoderMemoryStore
+
+
 def test_coder_web_api_exposes_history_memory():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "/v1/coder/history" in source or "history?limit" in source
