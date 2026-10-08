@@ -184,6 +184,10 @@ def test_coder_memory_store_persists_history_and_knowledge(tmp_path):
     assert any(item["name"] == "Python" for item in data["technologies"])
     assert any(item["name"] == "pytest" for item in data["technologies"])
     assert data["experiences"][0]["text"].startswith("PATCH_FILE: pytest failed")
+    graph = first.knowledge_graph.snapshot()
+    assert any(node["name"] == "calculator" and node["type"] == "project" for node in graph["nodes"])
+    assert any(node["name"] == "pytest" and node["type"] == "technology" for node in graph["nodes"])
+    assert any(edge["relation"] == "uses" for edge in graph["edges"])
 
 
 def test_coder_memory_is_stored_at_workspace_root_not_project(tmp_path):
