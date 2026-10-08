@@ -156,6 +156,83 @@ def test_browser_model_generate_runs_fresh_chat_lifecycle(monkeypatch):
     assert events == ["start", "send", "cleanup"]
 
 
+def test_browser_model_binds_response_to_current_user_turn():
+    class Item:
+        def __init__(self, key, copy_button):
+            self.key = key
+            self.copy_button = copy_button
+
+        def count(self):
+            return 1
+
+        def get_attribute(self, name):
+            assert name == "data-virtual-list-item-key"
+            return self.key
+
+        def locator(self, selector):
+            if selector == '[role="button"]:has(svg path[d^="M6.14929 4.02032"])':
+                return self.copy_button
+            return FakeLocator([])
+
+    class Message:
+        def __init__(self, text, item, has_response=False):
+            self.text = text
+            self.item = item
+            self.has_response = has_response
+
+        def is_visible(self):
+            return True
+
+        def inner_text(self):
+            return self.text
+
+        def locator(self, selector):
+            if selector == 'xpath=ancestor::*[@data-virtual-list-item-key][1]':
+                return self.item
+            if selector == ".ds-markdown":
+                return FakeLocator(["answer"] if self.has_response else [])
+            return FakeLocator([])
+
+    class Messages:
+        def __init__(self, values):
+            self.values = values
+
+        def count(self):
+            return len(self.values)
+
+        def nth(self, index):
+            return self.values[index]
+
+    class Page:
+        def __init__(self):
+            old_button = FakeLocator(["old"])
+            new_button = FakeLocator(["new"])
+            self.messages = Messages([
+                Message("old user", Item("1", old_button)),
+                Message("old assistant answer", Item("2", old_button), has_response=True),
+                Message("current request: explain MHA", Item("3", new_button)),
+                Message("new assistant answer", Item("4", new_button), has_response=True),
+            ])
+
+        def locator(self, selector):
+            if selector == ".ds-message":
+                return self.messages
+            return FakeLocator([])
+
+
+    model = BrowserModel(
+        response_selectors=(".ds-markdown",),
+        poll_interval=0.01,
+        timeout=1,
+    )
+    model._pending_prompt = "current request: explain MHA"
+
+    page = Page()
+
+    assert model._latest_response(page, [(0, "")]) == "answer"
+    assert model._find_copy_button(page) is page.messages.values[-1].item.copy_button
+
+
 def test_browser_model_finds_copy_button_inside_latest_message_item():
     class Button:
         def __init__(self, name):
