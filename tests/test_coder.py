@@ -101,6 +101,38 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
     assert second["verified"] is True
 
 
+def test_agent_captures_initial_backup_before_reasoning(tmp_path):
+    (tmp_path / "main.py").write_text("VERSION = 0\n", encoding="utf-8")
+
+    class FakeHarness(CoderHarness):
+        _verified = True
+
+        def _verify_goal(self, args, state):
+            state.goal_verified = True
+            return {"verified": True, "checks": []}
+
+    class FakeReasoner:
+        def __init__(self):
+            self.model = SimpleNamespace(close=lambda: None)
+
+        def decide(self, state, tools):
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+
+    harness = FakeHarness(str(tmp_path), sandbox=SimpleNamespace())
+    agent = CoderAgent(
+        tmp_path,
+        reasoner=FakeReasoner(),
+        harness=harness,
+        max_runtime_seconds=30,
+    )
+    result = agent.run("fix")
+    assert result.finished is True
+    assert result.goal_verified is True
+    assert result.initial_backup_generation == 0
+    assert harness.backup.has_initial_snapshot()
+    assert harness.backup.contains_text("main.py", "VERSION = 0\n", initial=True)
+
+
 def test_agent_does_not_finish_before_goal_is_verified(tmp_path):
     class FakeHarness(CoderHarness):
         def _verify_goal(self, args, state):
