@@ -18,6 +18,7 @@ import json
 import mimetypes
 import os
 import queue
+import re
 import threading
 from email import policy
 from email.parser import BytesParser
@@ -26,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "web"
@@ -50,6 +51,48 @@ UPLOAD_MAX_BYTES = min(
     max(1, int(os.getenv("CODER_UPLOAD_MAX_BYTES", str(WorkspaceFS.MAX_FILE_BYTES)))),
 )
 RUN_LOCK = threading.Lock()
+PROJECT_NAME_MAX = 64
+PROJECT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+def _project_name(value: str) -> str:
+    text = " ".join(str(value or "").strip().split())
+    text = PROJECT_NAME_RE.sub("-", text).strip("-.")[:PROJECT_NAME_MAX]
+    return text or ("project-" + time.strftime("%Y%m%d-%H%M%S"))
+
+def _project_root(name: str) -> Path:
+    candidate = Path(name)
+    if candidate.name != name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise WorkspaceSecurityError("项目名无效。")
+    root = WorkspaceFS(WORKSPACE).root
+    target = (root / name).resolve()
+    target.relative_to(root)
+    return target
+
+def _list_projects() -> list[dict]:
+    root = WorkspaceFS(WORKSPACE).root
+    projects = []
+    for path in root.iterdir():
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        if path.is_symlink():
+            continue
+        try:
+            fs = WorkspaceFS(path)
+            files = fs.list_files()
+        except WorkspaceSecurityError:
+            continue
+        projects.append({"name": path.name, "files": files, "file_count": len(files)})
+    return sorted(projects, key=lambda x: x["name"].casefold())
+
+def _ensure_project(name: str | None = None, task: str = "") -> str:
+    requested = str(name or "").strip()
+    project = _project_name(requested or task)
+    root = WorkspaceFS(WORKSPACE).root
+    target = _project_root(project)
+    if target == root:
+        raise WorkspaceSecurityError("项目目录不能是 workspace 根目录。")
+    target.mkdir(parents=True, exist_ok=True)
+    return project
 
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
@@ -200,9 +243,12 @@ class Handler(BaseHTTPRequestHandler):
         if not filename:
             raise ValueError("上传文件缺少文件名。")
 
-        workspace = self.server.workspace
+        project = str(parse_qs(urlparse(self.path).query).get("project", [""])[0]).strip()
+        if not project:
+            raise ValueError("上传文件前必须选择项目。")
+        workspace = WorkspaceFS(_project_root(project))
         workspace.write_uploaded_text(filename, data)
-        return {"status": "uploaded", "path": filename, "bytes": len(data)}
+        return {"status": "uploaded", "project": project, "path": filename, "bytes": len(data)}
 
     def _serve_frontend(self) -> bool:
         asset = _frontend_path(self.path)
@@ -253,18 +299,33 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if path == "/v1/coder/files":
+        if path == "/v1/coder/projects":
             self._json({
                 "workspace": str(self.server.workspace.root),
-                "files": self.server.workspace.list_files(),
+                "projects": _list_projects(),
+            })
+            return
+
+        if path == "/v1/coder/files":
+            params = parse_qs(urlparse(self.path).query)
+            project = str(params.get("project", [""])[0]).strip()
+            if not project:
+                raise ValueError("必须指定 project。")
+            workspace = WorkspaceFS(_project_root(project))
+            self._json({
+                "workspace": str(workspace.root),
+                "project": project,
+                "files": workspace.list_files(),
             })
             return
 
         if path == "/v1/coder/file":
             params = parse_qs(urlparse(self.path).query)
+            project = str(params.get("project", [""])[0]).strip()
             requested = str(params.get("path", [""])[0])
-            content = self.server.workspace.read_text(requested)
-            self._json({"path": requested, "content": content})
+            workspace = WorkspaceFS(_project_root(project))
+            content = workspace.read_text(requested)
+            self._json({"project": project, "path": requested, "content": content})
             return
 
         self._json(
@@ -279,6 +340,15 @@ class Handler(BaseHTTPRequestHandler):
 
         path = urlparse(self.path).path
         try:
+            if path == "/v1/coder/projects":
+                if RUN_LOCK.locked():
+                    self._json({"error": {"message": "Coder 正在运行，暂时不能创建项目。"}}, 409)
+                    return
+                request = self._body_json()
+                name = _ensure_project(str(request.get("name", "")))
+                self._json({"status": "created", "project": name}, 201)
+                return
+
             if path == "/v1/coder/files":
                 if RUN_LOCK.locked():
                     self._json(
@@ -302,13 +372,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Coder request 不能为空。")
             if len(task.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise WorkspaceSecurityError("Coder request 超过安全长度上限。")
+            project = _ensure_project(str(request.get("project", "")).strip(), task)
             if not RUN_LOCK.acquire(blocking=False):
                 self._json(
                     {"error": {"message": "已有 Coder 任务正在运行。"}},
                     409,
                 )
                 return
-            self._stream_run(task)
+            self._stream_run(task, project)
         except Exception as exc:
             self._json({
                 "error": {
@@ -317,7 +388,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }, 400 if isinstance(exc, (ValueError, WorkspaceSecurityError)) else 500)
 
-    def _stream_run(self, task: str) -> None:
+    def _stream_run(self, task: str, project: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -335,7 +406,7 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             try:
-                agent = self.server.build_agent()
+                agent = self.server.build_agent(project)
                 previous = debug.log
 
                 def debug_hook(module: str, message: str) -> None:
@@ -359,6 +430,7 @@ class Handler(BaseHTTPRequestHandler):
                 "id": cid,
                 "type": "started",
                 "runtime_timeout_seconds": MAX_RUNTIME_SECONDS,
+                "project": project,
             }))
             self.wfile.flush()
             while True:
@@ -409,9 +481,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
 
-def build_agent() -> CoderAgent:
+def build_agent(project: str) -> CoderAgent:
     return CoderAgent(
-        workspace=WORKSPACE,
+        workspace=str(_project_root(project)),
         max_runtime_seconds=MAX_RUNTIME_SECONDS,
         debug_mode=False,
         reuse_chat=True,
@@ -426,9 +498,10 @@ def main() -> None:
     server.build_agent = build_agent
     print(f"Coder Web API listening on http://{HOST}:{PORT}")
     print(f"Coder UI: http://{HOST}:{PORT}/coder")
-    print(f"Workspace: {workspace.root}")
+    print(f"Workspace root: {workspace.root}")
     print(f"Runtime timeout: {MAX_RUNTIME_SECONDS}s")
     print(f"Upload limit: {UPLOAD_MAX_BYTES} bytes")
+    print("Projects: each Coder task is isolated in its own workspace subdirectory.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
