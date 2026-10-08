@@ -104,6 +104,7 @@ const UI_IDS=[
   "feedbackStatus","submitFeedback","memory"
 ];
 let ui=Object.create(null);
+let projectsLoadSeq=0;
 const state={running:false,controller:null,startedAt:0,timer:null,project:"",failed:false,lastRunId:""};
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
@@ -266,27 +267,48 @@ async function loadHistory(){
   }
 }
 async function loadProjects(){
+  const requestSeq=++projectsLoadSeq;
   try{
     const r=await fetchTimeout(API+"/projects",{cache:"no-store"},3000);
     if(!r.ok)throw Error(await r.text());
     const d=await r.json();
+    if(requestSeq!==projectsLoadSeq)return;
     $("workspace").textContent=d.workspace||"已连接";
-    const select=$("project"), current=state.project;
+    // Read the selection only after the response returns. Capturing it before
+    // the async request could overwrite a project the user selected meanwhile.
+    const current=selectedProject()||state.project;
+    const projects=Array.isArray(d.projects)?d.projects:[];
+    const select=$("project");
     select.innerHTML="";
     const fresh=document.createElement("option");
     fresh.value="";
     fresh.textContent="新建项目（直接描述要求）";
     select.append(fresh);
-    for(const p of (d.projects||[])){
+    for(const p of projects){
       const option=document.createElement("option");
       option.value=p.name;
       option.textContent=p.name+" ("+(p.file_count||0)+" 个文件)";
       select.append(option);
     }
-    if(current && (d.projects||[]).some(p=>p.name===current)) setProject(current);
-    else setProject("");
+    if(current && projects.some(p=>p.name===current)){
+      setProject(current);
+    }else if(!current){
+      setProject("");
+    }else{
+      // Keep the logical selection instead of silently converting a selected
+      // project into "new project" due to a transient/stale project-list response.
+      state.project=current;
+      const option=document.createElement("option");
+      option.value=current;
+      option.textContent=current+" (当前选择)";
+      select.append(option);
+      select.value=current;
+      $("projectHint").textContent="当前项目："+current+"；文件和 Agent 操作都限制在该目录。";
+    }
   }catch(e){
-    $("workspace").textContent="项目列表加载失败（可重试）";
+    if(requestSeq===projectsLoadSeq){
+      $("workspace").textContent="项目列表加载失败（可重试）";
+    }
   }
 }
 async function loadFiles(){
@@ -398,6 +420,7 @@ async function submitFeedback(){
 function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
 async function run(){
   const request=$("task").value.trim();
+  const project=selectedProject();
   if(!request||state.running)return;
 
   resetFeedback();
@@ -420,7 +443,7 @@ async function run(){
     const r=await fetch("/v1/coder/run",{
       method:"POST",
       headers:headers(),
-      body:JSON.stringify({request,project:selectedProject()||null}),
+      body:JSON.stringify({request,project:project||null}),
       signal:state.controller.signal
     });
     if(!r.ok)throw Error((await r.text()).slice(0,800));
