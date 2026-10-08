@@ -430,8 +430,10 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({"type": "done", "value": done})
                 RUN_LOCK.release()
 
-        threading.Thread(target=worker, daemon=True).start()
         try:
+            # Send the first SSE frame before starting browser/model work. This
+            # makes the UI visibly enter RUNNING even if Playwright startup or
+            # DeepSeek login takes time.
             self.wfile.write(_sse({
                 "id": cid,
                 "type": "started",
@@ -439,6 +441,7 @@ class Handler(BaseHTTPRequestHandler):
                 "project": project,
             }))
             self.wfile.flush()
+            threading.Thread(target=worker, daemon=True).start()
             while True:
                 try:
                     event = events.get(timeout=1.0)
