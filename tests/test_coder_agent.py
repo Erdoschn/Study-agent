@@ -84,6 +84,7 @@ def test_coder_agent_handles_model_selected_new_chat(tmp_path):
     state = agent.run("修复一个小 bug")
 
     assert state.finished is True
+    assert state.project == tmp_path.name
     assert state.goal_verified is True
     assert state.chat_resets == 1
     assert state.metrics["chat_resets"] == 1
