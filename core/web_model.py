@@ -258,6 +258,7 @@ class BrowserModel(ModelClient):
             "CREATE_TEST",
             "RUN_PYTHON",
             "RUN_PYTEST",
+            "ASK_STUDY_AGENT",
             "READ_DIFF",
             "VERIFY_GOAL",
             "FINISH",
