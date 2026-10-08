@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import time
+from io import UnsupportedOperation
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -618,6 +619,13 @@ class BrowserModel(ModelClient):
                 self._sleep(0.1)
 
         import select
+        try:
+            sys.stdin.fileno()
+        except (AttributeError, OSError, ValueError, UnsupportedOperation):
+            input()
+            self._check_cancelled()
+            return
+
         while True:
             self._check_cancelled()
             ready, _, _ = select.select([sys.stdin], [], [], 0.1)
