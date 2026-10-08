@@ -86,8 +86,14 @@ def _list_projects() -> list[dict]:
 
 def _ensure_project(name: str | None = None, task: str = "") -> str:
     requested = str(name or "").strip()
-    project = _project_name(requested or task)
+    base = _project_name(requested or task)
     root = WorkspaceFS(WORKSPACE).root
+    project = base
+    if not requested:
+        index = 2
+        while (root / project).exists():
+            project = f"{base}-{index}"
+            index += 1
     target = _project_root(project)
     if target == root:
         raise WorkspaceSecurityError("项目目录不能是 workspace 根目录。")
