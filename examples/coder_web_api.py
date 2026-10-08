@@ -780,7 +780,6 @@ class Handler(BaseHTTPRequestHandler):
                     "state": result_state,
                     "memory": entry,
                 })
-                result_emitted = True
             finally:
                 events.put({"type": "done"})
                 with RUNS_LOCK:
