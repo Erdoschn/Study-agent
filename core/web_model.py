@@ -98,6 +98,7 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
+        self._json_mode_active = bool(json_mode)
         self._minimize_browser_window(page)
         self._start_fresh_chat(page)
         completed = False
@@ -108,9 +109,16 @@ class BrowserModel(ModelClient):
             answer = self._wait_for_response(page, before_snapshot)
 
             markdown = self._copy_latest_response_markdown(page)
-            if markdown:
+            if markdown and (
+                not json_mode or self._is_json_object(markdown)
+            ):
                 answer = markdown
-            elif not answer:
+            elif markdown and json_mode:
+                debug.log(
+                    "BrowserModel",
+                    "COPY SKIP → copied response was incomplete for JSON mode",
+                )
+            if not answer:
                 raise RuntimeError("DeepSeek Web 返回为空。")
 
             if json_mode and self._needs_json_recovery(answer):
@@ -125,8 +133,18 @@ class BrowserModel(ModelClient):
             return answer
         finally:
             self._pending_prompt = None
+            self._json_mode_active = False
             if completed and self.cleanup_after_generate:
                 self._cleanup_current_chat(page)
+
+    @staticmethod
+    def _is_json_object(answer: str) -> bool:
+        try:
+            import json
+            data = json.loads(str(answer or "").strip())
+        except (TypeError, ValueError):
+            return False
+        return isinstance(data, dict)
 
     @staticmethod
     def _needs_json_recovery(answer: str) -> bool:
@@ -144,6 +162,17 @@ class BrowserModel(ModelClient):
             "ASSESS",
             "ANSWER",
             "STOP",
+            "PLAN",
+            "LIST_FILES",
+            "READ_FILE",
+            "WRITE_FILE",
+            "PATCH_FILE",
+            "CREATE_TEST",
+            "RUN_PYTHON",
+            "RUN_PYTEST",
+            "READ_DIFF",
+            "VERIFY_GOAL",
+            "FINISH",
         }
 
     def _recover_json_response(self, page, previous_answer: str) -> str:
@@ -154,8 +183,8 @@ class BrowserModel(ModelClient):
             "user's question again. Convert your previous response into the "
             "decision JSON required by the instructions above. Return exactly "
             "one valid JSON object, starting with '{' and ending with '}'. "
-            "The object must contain a valid action field from "
-            "SEARCH, CALCULATE, VERIFY, ASSESS, ANSWER, STOP. "
+            "The object must contain the fields and action required by the "
+            "caller instructions; do not invent a different action schema. "
             "Preserve useful information from the previous response only in "
             "the appropriate JSON fields. Output no Markdown, prose, code "
             "fences, or surrounding text."
@@ -859,16 +888,27 @@ class BrowserModel(ModelClient):
                 elif stable_since is None:
                     stable_since = time.monotonic()
 
+                json_ready = (
+                    not getattr(self, "_json_mode_active", False)
+                    or self._is_json_object(candidate)
+                )
                 if (
                     stable_since is not None
                     and time.monotonic() - stable_since >= self.stable_seconds
                     and not self._loading_visible(page)
+                    and json_ready
                 ):
                     return latest
 
             time.sleep(self.poll_interval)
 
         if saw_new_response and latest:
+            if getattr(self, "_json_mode_active", False):
+                debug.log(
+                    "BrowserModel",
+                    "JSON WAIT → response remained incomplete; returning latest for recovery",
+                )
+                return latest
             raise TimeoutError(
                 f"等待 DeepSeek Web 回答完成超时：{self.timeout}s"
             )
