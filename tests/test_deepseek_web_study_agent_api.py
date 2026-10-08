@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from examples.deepseek_web_study_agent_api import Handler, WEB_ROOT, build_web_only_config, web_asset_path
 
 
@@ -43,6 +44,41 @@ def test_web_api_isolates_browser_model():
     isolated = build_web_only_config(config)
     assert list(isolated["providers"]) == ["deepseek_web"]
     assert list(isolated["models"]) == ["deepseek-web"]
+
+
+def test_web_api_closes_browser_factory_after_run():
+    from examples.deepseek_web_study_agent_api import Handler
+
+    class Factory:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    factory = Factory()
+
+    class Agent:
+        def __init__(self):
+            self._web_model_factory = factory
+
+        def run(self, question):
+            assert question == "hello"
+            return SimpleNamespace(
+                step_count=1,
+                evidence=[],
+                claims=[],
+            )
+
+    handler = object.__new__(Handler)
+    handler.server = SimpleNamespace(agent=Agent())
+    events = []
+
+    result = handler._run("hello", events.append)
+
+    assert result.step_count == 1
+    assert factory.closed is True
+    assert events[0] == "🤔 StudyAgent 正在分析任务"
 
 
 def test_web_api_does_not_cooldown_its_only_browser_model():
