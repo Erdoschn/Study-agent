@@ -95,76 +95,46 @@ class CoderReasoner:
         )
 
     @classmethod
+    def _render_untrusted(cls, value: Any, *, preserve_content: bool = False) -> str:
+        if isinstance(value, dict):
+            items = []
+            for key, item in value.items():
+                keep_content = str(key).casefold() == "content"
+                items.append(
+                    json.dumps(str(key), ensure_ascii=False)
+                    + ":"
+                    + cls._render_untrusted(
+                        item,
+                        preserve_content=keep_content,
+                    )
+                )
+            return "{" + ",".join(items) + "}"
+        if isinstance(value, list):
+            return "[" + ",".join(
+                cls._render_untrusted(item, preserve_content=preserve_content)
+                for item in value
+            ) + "]"
+        if isinstance(value, tuple):
+            return "(" + ",".join(
+                cls._render_untrusted(item, preserve_content=preserve_content)
+                for item in value
+            ) + ")"
+        if isinstance(value, str):
+            return json.dumps(
+                cls._scrub_text(value, redact_paths=not preserve_content),
+                ensure_ascii=False,
+            )
+        try:
+            return json.dumps(value, ensure_ascii=False, default=str)
+        except Exception:
+            return json.dumps(str(value), ensure_ascii=False)
+
+    @classmethod
     def _untrusted(cls, value: Any) -> str:
-        if value is None:
-            text = "<empty>"
-        else:
-            try:
-                if isinstance(value, dict):
-                    safe = {}
-                    for key, item in value.items():
-                        if str(key).casefold() == "content":
-                            safe[key] = cls._scrub_text(str(item), redact_paths=False)
-                        else:
-                            safe[key] = item
-                    text = json.dumps(safe, ensure_ascii=False, default=str)
-                else:
-                    text = json.dumps(value, ensure_ascii=False, default=str)
-            except Exception:
-                text = str(value)
-
-        if isinstance(value, dict):
-            # The READ_FILE content itself is source material, not host-path
-            # metadata. Preserve it so a coding model can actually inspect and
-            # edit the file; continue sanitizing all non-content fields.
-            try:
-                parts = []
-                for key, item in value.items():
-                    if str(key).casefold() == "content":
-                        parts.append(
-                            json.dumps(
-                                {key: cls._scrub_text(str(item), redact_paths=False)},
-                                ensure_ascii=False,
-                            )
-                        )
-                    else:
-                        parts.append(
-                            json.dumps(
-                                {key: item},
-                                ensure_ascii=False,
-                                default=str,
-                            )
-                        )
-                if parts:
-                    text = " ".join(parts)
-            except Exception:
-                pass
-
-        scrubbed = cls._scrub_text(text, redact_paths=False)
-        # Re-serialize the non-content representation through a safe pass so
-        # host/sandbox path redaction still applies outside source content.
-        if isinstance(value, dict):
-            try:
-                rendered = []
-                for key, item in value.items():
-                    key_text = cls._scrub_text(str(key), redact_paths=True)
-                    if str(key).casefold() == "content":
-                        value_text = cls._scrub_text(str(item), redact_paths=False)
-                    else:
-                        value_text = cls._scrub_text(
-                            json.dumps(item, ensure_ascii=False, default=str),
-                            redact_paths=True,
-                        )
-                    rendered.append(f"{key_text}={value_text}")
-                scrubbed = "{" + ", ".join(rendered) + "}"
-            except Exception:
-                pass
-        else:
-            scrubbed = cls._scrub_text(text, redact_paths=True)
-
+        rendered = cls._render_untrusted(value)
         return (
             "<UNTRUSTED_TOOL_OUTPUT>\n"
-            + scrubbed[:12000]
+            + rendered[:12000]
             + "\n</UNTRUSTED_TOOL_OUTPUT>"
         )
 
