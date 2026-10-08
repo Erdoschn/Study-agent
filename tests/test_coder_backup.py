@@ -25,10 +25,10 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
 
     assert snapshot.generation == 3
     assert snapshot.file_count == 3
-    assert snapshot.archive == tmp_path.parent / f"{tmp_path.name}.coder-backup" / "latest.zip"
+    assert snapshot.archive == tmp_path / ".coder-backup" / "latest.zip"
     initial = backup.ensure_initial_snapshot(0)
     assert initial.file_count == 3
-    assert initial.archive == tmp_path.parent / f"{tmp_path.name}.coder-backup" / "initial.zip"
+    assert initial.archive == tmp_path / ".coder-backup" / "initial.zip"
     manifest = backup.read_manifest()
     assert manifest["generation"] == 3
     initial_manifest = backup.read_manifest(initial=True)
@@ -42,19 +42,19 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
     assert not backup.contains_text(".env", "SECRET=x")
 
 
-def test_backup_is_outside_model_workspace_and_not_readable_by_workspacefs(tmp_path):
+def test_backup_is_inside_workspace_but_hidden_from_workspacefs(tmp_path):
     backup = CoderBackupStore(tmp_path)
     backup.snapshot(0)
     fs = CoderHarness(str(tmp_path), sandbox=SimpleNamespace()).fs
 
-    assert backup.root.parent == tmp_path.parent
-    assert backup.root != tmp_path
-    assert all("coder-backup" not in path for path in fs.list_files())
+    assert backup.root == tmp_path / ".coder-backup"
+    assert backup.root.is_relative_to(tmp_path)
+    assert all(".coder-backup" not in path for path in fs.list_files())
 
     from coder.filesystem import WorkspaceSecurityError
 
     with __import__("pytest").raises(WorkspaceSecurityError):
-        fs.read_text("../" + backup.root.name + "/latest.zip")
+        fs.read_text(".coder-backup/latest.zip")
 
 
 def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
