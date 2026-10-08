@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,11 +38,15 @@ class CoderBackupStore:
             pass
         else:
             raise WorkspaceSecurityError("Coder backup 必须位于 workspace 同级或其外部。")
-        if self.root == self.workspace.parent.parent:
-            raise WorkspaceSecurityError("Coder backup 路径非法。")
         self.root.mkdir(parents=True, exist_ok=True)
-        if self.root.is_symlink():
+        try:
+            status = self.root.lstat()
+        except OSError as exc:
+            raise WorkspaceSecurityError("无法检查 Coder backup 目录。") from exc
+        if status.st_mode & 0o170000 == 0o120000:
             raise WorkspaceSecurityError("备份目录禁止使用符号链接。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("备份目录禁止使用 Windows reparse point。")
 
     @classmethod
     def _iter_code_files(cls, workspace: Path) -> Iterable[tuple[Path, Path]]:
@@ -73,9 +76,6 @@ class CoderBackupStore:
         if generation < 0:
             raise ValueError("backup generation 不能为负数。")
 
-        stage_dir = Path(
-            tempfile.mkdtemp(prefix=".coder-backup-", dir=str(self.root.parent))
-        )
         archive_tmp = self.root / f"{self.ARCHIVE_NAME}.{os.getpid()}.tmp"
         manifest_tmp = self.root / f"{self.MANIFEST_NAME}.{os.getpid()}.tmp"
         try:
@@ -123,11 +123,6 @@ class CoderBackupStore:
                 except FileNotFoundError:
                     pass
             raise
-        finally:
-            try:
-                stage_dir.rmdir()
-            except OSError:
-                pass
 
     def read_manifest(self) -> dict:
         path = self.root / self.MANIFEST_NAME
