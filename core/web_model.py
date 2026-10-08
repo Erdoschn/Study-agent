@@ -251,6 +251,7 @@ class BrowserModel(ModelClient):
             "LIST_FILES",
             "READ_FILE",
             "WRITE_FILE",
+            "WRITE_NOTEBOOK",
             "PATCH_FILE",
             "CREATE_TEST",
             "RUN_PYTHON",
