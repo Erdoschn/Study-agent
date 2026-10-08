@@ -89,6 +89,21 @@ def test_coder_project_name_is_safe_and_derived_from_request():
     assert _project_name("").startswith("project-")
 
 
+def test_coder_new_project_auto_names_when_name_is_none(tmp_path, monkeypatch):
+    import examples.coder_web_api as api
+
+    monkeypatch.setattr(api, "WORKSPACE", str(tmp_path))
+
+    first = api._ensure_project(None, "做一个最简单的计算器，只要初等运算就行")
+    second = api._ensure_project(None, "做一个最简单的计算器，只要初等运算就行")
+
+    assert first != "None"
+    assert second != "None"
+    assert first != second
+    assert (tmp_path / first).is_dir()
+    assert (tmp_path / second).is_dir()
+
+
 def test_coder_project_creation_keeps_projects_separate(tmp_path, monkeypatch):
     import examples.coder_web_api as api
 
