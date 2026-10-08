@@ -47,11 +47,20 @@ class CoderAgent:
             )
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
-    def run(self, request: str) -> CoderState:
+    def run(self, request: str, *, event_hook=None) -> CoderState:
         request = str(request or "").strip()
         if not request:
             raise ValueError("Coder 请求不能为空。")
         state = CoderState(request=request)
+
+        def emit(event: dict) -> None:
+            if callable(event_hook):
+                try:
+                    event_hook(event)
+                except Exception:
+                    pass
+
+        emit({"type": "started", "request": request})
         try:
             preflight = getattr(self.harness.sandbox, "preflight", None)
             if callable(preflight):
@@ -63,6 +72,7 @@ class CoderAgent:
         except Exception as exc:
             state.error = f"Coder 启动安全检查失败：{type(exc).__name__}: {exc}"
             debug.log("CoderAgent", state.error)
+            emit({"type": "error", "state": state})
             return state
 
         state.goal = CoderGoal(
@@ -85,6 +95,7 @@ class CoderAgent:
                     self._apply_plan(state, decision.get("goal", {}))
                     observation = {"status": "PLAN_SET", "goal": state.goal.__dict__}
                     state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
+                    emit({"type": "step", "step": state.steps[-1]})
                     continue
 
                 if action == "NEW_CHAT":
@@ -101,6 +112,7 @@ class CoderAgent:
                         state.add_step(CoderStep(
                             state.step_count + 1, action, arguments, observation,
                         ))
+                        emit({"type": "step", "step": state.steps[-1]})
                     except Exception as exc:
                         state.add_step(CoderStep(
                             state.step_count + 1, action, arguments,
@@ -117,6 +129,7 @@ class CoderAgent:
                         state.step_count + 1, action, arguments, observation, success=ok,
                         error="" if ok else "Goal 未满足，继续 Agent Loop。",
                     ))
+                    emit({"type": "step", "step": state.steps[-1]})
                     if ok:
                         state.finished = True
                         break
@@ -131,12 +144,14 @@ class CoderAgent:
                         state.step_count + 1, action, arguments, observation,
                         success=False, error=str(exc),
                     ))
+                    emit({"type": "step", "step": state.steps[-1]})
             state.metrics["steps"] = state.step_count
             state.metrics["modified_files"] = len(state.modified_files)
             state.metrics["chat_resets"] = state.chat_resets
             state.metrics["test_runs"] = sum(
                 1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
             )
+            emit({"type": "finished", "state": state})
             return state
         except Exception as exc:
             state.error = f"Coder 执行失败：{type(exc).__name__}: {exc}"
