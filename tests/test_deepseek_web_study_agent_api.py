@@ -80,6 +80,12 @@ def test_web_frontend_does_not_force_markdown_line_breaks():
     assert "breaks:false" in source
     assert "breaks:true" not in source
 
+def test_web_frontend_uses_markdown_safe_math_placeholders():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'const token=i=>"STUDYAGENTMATHTOKEN"+i+"X";' in source
+    assert "__STUDY_AGENT_MATH_" not in source
+
+
 def test_web_frontend_protects_latex_before_markdown():
     source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     assert "function markdown(x)" in source
