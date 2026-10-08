@@ -6,12 +6,14 @@ from pathlib import Path
 
 from core.__debug__ import debug
 
+from .filesystem import WorkspaceSecurityError
 from .harness import CoderHarness
 from .reasoner import CoderReasoner
 from .state import CoderGoal, CoderState, CoderStep
 
 
 DEFAULT_WORKSPACE = os.getenv("CODER_WORKSPACE", r"D:\Coder_workspace")
+RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 
 
 class CoderAgent:
@@ -30,7 +32,8 @@ class CoderAgent:
         reuse_chat: bool = True,
         min_send_interval_seconds: float = 5.0,
     ):
-        self.workspace = Path(workspace)
+        self.workspace = Path(workspace).expanduser().resolve()
+        self._validate_workspace_boundary()
         self.debug_mode = bool(debug_mode)
         if search_router is None:
             from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
@@ -46,6 +49,17 @@ class CoderAgent:
                 min_send_interval_seconds=min_send_interval_seconds,
             )
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
+
+    def _validate_workspace_boundary(self) -> None:
+        """Prevent Coder from operating on its own runtime source tree."""
+        try:
+            self.workspace.relative_to(RUNTIME_ROOT)
+        except ValueError:
+            return
+        raise WorkspaceSecurityError(
+            "Coder workspace 不能位于 Study-agent 自身源码目录；"
+            "请使用独立的目标项目 workspace。"
+        )
 
     def run(self, request: str, *, event_hook=None) -> CoderState:
         request = str(request or "").strip()
