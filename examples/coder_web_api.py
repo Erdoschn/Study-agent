@@ -373,6 +373,26 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
+        if path == "/v1/coder/history":
+            params = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int(params.get("limit", ["30"])[0])
+            except ValueError:
+                limit = 30
+            memory = CoderMemoryStore(self.server.workspace.root)
+            data = memory.load()
+            limit = max(1, min(limit, memory.MAX_RUNS))
+            self._json({
+                "workspace": str(self.server.workspace.root),
+                "runs": list(reversed(data["runs"][-limit:])),
+                "knowledge": {
+                    "strategies": list(reversed(data["strategies"][-20:])),
+                    "experiences": list(reversed(data["experiences"][-20:])),
+                    "technologies": list(reversed(data["technologies"][-20:])),
+                },
+            })
+            return
+
         if path == "/v1/coder/files":
             params = parse_qs(urlparse(self.path).query)
             project = str(params.get("project", [""])[0]).strip()
@@ -498,7 +518,9 @@ class Handler(BaseHTTPRequestHandler):
                 debug.log = debug_hook
                 try:
                     result = agent.run(task, event_hook=emit)
-                    events.put({"type": "result", "state": result})
+                    memory = CoderMemoryStore(self.server.workspace.root)
+                    entry = memory.record_run(project=actual_project, state=result)
+                    events.put({"type": "result", "state": result, "memory": entry})
                 finally:
                     debug.log = previous
             except Exception as exc:
@@ -571,6 +593,7 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "result",
                         "state": _state_payload(event["state"]),
+                        "memory": event.get("memory", {}),
                     }))
                     self.wfile.flush()
                 elif kind == "error":
