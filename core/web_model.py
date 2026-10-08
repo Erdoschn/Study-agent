@@ -1115,16 +1115,23 @@ class BrowserModel(ModelClient):
                 )
                 loading = self._loading_visible(page)
 
-                # Coder decisions are complete as soon as DeepSeek has
-                # produced a valid JSON object. Waiting for extra DOM stability
-                # only adds latency and can race with the web UI's late loading
-                # indicator. Incomplete JSON still remains subject to the timeout.
+                # A complete JSON object is not enough to conclude that
+                # DeepSeek has finished the current turn: the thinking area can
+                # contain a complete Agent-looking object before the final
+                # answer is emitted. In JSON mode, prefer the response's Copy
+                # control as the browser-side completion signal.
+                copy_ready = False
                 if json_mode and json_ready:
-                    debug.log(
-                        "BrowserModel",
-                        f"WAIT RESPONSE → valid JSON extracted chars={len(json_candidate or latest)}, loading={loading}",
-                    )
-                    return json_candidate or latest
+                    try:
+                        copy_ready = self._find_copy_button(page) is not None
+                    except Exception:
+                        copy_ready = False
+                    if copy_ready:
+                        debug.log(
+                            "BrowserModel",
+                            "WAIT RESPONSE → response complete; Copy target available",
+                        )
+                        return json_candidate or latest
 
                 ready = stable and json_ready and (json_mode or not loading)
                 if ready:
