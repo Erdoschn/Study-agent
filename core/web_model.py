@@ -106,6 +106,19 @@ class BrowserModel(ModelClient):
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
 
+    def prepare_browser(self) -> None:
+        """Open this model's browser profile without sending a model prompt.
+
+        Authentication remains manual. This is used by API shells so the user
+        can log into the correct isolated browser profile before an Agent run.
+        """
+        page = self._ensure_page()
+        self._dismiss_cookie_banner(page)
+        debug.log(
+            "BrowserModel",
+            f"BROWSER READY → profile={self.user_data_dir}, url={self.url}",
+        )
+
     def generate(
         self,
         system_prompt: str,
