@@ -400,6 +400,63 @@ def test_sandbox_staging_excludes_sensitive_files(tmp_path, monkeypatch):
     assert observed["files"] == {"main.py"}
 
 
+def test_sandbox_kills_process_when_coder_run_is_cancelled(tmp_path, monkeypatch):
+    import threading
+
+    from coder.cancellation import RunCancelled
+
+    class Stream:
+        def read(self, _size):
+            return b""
+
+    class Proc:
+        def __init__(self):
+            self.killed = False
+
+        def poll(self):
+            return 0 if self.killed else None
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self):
+            return -9
+
+        stdout = Stream()
+        stderr = Stream()
+
+    proc = Proc()
+    calls = []
+
+    def fake_popen(*args, **kwargs):
+        calls.append(("popen", args, kwargs))
+        return proc
+
+    def fake_run(*args, **kwargs):
+        calls.append(("run", args, kwargs))
+        return None
+
+    monkeypatch.setattr("coder.sandbox.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("coder.sandbox.subprocess.run", fake_run)
+
+    from coder.sandbox import DockerPythonSandbox
+
+    event = threading.Event()
+    event.set()
+    sandbox = DockerPythonSandbox(tmp_path)
+
+    with pytest.raises(RunCancelled):
+        sandbox._run_limited(
+            ["docker", "run"],
+            "coder-sandbox-test",
+            cancellation_event=event,
+        )
+
+    assert proc.killed is True
+    assert calls[0][0] == "popen"
+    assert any(call[0] == "run" for call in calls)
+
+
 def test_harness_rejects_python_execution_outside_workspace(tmp_path):
     harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
     state = __import__("coder.state", fromlist=["CoderState"]).CoderState("fix")
