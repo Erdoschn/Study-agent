@@ -128,15 +128,18 @@ class BrowserModel(ModelClient):
             answer = self._wait_for_response(page, before_snapshot)
 
             markdown = self._copy_latest_response_markdown(page)
-            if markdown and (
-                not json_mode or self._is_json_object(markdown)
-            ):
-                answer = markdown
-            elif markdown and json_mode:
-                debug.log(
-                    "BrowserModel",
-                    "COPY SKIP → copied response was incomplete for JSON mode",
-                )
+            if markdown:
+                if json_mode:
+                    extracted = self._extract_json_object(markdown)
+                    if extracted:
+                        answer = extracted
+                    else:
+                        debug.log(
+                            "BrowserModel",
+                            "COPY SKIP → response did not contain a complete Agent JSON object",
+                        )
+                else:
+                    answer = markdown
             if not answer:
                 raise RuntimeError("DeepSeek Web 返回为空。")
 
@@ -157,14 +160,57 @@ class BrowserModel(ModelClient):
                 self._cleanup_current_chat(page)
                 self._chat_initialized = False
 
-    @staticmethod,    def _extract_json_object(answer: str) -> str:,        """Extract a valid Agent JSON object from mixed browser response text.""",        import json,,        text = str(answer or "").strip(),        if not text:,            return "",,        decoder = json.JSONDecoder(),        allowed_actions = {,            "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",,            "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",,            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",,            "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",,        },        for match in re.finditer(r"\\{", text):,            try:,                data, end = decoder.raw_decode(text[match.start():]),            except json.JSONDecodeError:,                continue,            if not isinstance(data, dict):,                continue,            if str(data.get("action", "")).upper() in allowed_actions:,                return text[match.start():match.start() + end].strip(),        return "",,    @classmethod,    def _is_json_object(cls, answer: str) -> bool:,        text = str(answer or "").strip(),        try:,            import json,            data = json.loads(text),        except (TypeError, ValueError):,            data = None,        return isinstance(data, dict) or bool(cls._extract_json_object(text)),
-    @staticmethod
-    def _needs_json_recovery(answer: str) -> bool:
-        """Return whether a browser response is unusable for structured JSON mode."""
+    @classmethod
+    def _extract_json_object(cls, answer: str) -> str:
+        """Extract the last complete Agent JSON object from one assistant response."""
+        import json
+
+        text = str(answer or "").strip()
+        if not text:
+            return ""
+
+        decoder = json.JSONDecoder()
+        allowed_actions = {
+            "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
+            "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",
+            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
+            "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",
+        }
+
+        last = ""
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                data, end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            if str(data.get("action", "")).upper() not in allowed_actions:
+                continue
+            last = text[index:index + end].strip()
+        return last
+
+    @classmethod
+    def _is_json_object(cls, answer: str) -> bool:
+        text = str(answer or "").strip()
         try:
             import json
+            data = json.loads(text)
+        except (TypeError, ValueError):
+            data = None
+        return isinstance(data, dict) or bool(cls._extract_json_object(text))
 
-            data = json.loads(str(answer or "").strip())
+    @classmethod
+    def _needs_json_recovery(cls, answer: str) -> bool:
+        """Return whether a browser response is unusable for structured JSON mode."""
+        import json
+
+        text = str(answer or "").strip()
+        candidate = cls._extract_json_object(text) or text
+        try:
+            data = json.loads(candidate)
         except (TypeError, ValueError):
             return True
         return not isinstance(data, dict) or str(data.get("action", "")).upper() not in {
@@ -201,7 +247,9 @@ class BrowserModel(ModelClient):
         answer = self._wait_for_response(page, before_snapshot)
         markdown = self._copy_latest_response_markdown(page)
         if markdown:
-            answer = markdown
+            extracted = self._extract_json_object(markdown)
+            if extracted:
+                answer = extracted
         if self._needs_json_recovery(answer):
             preview = " ".join(str(answer or "")[:160].split())
             raise RuntimeError(
@@ -1042,7 +1090,7 @@ class BrowserModel(ModelClient):
                 if not candidate_seen:
                     candidate_seen = True
                     json_mode = bool(getattr(self, "_json_mode_active", False))
-                    json_ready = not json_mode or bool(self._extract_json_object(candidate))
+                    json_ready = not json_mode or self._is_json_object(candidate)
                     preview = " ".join(candidate[:120].split())
                     debug.log(
                         "BrowserModel",
