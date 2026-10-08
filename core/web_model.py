@@ -222,6 +222,8 @@ class BrowserModel(ModelClient):
             self._context.close()
         self._context = None
         self._page = None
+        self._chat_initialized = False
+        self._last_send_monotonic = None
         if self._playwright is not None:
             self._playwright.stop()
         self._playwright = None
