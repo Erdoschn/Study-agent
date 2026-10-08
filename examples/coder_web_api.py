@@ -10,6 +10,8 @@ Environment:
     CODER_WEB_API_KEY=optional-secret
     CODER_MAX_RUNTIME_SECONDS=1800
     CODER_UPLOAD_MAX_BYTES=1048576
+    CODER_STUDY_AGENT_URL=http://127.0.0.1:8000/internal/study/ask
+    CODER_STUDY_AGENT_API_KEY=optional-secret
 """
 
 from __future__ import annotations
@@ -390,6 +392,7 @@ class Handler(BaseHTTPRequestHandler):
                     "experiences": list(reversed(data["experiences"][-20:])),
                     "technologies": list(reversed(data["technologies"][-20:])),
                 },
+                "knowledge_graph": memory.knowledge_graph.snapshot(60),
             })
             return
 
