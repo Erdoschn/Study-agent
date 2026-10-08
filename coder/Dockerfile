@@ -8,7 +8,7 @@ COPY sandbox_runner.py /opt/coder_runner.py
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HOME=/tmp/home
+    HOME=/tmp
 
 USER 65534:65534
 ENTRYPOINT ["python", "/opt/coder_runner.py"]
