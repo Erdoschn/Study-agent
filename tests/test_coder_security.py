@@ -28,9 +28,6 @@ def _docker_image_ready() -> bool:
     return probe.returncode == 0
 
 
-pytestmark = pytest.mark.security
-
-
 def test_harness_rejects_unknown_tool_arguments(tmp_path):
     harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
     state = CoderState("test")
