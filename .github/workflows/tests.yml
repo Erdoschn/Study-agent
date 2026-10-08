@@ -43,3 +43,28 @@ jobs:
             pytest-results.xml
           if-no-files-found: ignore
           retention-days: 7
+
+
+  coder-sandbox-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Build Coder sandbox image
+        run: docker build --pull=false -t study-agent-coder-python:1 coder
+
+      - name: Run Coder security tests
+        shell: bash
+        run: |
+          python -m pytest -q tests/test_coder_security.py --tb=short -ra
