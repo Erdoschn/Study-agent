@@ -218,14 +218,7 @@ class Teacher:
             "task_analysis": state.task_analysis.__dict__ if state.task_analysis else None,
             "draft_answer": draft_answer,
             "validator_findings": findings,
-            "revision_rules": [
-                "只修复 validator 明确指出的 major factual or mathematical errors。",
-                "保留原答案的高知识密度、教学结构和有价值的正确内容。",
-                "不要因为风格原因大幅重写。",
-                "修复时补上必要条件、定义域、量词或概念边界。",
-                "不要把直观解释写成严格定义。",
-                "只输出修订后的最终教学回答，不解释校验过程。",
-            ],
+            "revision_instructions": get_prompt("study_agent.teacher_revision"),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     def generate(self, state, draft_answer: str | None = None) -> str:
