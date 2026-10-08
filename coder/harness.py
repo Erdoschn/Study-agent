@@ -259,7 +259,6 @@ class CoderHarness:
             try:
                 snapshot = self.backup.snapshot(state.modification_generation)
                 state.backup_generation = snapshot.generation
-                state.backup_path = str(snapshot.archive)
                 state.last_test_result["backup_ok"] = True
             except Exception as exc:
                 state.last_test_result["backup_error"] = (
@@ -300,13 +299,7 @@ class CoderHarness:
                 and state.test_generation == state.modification_generation
             ) if goal.must_pass_tests else True,
         })
-        backup_present = bool(
-            state.backup_path
-            and Path(state.backup_path).resolve() == (
-                self.backup.root / self.backup.ARCHIVE_NAME
-            ).resolve()
-            and Path(state.backup_path).is_file()
-        )
+        backup_present = self.backup.has_latest_snapshot()
         checks.append({
             "check": "last_known_good_backup",
             "ok": bool(
