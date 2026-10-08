@@ -58,7 +58,7 @@ def test_backup_is_outside_model_workspace_and_not_readable_by_workspacefs(tmp_p
 
 
 def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
-    (tmp_path / "main.py").write_text("VERSION = 1\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"VERSION = 1\n")
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_main.py").write_text(
         "def test_main():\n    assert True\n", encoding="utf-8"
@@ -112,7 +112,7 @@ def test_initial_backup_is_created_before_agent_modifications_and_never_overwrit
     backup = CoderBackupStore(tmp_path)
 
     first = backup.ensure_initial_snapshot(0)
-    (tmp_path / "main.py").write_text("VERSION = 1\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"VERSION = 1\n")
     backup.snapshot(1)
     again = backup.ensure_initial_snapshot(0)
 
@@ -128,7 +128,7 @@ def test_backup_archives_are_separate_initial_and_latest(tmp_path):
     backup = CoderBackupStore(tmp_path)
     backup.ensure_initial_snapshot(0)
 
-    (tmp_path / "main.py").write_text("latest\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"latest\n")
     backup.snapshot(1)
 
     assert backup.root / backup.INITIAL_ARCHIVE_NAME != backup.root / backup.ARCHIVE_NAME
