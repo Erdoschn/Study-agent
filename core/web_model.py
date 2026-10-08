@@ -555,9 +555,11 @@ class BrowserModel(ModelClient):
                 while time.monotonic() < read_deadline:
                     markdown = self._read_browser_clipboard(page)
                     if markdown.strip() and markdown.strip() != stale_marker:
+                        preview = " ".join(markdown[:100].split())
                         debug.log(
                             "BrowserModel",
-                            f"COPY SUCCESS → markdown_chars={len(markdown)}",
+                            f"COPY SUCCESS → markdown_chars={len(markdown)}, "
+                            f"clipboard_preview={preview!r}",
                         )
                         return markdown
                     time.sleep(min(0.1, self.poll_interval))
