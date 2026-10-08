@@ -132,6 +132,7 @@ class CoderAgent:
                     ))
                     emit({"type": "step", "step": state.steps[-1]})
                     if ok:
+                        state.goal_verified = True
                         state.finished = True
                         break
                     continue
