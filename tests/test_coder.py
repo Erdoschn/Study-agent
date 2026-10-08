@@ -63,6 +63,58 @@ def test_workspace_rejects_sensitive_files(tmp_path):
         fs.read_text(".env")
 
 
+def test_workspace_read_file_can_walk_large_files_in_line_chunks(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    content = "".join(f"line_{i} = {i}\n" for i in range(1, 1001))
+    fs.write_text("large.py", content)
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("read large file")
+
+    first = harness.execute("READ_FILE", {"path": "large.py"}, state)
+    assert first["complete"] is False
+    assert first["start_line"] == 1
+    assert first["end_line"] == 400
+    assert first["total_lines"] == 1000
+    assert first["next_start_line"] == 401
+
+    second = harness.execute("READ_FILE", {"path": "large.py", "start_line": 401, "end_line": 800}, state)
+    third = harness.execute("READ_FILE", {"path": "large.py", "start_line": 801, "end_line": 1000}, state)
+    assert second["content"].startswith("line_401")
+    assert third["content"].endswith("line_1000 = 1000\n")
+    assert third["full_file_read"] is True
+    assert third["read_coverage"] == [[1, 1000]]
+
+
+def test_harness_rejects_whole_file_write_until_existing_file_was_fully_read(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    original = "".join(f"line_{i}\n" for i in range(1, 501))
+    fs.write_text("framework.py", original)
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("update framework")
+    harness.execute("READ_FILE", {"path": "framework.py", "start_line": 1, "end_line": 400}, state)
+    with pytest.raises(WorkspaceSecurityError, match="尚未完整读取当前文件"):
+        harness.execute("WRITE_FILE", {"path": "framework.py", "content": original}, state)
+
+
+def test_harness_allows_whole_file_write_after_reading_all_chunks(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    original = "".join(f"line_{i}\n" for i in range(1, 501))
+    fs.write_text("framework.py", original)
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("update framework")
+    harness.execute("READ_FILE", {"path": "framework.py", "start_line": 1, "end_line": 400}, state)
+    harness.execute("READ_FILE", {"path": "framework.py", "start_line": 401, "end_line": 500}, state)
+    revised = original.replace("line_250", "line_250_changed", 1)
+    harness.execute("WRITE_FILE", {"path": "framework.py", "content": revised}, state)
+    assert fs.read_text("framework.py") == revised
+
+
+def test_reasoner_untrusted_tool_output_budget_is_large_enough_for_normal_files():
+    rendered = CoderReasoner._untrusted({"path": "a.py", "content": "x" * 20000})
+    assert "x" * 19000 in rendered
+    assert len(rendered) > 20000
+
+
 def test_workspace_allows_notebook_read_write(tmp_path):
     fs = WorkspaceFS(tmp_path)
     notebook = '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}'
