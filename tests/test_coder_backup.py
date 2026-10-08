@@ -11,10 +11,10 @@ from coder.state import CoderState
 
 
 def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
-    (tmp_path / "main.py").write_text("VERSION = 1\n", encoding="utf-8")
-    (tmp_path / "helper.pyi").write_text("VERSION: int\n", encoding="utf-8")
-    (tmp_path / "notes.txt").write_text("not code", encoding="utf-8")
-    (tmp_path / ".env").write_text("SECRET=x", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"VERSION = 1\n")
+    (tmp_path / "helper.pyi").write_bytes(b"VERSION: int\n")
+    (tmp_path / "notes.txt").write_bytes(b"not code")
+    (tmp_path / ".env").write_bytes(b"SECRET=x")
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_main.py").write_text(
         "def test_main():\n    assert True\n", encoding="utf-8"
@@ -108,7 +108,7 @@ def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
 
 
 def test_initial_backup_is_created_before_agent_modifications_and_never_overwritten(tmp_path):
-    (tmp_path / "main.py").write_text("VERSION = 0\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"VERSION = 0\n")
     backup = CoderBackupStore(tmp_path)
 
     first = backup.ensure_initial_snapshot(0)
@@ -124,7 +124,7 @@ def test_initial_backup_is_created_before_agent_modifications_and_never_overwrit
 
 
 def test_backup_archives_are_separate_initial_and_latest(tmp_path):
-    (tmp_path / "main.py").write_text("initial\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"initial\n")
     backup = CoderBackupStore(tmp_path)
     backup.ensure_initial_snapshot(0)
 
@@ -151,6 +151,9 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
                 archive=archive,
                 file_count=1,
             )
+
+        def ensure_initial_snapshot(self, generation=0):
+            return SimpleNamespace(generation=generation)
 
         def has_initial_snapshot(self):
             return True
