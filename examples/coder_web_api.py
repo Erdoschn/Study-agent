@@ -37,6 +37,7 @@ if str(ROOT) not in sys.path:
 from coder import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
 from core.__debug__ import debug
+from core.web_model import BrowserModel
 
 
 HOST = os.getenv("CODER_WEB_HOST", "127.0.0.1")
@@ -53,11 +54,66 @@ UPLOAD_MAX_BYTES = min(
 RUN_LOCK = threading.Lock()
 PROJECT_NAME_MAX = 64
 PROJECT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+PROJECT_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[-_][a-z0-9]+){0,7}\b", re.IGNORECASE)
+PROJECT_NAME_FILLER = {
+    "project", "project-name", "name", "coder", "code", "here", "the", "new",
+}
+PROJECT_NAME_PROMPT = (
+    "You are naming a coding project. Based only on the user's coding task, "
+    "choose one short, specific project slug. Return ONLY the slug, using "
+    "lowercase ASCII letters, digits, and hyphens. Prefer 1-4 meaningful words, "
+    "maximum 40 characters. No explanation, no Markdown, no quotes. "
+    "Examples: simple-calculator, score-analyzer, transformer-demo."
+)
 
 def _project_name(value: str) -> str:
     text = " ".join(str(value or "").strip().split())
     text = PROJECT_NAME_RE.sub("-", text).strip("-.")[:PROJECT_NAME_MAX]
-    return text or ("project-" + time.strftime("%Y%m%d-%H%M%S"))
+    return text or "coder-project"
+
+
+def _project_slug_from_llm(value: str) -> str:
+    text = str(value or "").replace(chr(96), " ").strip()
+    matches = PROJECT_SLUG_RE.findall(text)
+    for candidate in reversed(matches):
+        candidate = re.sub(r"[-_]+", "-", candidate.casefold()).strip("-")
+        if candidate and candidate not in PROJECT_NAME_FILLER and len(candidate) <= 40:
+            return _project_name(candidate)
+    return ""
+
+
+def _llm_project_name(task: str) -> str:
+    model = BrowserModel(
+        model="deepseek-web",
+        user_data_dir=".coder-browser",
+        timeout=60,
+        cleanup_after_generate=True,
+        reuse_chat=False,
+        min_send_interval_seconds=5.0,
+        debug_mode=False,
+    )
+    try:
+        raw = model.generate(
+            PROJECT_NAME_PROMPT,
+            f"User coding task:\n{str(task or '').strip()}",
+            json_mode=False,
+        )
+        name = _project_slug_from_llm(raw)
+        if name:
+            debug.log("CoderWebAPI", f"PROJECT NAME → {name}")
+            return name
+        debug.log("CoderWebAPI", "PROJECT NAME → model output unusable; using coder-project")
+    except Exception as exc:
+        debug.log(
+            "CoderWebAPI",
+            f"PROJECT NAME FALLBACK → {type(exc).__name__}: {exc}",
+        )
+    finally:
+        try:
+            model.close()
+        except Exception:
+            pass
+    return "coder-project"
 
 def _project_root(name: str) -> Path:
     candidate = Path(name)
@@ -84,12 +140,17 @@ def _list_projects() -> list[dict]:
         projects.append({"name": path.name, "files": files, "file_count": len(files)})
     return sorted(projects, key=lambda x: x["name"].casefold())
 
-def _ensure_project(name: str | None = None, task: str = "") -> str:
+def _ensure_project(
+    name: str | None = None,
+    task: str = "",
+    *,
+    unique_if_requested: bool = False,
+) -> str:
     requested = str(name).strip() if name is not None else ""
     base = _project_name(requested or task)
     root = WorkspaceFS(WORKSPACE).root
     project = base
-    if not requested:
+    if not requested or unique_if_requested:
         index = 2
         while (root / project).exists():
             project = f"{base}-{index}"
@@ -378,14 +439,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Coder request 不能为空。")
             if len(task.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise WorkspaceSecurityError("Coder request 超过安全长度上限。")
-            project = _ensure_project(request.get("project"), task)
+            requested_project = request.get("project")
             if not RUN_LOCK.acquire(blocking=False):
                 self._json(
                     {"error": {"message": "已有 Coder 任务正在运行。"}},
                     409,
                 )
                 return
-            self._stream_run(task, project)
+            self._stream_run(task, requested_project)
         except Exception as exc:
             self._json({
                 "error": {
@@ -394,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }, 400 if isinstance(exc, (ValueError, WorkspaceSecurityError)) else 500)
 
-    def _stream_run(self, task: str, project: str) -> None:
+    def _stream_run(self, task: str, project: str | None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -412,7 +473,31 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             try:
-                agent = self.server.build_agent(project)
+                actual_project = str(project).strip() if project is not None else ""
+                emit({
+                    "type": "preparing",
+                    "message": (
+                        "正在准备已有项目…"
+                        if actual_project
+                        else "正在根据任务让 LLM 自动命名新项目…"
+                    ),
+                })
+                if actual_project:
+                    actual_project = _ensure_project(actual_project, task)
+                else:
+                    generated_name = _llm_project_name(task)
+                    actual_project = _ensure_project(
+                        generated_name,
+                        task,
+                        unique_if_requested=True,
+                    )
+                emit({"type": "named", "project": actual_project})
+                emit({
+                    "type": "started",
+                    "project": actual_project,
+                    "runtime_timeout_seconds": MAX_RUNTIME_SECONDS,
+                })
+                agent = self.server.build_agent(actual_project)
                 previous = debug.log
 
                 def debug_hook(module: str, message: str) -> None:
@@ -436,9 +521,12 @@ class Handler(BaseHTTPRequestHandler):
             # DeepSeek login takes time.
             self.wfile.write(_sse({
                 "id": cid,
-                "type": "started",
-                "runtime_timeout_seconds": MAX_RUNTIME_SECONDS,
-                "project": project,
+                "type": "preparing",
+                "message": (
+                    "正在准备已有项目…"
+                    if project
+                    else "正在根据任务让 LLM 自动命名新项目…"
+                ),
             }))
             self.wfile.flush()
             threading.Thread(target=worker, daemon=True).start()
@@ -450,7 +538,29 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     continue
                 kind = event.get("type")
-                if kind == "step":
+                if kind == "preparing":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "preparing",
+                        "message": event.get("message", "正在准备…"),
+                    }))
+                    self.wfile.flush()
+                elif kind == "named":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "named",
+                        "project": event["project"],
+                    }))
+                    self.wfile.flush()
+                elif kind == "started":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "started",
+                        "runtime_timeout_seconds": event["runtime_timeout_seconds"],
+                        "project": event["project"],
+                    }))
+                    self.wfile.flush()
+                elif kind == "step":
                     self.wfile.write(_sse({
                         "id": cid,
                         "type": "step",
