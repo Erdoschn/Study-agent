@@ -326,9 +326,24 @@ async function loadFiles(project=selectedProject()){
     const d=await r.json();
     if(requestSeq!==filesLoadSeq||state.project!==project)return;
     renderFiles(d.files||[]);
-  }catch(e){renderFiles([])}
+  }catch(e){
+    if(requestSeq===filesLoadSeq&&state.project===project)renderFiles([]);
+  }
 }
-async function openFile(path){try{const project=selectedProject();if(!project){$("request").textContent="请先选择项目。";return}const r=await fetchTimeout(API+"/file?project="+encodeURIComponent(project)+"&path="+encodeURIComponent(path),{},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();if(state.project!==project)return;$("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000)}catch(e){$("request").textContent="读取失败："+e.message;console.error("Coder file read failed",e)}}
+async function openFile(path){
+  const project=selectedProject();
+  if(!project){$("request").textContent="请先选择项目。";return}
+  try{
+    const r=await fetchTimeout(API+"/file?project="+encodeURIComponent(project)+"&path="+encodeURIComponent(path),{},5000);
+    if(!r.ok)throw Error("HTTP "+r.status);
+    const d=await r.json();
+    if(state.project!==project)return;
+    $("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000);
+  }catch(e){
+    if(state.project===project)$("request").textContent="读取失败："+e.message;
+    console.error("Coder file read failed",e);
+  }
+}
 function importProjectBase(files){
   const first=files[0];
   const raw=String(first?.webkitRelativePath||first?.name||"").replace(/\\/g,"/");
@@ -433,6 +448,7 @@ async function requestCancel(){
   $("run").textContent="正在中止…";
   const runId=state.lastRunId;
   if(!runId){
+    state.cancelling=false;
     $("timer").textContent="等待中止信号";
     return;
   }
