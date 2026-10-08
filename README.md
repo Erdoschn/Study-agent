@@ -1429,5 +1429,5 @@ Pedagogical structure
 
 ### Last-known-good backup
 
-Coder maintains one host-side backup of the latest generation whose pytest run actually passed. The backup is stored outside the model workspace (for the default workspace, `D:\\Coder_workspace.coder-backup\\latest.zip`) and is overwritten only after a passing pytest run. A failing generation never replaces the previous known-good backup. The backup directory is not exposed as a Coder action, is not included in sandbox mounts, and its host path is not sent to the reasoner.
+Coder maintains one host-side backup of the latest generation whose pytest run actually passed. The backup is stored outside the model workspace and is overwritten only after a passing pytest run. A failing generation never replaces the previous known-good backup. The backup directory is not exposed as a Coder action, is not included in sandbox mounts, and its host path is not sent to the reasoner.
 
