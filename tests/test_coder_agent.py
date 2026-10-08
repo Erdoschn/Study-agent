@@ -77,3 +77,14 @@ def test_coder_agent_handles_model_selected_new_chat():
     assert state.metrics["chat_resets"] == 1
     assert new_chat_calls == [True]
     assert [step.action for step in state.steps] == ["NEW_CHAT", "FINISH"]
+
+
+def test_coder_reasoner_accepts_new_chat_action():
+    from coder.reasoner import CoderReasoner
+
+    decision = CoderReasoner._parse(
+        '{"action":"NEW_CHAT","arguments":{},"reasoning_summary":"上下文需要重置"}'
+    )
+
+    assert decision["action"] == "NEW_CHAT"
+    assert decision["arguments"] == {}
