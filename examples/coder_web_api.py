@@ -58,6 +58,8 @@ UPLOAD_MAX_BYTES = min(
 )
 FEEDBACK_MAX_BYTES = 16 * 1024
 RUN_LOCK = threading.Lock()
+RUNS_LOCK = threading.Lock()
+ACTIVE_RUNS: dict[str, "CoderRunControl"] = {}
 PROJECT_NAME_MAX = 64
 PROJECT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 PROJECT_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[-_][a-z0-9]+){0,7}\b", re.IGNORECASE)
@@ -181,6 +183,16 @@ def _list_projects() -> list[dict]:
             continue
         projects.append({"name": path.name, "files": files, "file_count": len(files)})
     return sorted(projects, key=lambda x: x["name"].casefold())
+
+def _resolve_existing_project(name: str) -> str:
+    project = str(name or "").strip()
+    if not project:
+        raise ValueError("必须指定已有项目。")
+    target = _project_root(project)
+    if not target.is_dir():
+        raise ValueError(f"指定项目不存在：{project}")
+    return project
+
 
 def _ensure_project(
     name: str | None = None,
@@ -334,6 +346,16 @@ def parse_multipart_upload(content_type: str, body: bytes) -> tuple[str, bytes]:
             raise ValueError("上传文件缺少文件名。")
         return str(filename), bytes(payload)
     raise ValueError("请求中没有 file 字段。")
+
+
+class CoderRunControl:
+    def __init__(self, run_id: str, cancellation_event: threading.Event | None = None):
+        self.run_id = run_id
+        self.cancel_event = cancellation_event or threading.Event()
+        self.finished = False
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
 
 
 class CoderServer(ThreadingHTTPServer):
@@ -548,6 +570,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"status": "saved", "feedback": saved}, 201)
                 return
 
+            if path == "/v1/coder/cancel":
+                request = self._body_json()
+                run_id = str(request.get("run_id", "")).strip()
+                if not run_id:
+                    raise ValueError("缺少 run_id。")
+                with RUNS_LOCK:
+                    control = ACTIVE_RUNS.get(run_id)
+                if control is None:
+                    self._json({"status": "not_found", "run_id": run_id}, 404)
+                    return
+                control.cancel()
+                self._json({"status": "cancelling", "run_id": run_id}, 202)
+                return
+
             if path != "/v1/coder/run":
                 self._json(
                     {"error": {"message": "Not found", "type": "invalid_request_error"}},
@@ -562,13 +598,30 @@ class Handler(BaseHTTPRequestHandler):
             if len(task.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise WorkspaceSecurityError("Coder request 超过安全长度上限。")
             requested_project = request.get("project")
+            if requested_project is not None and str(requested_project).strip():
+                requested_project = _resolve_existing_project(str(requested_project))
             if not RUN_LOCK.acquire(blocking=False):
                 self._json(
                     {"error": {"message": "已有 Coder 任务正在运行。"}},
                     409,
                 )
                 return
-            self._stream_run(task, requested_project)
+
+            browser_model = getattr(self.server, "coder_browser_model", None)
+            cancellation_event = (
+                browser_model.cancellation_event
+                if browser_model is not None
+                else threading.Event()
+            )
+            if browser_model is not None:
+                browser_model.begin_run()
+            control = CoderRunControl(
+                "coder-" + uuid.uuid4().hex,
+                cancellation_event=cancellation_event,
+            )
+            with RUNS_LOCK:
+                ACTIVE_RUNS[control.run_id] = control
+            self._stream_run(task, requested_project, control)
         except Exception as exc:
             self._json({
                 "error": {
@@ -577,7 +630,12 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }, 400 if isinstance(exc, (ValueError, WorkspaceSecurityError)) else 500)
 
-    def _stream_run(self, task: str, project: str | None) -> None:
+    def _stream_run(
+        self,
+        task: str,
+        project: str | None,
+        control: CoderRunControl,
+    ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -588,7 +646,7 @@ class Handler(BaseHTTPRequestHandler):
 
         events: queue.Queue = queue.Queue()
         done = object()
-        cid = "coder-" + uuid.uuid4().hex
+        cid = control.run_id
 
         def emit(event: dict) -> None:
             events.put(event)
@@ -598,8 +656,10 @@ class Handler(BaseHTTPRequestHandler):
                 actual_project = str(project).strip() if project is not None else ""
                 browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
-                    actual_project = _ensure_project(actual_project, task)
+                    actual_project = _resolve_existing_project(actual_project)
                 else:
+                    raise_if_cancelled(control.cancel_event)
+                if not actual_project:
                     generated_name = _llm_project_name(task, browser_model)
                     actual_project = _ensure_project(
                         generated_name,
@@ -622,6 +682,7 @@ class Handler(BaseHTTPRequestHandler):
                     actual_project,
                     browser_model,
                     recent_user_feedback=recent_feedback,
+                    cancellation_event=control.cancel_event,
                 )
                 previous = debug.log
 
@@ -645,7 +706,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 events.put({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
             finally:
-                events.put({"type": "done", "value": done})
+                with RUNS_LOCK:
+                    ACTIVE_RUNS.pop(control.run_id, None)
+                    control.finished = True
                 RUN_LOCK.release()
 
         try:
@@ -727,11 +790,13 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     return
         except (BrokenPipeError, ConnectionResetError):
-            print("[CoderWebAPI] SSE client disconnected.", flush=True)
+            control.cancel()
+            print("[CoderWebAPI] SSE client disconnected; cancelling backend task.", flush=True)
         finally:
-            # The worker owns RUN_LOCK for the full Agent lifetime. A disconnected
-            # browser must not release a lock that a newer request may already own.
-            pass
+            # A disconnected browser must cancel the backend task; the worker
+            # remains the sole owner responsible for releasing RUN_LOCK.
+            if not control.finished:
+                control.cancel()
 
 
 def build_agent(
@@ -739,6 +804,7 @@ def build_agent(
     browser_model: CoderBrowserSession | None = None,
     *,
     recent_user_feedback: list[dict] | None = None,
+    cancellation_event: threading.Event | None = None,
 ) -> CoderAgent:
     reasoner = (
         CoderReasoner(
@@ -747,6 +813,7 @@ def build_agent(
             min_send_interval_seconds=5.0,
             debug_mode=False,
             recent_user_feedback=recent_user_feedback,
+            cancellation_event=cancellation_event,
         )
         if browser_model is not None
         else None
@@ -759,6 +826,7 @@ def build_agent(
         reuse_chat=True,
         min_send_interval_seconds=5.0,
         close_model_on_run=browser_model is None,
+        cancellation_event=cancellation_event,
     )
 
 
