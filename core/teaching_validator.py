@@ -10,7 +10,6 @@ class TeachingValidator:
 
     SYSTEM_PROMPT = get_prompt("study_agent.teaching_validator")
 
-)
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router

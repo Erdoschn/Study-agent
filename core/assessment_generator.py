@@ -11,7 +11,6 @@ class AssessmentGenerator:
 
     SYSTEM_PROMPT = get_prompt("study_agent.assessment")
 
-)
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router
