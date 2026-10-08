@@ -31,10 +31,12 @@ class CoderAgent:
         debug_mode: bool = False,
         reuse_chat: bool = True,
         min_send_interval_seconds: float = 5.0,
+        close_model_on_run: bool = True,
     ):
         self.workspace = Path(workspace).expanduser().resolve()
         self._validate_workspace_boundary()
         self.debug_mode = bool(debug_mode)
+        self.close_model_on_run = bool(close_model_on_run)
         if search_router is None:
             from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
             search_router = SearchRouter()
@@ -180,13 +182,14 @@ class CoderAgent:
             emit({"type": "error", "state": state})
             return state
         finally:
-            model = getattr(self.reasoner, "model", None)
-            close = getattr(model, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:
-                    pass
+            if self.close_model_on_run:
+                model = getattr(self.reasoner, "model", None)
+                close = getattr(model, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        pass
 
     @staticmethod
     def _build_completion_summary(state: CoderState) -> str:
