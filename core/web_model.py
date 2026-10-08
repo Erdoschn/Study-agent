@@ -386,6 +386,12 @@ class BrowserModel(ModelClient):
                         target = hwnd
                         break
             if target is None:
+                if len(handles) != 1:
+                    debug.log(
+                        "BrowserModel",
+                        "WINDOW MINIMIZE SKIP → multiple new Edge windows and no title match",
+                    )
+                    return
                 target = next(iter(handles))
             if ctypes.windll.user32.IsWindow(target):
                 ctypes.windll.user32.ShowWindow(target, 6)
