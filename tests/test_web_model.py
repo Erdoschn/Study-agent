@@ -997,7 +997,7 @@ def test_browser_model_debug_mode_keeps_browser_visible():
 
 def test_browser_model_filters_playwright_no_sandbox_on_windows(monkeypatch):
     model = BrowserModel()
-    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setattr(web_model_module, "os", type("FakeOS", (), {"name": "nt"})())
     options = model._browser_launch_kwargs()
     assert options["headless"] is False
     assert options["channel"] == model.browser_channel
@@ -1205,7 +1205,7 @@ def test_browser_model_minimizes_only_new_edge_window_on_windows(monkeypatch):
             self.windll = type("Windll", (), {"user32": User32()})()
 
     fake_ctypes = FakeCtypes()
-    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setattr(web_model_module, "os", type("FakeOS", (), {"name": "nt"})())
     monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
 
     model = BrowserModel()
@@ -1234,7 +1234,7 @@ def test_browser_model_does_not_guess_between_multiple_new_edge_windows(monkeypa
             self.windll = type("Windll", (), {"user32": User32()})()
 
     fake_ctypes = FakeCtypes()
-    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setattr(web_model_module, "os", type("FakeOS", (), {"name": "nt"})())
     monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
 
     model = BrowserModel()
@@ -1257,7 +1257,7 @@ def test_browser_model_debug_mode_does_not_minimize_edge_window(monkeypatch):
             self.windll = type("Windll", (), {"user32": User32()})()
 
     fake_ctypes = FakeCtypes()
-    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setattr(web_model_module, "os", type("FakeOS", (), {"name": "nt"})())
     monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
 
     model = BrowserModel(debug_mode=True)
