@@ -628,7 +628,7 @@ async function run(){
     if(!doneReceived&&!state.failed){
       state.failed=true;
       appendStep("ERROR",false,"Coder SSE 连接在收到完成信号前就结束了。");
-      $("summary").textContent="Coder 连接异常结束，请查看终端日志.";
+      $("summary").textContent="Coder 连接异常结束，请查看终端日志。";
     }
     if(doneReceived&&finalState)updateSummary(finalState);
   }catch(e){
