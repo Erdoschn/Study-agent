@@ -59,12 +59,14 @@ class CoderAgent:
             except Exception:
                 pass
         if self.reasoner is None:
-            self.reasoner = CoderReasoner(
-                debug_mode=self.debug_mode,
-                reuse_chat=reuse_chat,
-                min_send_interval_seconds=min_send_interval_seconds,
-                cancellation_event=cancellation_event,
-            )
+            reasoner_kwargs = {
+                "debug_mode": self.debug_mode,
+                "reuse_chat": reuse_chat,
+                "min_send_interval_seconds": min_send_interval_seconds,
+            }
+            if cancellation_event is not None:
+                reasoner_kwargs["cancellation_event"] = cancellation_event
+            self.reasoner = CoderReasoner(**reasoner_kwargs)
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
     def _validate_workspace_boundary(self) -> None:
