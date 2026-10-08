@@ -605,7 +605,8 @@ def test_coder_web_frontend_preserves_selected_project_across_async_refresh():
     assert "const current=state.project;" in source
     assert "function readSelectedProject()" in source
     assert "setProject(readSelectedProject())" in source
-    assert 'body:JSON.stringify({request,project:project||null})' in source
+    assert 'project:project||null' in source
+    assert 'project_mode:project?"existing":"new"' in source
     assert "setProject(selectedProject())" not in source
 
 
@@ -635,7 +636,8 @@ def test_coder_web_frontend_locks_project_identity_during_run():
     assert 'state.runProject=project;' in source
     assert '$("project").disabled=true;' in source
     assert '$("project").disabled=false;' in source
-    assert 'body:JSON.stringify({request,project:project||null})' in source
+    assert 'project:project||null' in source
+    assert 'project_mode:project?"existing":"new"' in source
     assert 'void loadFiles(state.runProject);' in source
     assert 'const current=state.project;' in source
 
