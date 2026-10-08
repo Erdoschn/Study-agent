@@ -1102,6 +1102,7 @@ class BrowserModel(ModelClient):
         )
         candidate_seen = False
         loading_block_logged = False
+        json_wait_logged = False
 
         while time.monotonic() < deadline:
             candidate = self._latest_response(page, before_snapshot)
@@ -1152,8 +1153,14 @@ class BrowserModel(ModelClient):
                             "WAIT RESPONSE → response complete; Copy target available",
                         )
                         return json_candidate or latest
+                    if not json_wait_logged:
+                        json_wait_logged = True
+                        debug.log(
+                            "BrowserModel",
+                            "WAIT RESPONSE → valid JSON candidate found; waiting for response completion signal",
+                        )
 
-                ready = stable and json_ready and (json_mode or not loading)
+                ready = stable and json_ready and (not json_mode or not loading)
                 if ready:
                     debug.log(
                         "BrowserModel",
