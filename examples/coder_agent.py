@@ -8,7 +8,7 @@ from coder import CoderAgent
 def main() -> int:
     request = " ".join(sys.argv[1:]).strip()
     if not request:
-        print("用法：python examples/coder_agent.py "修复 xxx，并添加 pytest 回归测试"")
+        print('用法：python examples/coder_agent.py "修复 xxx，并添加 pytest 回归测试"')
         return 2
 
     result = CoderAgent().run(request)
