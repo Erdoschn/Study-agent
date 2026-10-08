@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Iterable
 
-from .cancellation import raise_if_cancelled
+from core.cancellation import raise_if_cancelled
 
 
 READABLE_EXTENSIONS = {
