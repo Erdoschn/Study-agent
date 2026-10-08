@@ -1312,7 +1312,7 @@ class BrowserModel(ModelClient):
                         "WAIT RESPONSE → valid JSON ready; ignoring lingering loading indicator",
                     )
 
-            time.sleep(self.poll_interval)
+            self._sleep(self.poll_interval)
 
         if saw_new_response and latest:
             if getattr(self, "_json_mode_active", False):
