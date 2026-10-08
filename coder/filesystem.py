@@ -1,3 +1,4 @@
+import json
 import ntpath
 import os
 import stat
@@ -12,10 +13,10 @@ class WorkspaceSecurityError(PermissionError):
 class WorkspaceFS:
     """Fail-closed filesystem boundary for the fixed Coder workspace."""
 
-    EDITABLE_EXTENSIONS = frozenset({".py", ".pyi"})
+    EDITABLE_EXTENSIONS = frozenset({".py", ".pyi", ".ipynb"})
     READABLE_EXTENSIONS = frozenset({
         ".py", ".pyi", ".txt", ".md", ".rst", ".json", ".toml",
-        ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml",
+        ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml", ".ipynb",
     })
     BLOCKED_NAMES = frozenset({
         ".env", ".env.local", ".env.production", ".git-credentials",
@@ -136,6 +137,58 @@ class WorkspaceFS:
             temp.unlink()
         temp.write_text(data, encoding="utf-8", newline="")
         os.replace(temp, target)
+
+    def validate_notebook(self, content: str) -> dict:
+        try:
+            value = json.loads(str(content))
+        except json.JSONDecodeError as exc:
+            raise WorkspaceSecurityError(f"Notebook JSON 无效：{exc.msg}") from exc
+        if not isinstance(value, dict):
+            raise WorkspaceSecurityError("Notebook 顶层必须是 JSON 对象。")
+        try:
+            nbformat = int(value.get("nbformat", 0))
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceSecurityError("Notebook nbformat 必须是整数。") from exc
+        if nbformat < 4:
+            raise WorkspaceSecurityError("Notebook 仅支持 nbformat >= 4。")
+        cells = value.get("cells")
+        if not isinstance(cells, list):
+            raise WorkspaceSecurityError("Notebook cells 必须是数组。")
+        if not isinstance(value.get("metadata", {}), dict):
+            raise WorkspaceSecurityError("Notebook metadata 必须是对象。")
+        for index, cell in enumerate(cells):
+            if not isinstance(cell, dict):
+                raise WorkspaceSecurityError(f"Notebook cell[{index}] 必须是对象。")
+            if cell.get("cell_type") not in {"code", "markdown", "raw"}:
+                raise WorkspaceSecurityError(
+                    f"Notebook cell[{index}] 的 cell_type 无效。"
+                )
+            if "source" in cell and not isinstance(cell["source"], (str, list)):
+                raise WorkspaceSecurityError(
+                    f"Notebook cell[{index}] 的 source 必须是字符串或数组。"
+                )
+        return value
+
+    def write_notebook(self, path: str, content: str) -> None:
+        rel, _ = self._target(path)
+        if rel.suffix.casefold() != ".ipynb":
+            raise WorkspaceSecurityError("WRITE_NOTEBOOK 目标必须是 .ipynb 文件。")
+        value = self.validate_notebook(content)
+        normalized = json.dumps(value, ensure_ascii=False, indent=1) + "\n"
+        self.write_text(path, normalized)
+
+    def write_uploaded_text(self, path: str, data: bytes) -> None:
+        if len(data) > self.MAX_FILE_BYTES:
+            raise WorkspaceSecurityError("上传文件超过安全大小上限。")
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise WorkspaceSecurityError("Coder 仅接受 UTF-8 文本/代码文件上传。") from exc
+        rel, _ = self._target(path)
+        self._policy(rel, write=True)
+        if rel.suffix.casefold() == ".ipynb":
+            self.validate_notebook(content)
+        self.write_text(path, content)
 
     def patch_text(self, path: str, old_text: str, new_text: str) -> None:
         current = self.read_text(path)
