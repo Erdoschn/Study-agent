@@ -9,12 +9,13 @@ from typing import Any
 from .backup import CoderBackupStore
 from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
+from .study_bridge import StudyAgentBridge
 
 
 class CoderHarness:
     ALLOWED_ACTIONS = frozenset({
         "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK", "PATCH_FILE",
-        "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "READ_DIFF", "VERIFY_GOAL",
+        "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT", "READ_DIFF", "VERIFY_GOAL",
     })
     ARGUMENT_KEYS = {
         "SEARCH": frozenset({"query"}),
@@ -24,6 +25,7 @@ class CoderHarness:
         "WRITE_NOTEBOOK": frozenset({"path", "content"}),
         "PATCH_FILE": frozenset({"path", "old_text", "new_text"}),
         "CREATE_TEST": frozenset({"path", "content"}),
+        "ASK_STUDY_AGENT": frozenset({"question"}),
         "RUN_PYTHON": frozenset({"script_path"}),
         "RUN_PYTEST": frozenset({"paths"}),
         "READ_DIFF": frozenset(),
@@ -41,7 +43,7 @@ class CoderHarness:
     )
     MAX_SEARCH_QUERY_BYTES = 240
 
-    def __init__(self, workspace: str, *, search_router=None, sandbox=None, backup=None):
+    def __init__(self, workspace: str, *, search_router=None, sandbox=None, backup=None, study_bridge=None):
         self.fs = WorkspaceFS(workspace)
         self.search_router = search_router
         self.sandbox = sandbox
@@ -49,6 +51,8 @@ class CoderHarness:
             from .sandbox import DockerPythonSandbox
             self.sandbox = DockerPythonSandbox(self.fs.root)
         self.backup = backup or CoderBackupStore(self.fs.root)
+        self.study_bridge = study_bridge or StudyAgentBridge()
+        self._study_agent_calls = 0
         self._baseline: dict[str, str | None] = {}
         self._write_count = 0
         self._test_count = 0
@@ -64,6 +68,7 @@ class CoderHarness:
             {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "PATCH_FILE", "description": "Replace exactly one matching Python fragment.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
             {"name": "CREATE_TEST", "description": "Create one pytest file under workspace/tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "ASK_STUDY_AGENT", "description": "Ask the independently running Study Agent for conceptual or learning guidance. Use this when reasoning is blocked by a knowledge question, not for ordinary file operations.", "parameters": {"type": "object", "properties": {"question": {"type": "string", "maxLength": 8000}}, "required": ["question"]}},
             {"name": "RUN_PYTHON", "description": "Run one Python script inside the isolated sandbox.", "parameters": {"type": "object", "properties": {"script_path": {"type": "string"}}, "required": ["script_path"]}},
             {"name": "RUN_PYTEST", "description": "Run pytest inside the isolated sandbox. Empty paths means the full suite.", "parameters": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}}},
             {"name": "READ_DIFF", "description": "Show the diff of files modified during this Coder run.", "parameters": {"type": "object", "properties": {}}},
@@ -86,6 +91,7 @@ class CoderHarness:
             "WRITE_NOTEBOOK": self._write_notebook,
             "PATCH_FILE": self._patch_file,
             "CREATE_TEST": self._create_test,
+            "ASK_STUDY_AGENT": self._ask_study_agent,
             "RUN_PYTHON": self._run_python,
             "RUN_PYTEST": self._run_pytest,
             "READ_DIFF": self._read_diff,
@@ -238,6 +244,42 @@ class CoderHarness:
         self.fs.write_text(path, str(args.get("content", "")), test=True)
         self._record_write(path, state, created_test=True)
         return {"status": "test_created", "path": path}
+
+    def _ask_study_agent(self, args, state):
+        question = str(args.get("question", "")).strip()
+        if not question:
+            raise ValueError("ASK_STUDY_AGENT.question 不能为空。")
+        if len(question.encode("utf-8")) > 8_000:
+            raise PermissionError("ASK_STUDY_AGENT.question 超过 8KB。")
+        if self._study_agent_calls >= 8:
+            raise PermissionError("单次 Coder 运行最多调用 Study Agent 8 次。")
+
+        self._study_agent_calls += 1
+        context = {
+            "request": state.request,
+            "goal": state.goal.description if state.goal else state.request,
+            "modified_files": sorted(state.modified_files),
+            "created_tests": sorted(state.created_tests),
+            "last_test_result": state.last_test_result,
+            "last_observation": state.last_observation,
+            "recent_actions": [step.action for step in state.steps[-12:]],
+        }
+        try:
+            result = self.study_bridge.ask(question, context=context)
+        except Exception:
+            self._study_agent_calls -= 1
+            raise
+
+        state.metrics["study_agent_calls"] = self._study_agent_calls
+        return {
+            "status": "STUDY_AGENT_ASSISTED",
+            "question": question,
+            "answer": str(result.get("answer", "")).strip(),
+            "domain": str(result.get("domain", "")).strip(),
+            "task_type": str(result.get("task_type", "")).strip(),
+            "learner_context": result.get("learner_context", {}),
+            "evidence": result.get("evidence", []),
+        }
 
     def _run_python(self, args, state):
         path = str(args.get("script_path", "")).strip()
