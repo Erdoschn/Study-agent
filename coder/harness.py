@@ -192,7 +192,7 @@ class CoderHarness:
             diff = "".join(difflib.unified_diff(before, after, fromfile=path, tofile=path))
             if diff:
                 chunks.append(diff)
-        return "\n".join(chunks) if chunks else "No changes recorded."\n
+        return "\n".join(chunks) if chunks else "No changes recorded."
     def _verify_goal(self, _args, state: CoderState):
         goal = state.goal or CoderGoal(state.request)
         checks = []
