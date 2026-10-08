@@ -489,7 +489,10 @@ def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
     assert "async async function" not in source
     assert "async function fetchTimeout" in source
     assert "loadHistory" in source
-    assert "setInterval(()=>{void loadProjects();void loadHistory();if(state.project)void loadFiles()},5000);" in source
+    assert "loadProjects();" in source
+    assert "setInterval(()=>{void loadHistory();if(state.project)void loadFiles(state.project)},5000);" in source
+    assert 'setProject(selectedProject())' not in source
+    assert 'function readSelectedProject()' in source
 
 
 def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
@@ -621,3 +624,43 @@ def test_coder_web_feedback_endpoint_and_frontend_are_wired():
     assert 'state.lastRunId=String(e.memory?.id||"").trim();' in source
     assert "后续任务会参考这条评价" in source
 
+
+
+
+def test_coder_web_frontend_locks_project_identity_during_run():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'state.runProject=project;' in source
+    assert '$("project").disabled=true;' in source
+    assert '$("project").disabled=false;' in source
+    assert 'body:JSON.stringify({request,project:project||null})' in source
+    assert 'void loadFiles(state.runProject);' in source
+    assert 'const current=state.project;' in source
+
+
+def test_coder_web_frontend_uses_backend_cancel_instead_of_aborting_only_sse():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'API+"/cancel"' in source
+    assert 'body:JSON.stringify({run_id:runId})' in source
+    assert 'state.running?void requestCancel():run()' in source
+    assert 'state.controller?.abort()' not in source
+    assert 'e.type==="cancelled"' in source
+    assert 'state.cancelRequested' in source
+
+
+def test_coder_web_api_run_control_can_cancel():
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("coder-test")
+    assert not control.cancel_event.is_set()
+    control.cancel()
+    assert control.cancel_event.is_set()
+
+
+def test_coder_web_api_exposes_cancel_and_strict_existing_project_resolution():
+    import examples.coder_web_api as api
+
+    source = Path(api.__file__).read_text(encoding="utf-8")
+    assert 'if path == "/v1/coder/cancel":' in source
+    assert "_resolve_existing_project" in source
+    assert "browser_model.begin_run()" in source
+    assert "ACTIVE_RUNS" in source
