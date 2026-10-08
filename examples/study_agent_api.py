@@ -55,6 +55,39 @@ def build_search_router() -> SearchRouter:
     return router
 
 
+def _prewarm_browser_model(config: dict[str, Any], model_factory: ModelClientFactory, registry: ModelRegistry) -> str | None:
+    """Open the configured browser-backed model before the API starts serving requests."""
+    models = registry.available(allow_paid=ALLOW_PAID)
+    providers = config.get("providers", {})
+    if not isinstance(providers, dict):
+        return None
+
+    candidates = sorted(
+        models,
+        key=lambda item: (item.name != "deepseek-web", item.name),
+    )
+    for model in candidates:
+        provider = providers.get(model.provider, {})
+        if not isinstance(provider, dict):
+            continue
+        if str(provider.get("type", "")).lower() != "browser":
+            continue
+
+        client = model_factory.create(model)
+        prepare = getattr(client, "prepare_browser", None)
+        if not callable(prepare):
+            continue
+        prepare()
+        debug.log(
+            "StudyAgentAPI",
+            f"BROWSER PREWARM → model={model.name}, profile={getattr(client, 'user_data_dir', 'unknown')}",
+        )
+        return model.name
+
+    debug.log("StudyAgentAPI", "BROWSER PREWARM SKIP → no enabled browser model")
+    return None
+
+
 def build_agent(config: dict[str, Any]) -> StudyAgent:
     registry = ModelRegistry(config)
     model_router = ModelRouter(registry)
@@ -69,6 +102,7 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
         model_factory=model_factory,
         allow_paid=ALLOW_PAID,
     )
+    _prewarm_browser_model(config, model_factory, registry)
     return StudyAgent(
         reasoner=reasoner,
         teacher=teacher,
@@ -596,6 +630,7 @@ def main() -> None:
 
     server = AgentHTTPServer((HOST, PORT), Handler)
     server.agent = agent
+    server.model_factory = agent.reasoner.model_factory
     print(f"Study Agent API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Model: {MODEL_ID}")
@@ -605,6 +640,10 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStudy Agent API stopped.")
     finally:
+        try:
+            server.model_factory.close()
+        except Exception as exc:
+            debug.log("StudyAgentAPI", f"MODEL FACTORY CLOSE SKIP → {type(exc).__name__}: {exc}")
         server.server_close()
 
 
