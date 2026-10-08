@@ -29,9 +29,13 @@ def main() -> int:
 
     source = Path("/workspace")
     work = Path("/sandbox")
-    if work.exists():
-        shutil.rmtree(work)
-    shutil.copytree(source, work, ignore=_ignore, symlinks=True)
+    work.mkdir(parents=True, exist_ok=True)
+    for child in work.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    shutil.copytree(source, work, ignore=_ignore, symlinks=True, dirs_exist_ok=True)
 
     os.chdir(work)
     sys.path.insert(0, str(work))
@@ -63,6 +67,14 @@ def main() -> int:
         return 0
 
     import pytest
+    for raw_path in args.paths:
+        target = (work / raw_path).resolve()
+        try:
+            target.relative_to(work)
+        except ValueError:
+            return 125
+        if not target.is_file() or target.suffix.casefold() != ".py":
+            return 125
     argv = ["-q", "--disable-warnings", "--maxfail=5"]
     argv.extend(args.paths)
     return int(pytest.main(argv))
