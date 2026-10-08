@@ -694,7 +694,6 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             actual_project = str(project).strip() if project is not None else ""
             result_state = None
-            result_emitted = False
             memory = CoderMemoryStore(self.server.workspace.root)
             try:
                 browser_model = getattr(self.server, "coder_browser_model", None)
@@ -742,7 +741,6 @@ class Handler(BaseHTTPRequestHandler):
                     result_state = agent.run(task, event_hook=agent_event_hook)
                     entry = memory.record_run(project=actual_project, state=result_state)
                     events.put({"type": "result", "state": result_state, "memory": entry})
-                    result_emitted = True
                 finally:
                     debug.clear_thread_binding()
             except RunCancelled:
@@ -758,14 +756,13 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({
                     "type": "cancelled",
                     "project": actual_project,
-                    "state": _state_payload(result_state),
+                    "state": result_state,
                 })
                 events.put({
                     "type": "result",
                     "state": result_state,
                     "memory": entry,
                 })
-                result_emitted = True
             except Exception as exc:
                 result_state = CoderState(
                     request=task,
