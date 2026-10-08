@@ -117,6 +117,7 @@ function $(selector){
   return node;
 }
 function selectedProject(){return String(state.project||"").trim()}
+function readSelectedProject(){return String($("project").value||"").trim()}
 function setProject(name){
   state.project=name||"";
   projectsLoadSeq++;
@@ -654,7 +655,11 @@ function initCoderUI(attempt=0){
   ui=Object.fromEntries(UI_IDS.map(id=>[id,document.getElementById(id)]));
   coderUIInitialized=true;
   try{
-    $("project").onchange=async()=>{setProject(selectedProject());await loadFiles()};
+    $("project").onchange=async()=>{
+      if(state.running)return;
+      setProject(readSelectedProject());
+      await loadFiles(state.project);
+    };
     $("run").onclick=()=>state.running?void requestCancel():run();
     $("submitFeedback").onclick=()=>void submitFeedback();
     $("task").onkeydown=e=>{
