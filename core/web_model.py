@@ -6,6 +6,7 @@ from typing import Any
 
 from .__debug__ import debug
 from .reasoner import ModelClient
+from .prompt_config import get_prompt
 
 
 class BrowserModel(ModelClient):
@@ -181,18 +182,7 @@ class BrowserModel(ModelClient):
 
     def _recover_json_response(self, page, previous_answer: str) -> str:
         """Ask the same DeepSeek chat to convert its previous answer into Agent JSON."""
-        recovery_prompt = (
-            "STRUCTURED OUTPUT RECOVERY. Your previous response did not follow "
-            "the StudyAgent decision protocol. Do not answer or explain the "
-            "user's question again. Convert your previous response into the "
-            "decision JSON required by the instructions above. Return exactly "
-            "one valid JSON object, starting with '{' and ending with '}'. "
-            "The object must contain the fields and action required by the "
-            "caller instructions; do not invent a different action schema. "
-            "Preserve useful information from the previous response only in "
-            "the appropriate JSON fields. Output no Markdown, prose, code "
-            "fences, or surrounding text."
-        )
+        recovery_prompt = get_prompt("web_model.json_recovery")
         debug.log(
             "BrowserModel",
             f"JSON RECOVERY → previous_chars={len(str(previous_answer or ''))}",
@@ -238,17 +228,7 @@ class BrowserModel(ModelClient):
             # provider-level system message. Put the structured-output contract
             # both before and after the long Reasoner context so it remains
             # prominent even when the prompt is large.
-            contract = (
-                "CRITICAL RESPONSE CONTRACT:\n"
-                "You are controlling StudyAgent through a browser UI. "
-                "Do not directly answer or teach the user's question.\n"
-                "Choose exactly one action for the Agent Loop and return "
-                "exactly one valid JSON object.\n"
-                "The first non-whitespace character of the response must be "
-                "'{' and the last non-whitespace character must be '}'.\n"
-                "Do not output Markdown, explanations, prose, code fences, "
-                "or any text before or after the JSON object."
-            )
+            contract = get_prompt("web_model.json_contract")
             parts = [contract]
             if system:
                 parts.append(f"Agent decision instructions:\n{system}")

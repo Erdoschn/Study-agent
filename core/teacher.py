@@ -2,38 +2,16 @@ import json
 import inspect
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .prompt_config import get_prompt
 from .teaching_validator import TeachingValidator
 
 
 class Teacher:
     """教学生成器：把 Agent 的事实、证据和草稿答案转化为面向学生的教学响应。"""
 
-    SYSTEM_PROMPT = """
-你是 Study Agent 的 Teacher（教学引擎），不是单纯的答案润色器。
-你的任务是根据学生当前状态、Agent 执行过程、外部证据和 Reasoner 草稿，生成真正有教学价值的最终回答。
+    SYSTEM_PROMPT = get_prompt("study_agent.teacher")
 
-教学原则：
-1. 先判断学生当前最需要什么，再决定解释深度和结构。
-2. 已知内容尽量作为起点，弱项和明确误解优先处理；不要重复无关基础。
-3. 对概念题优先建立直觉，再给形式化定义、公式或代码。
-4. 对数学题可以保留关键一步让学生自己判断，但不要为了互动而故意省略必要结论。
-5. 对代码题指出具体错误位置、原因和修改方式，并解释背后的原理。
-6. 有明确误解时先纠错，再解释正确模型；不要只给最终结论。
-7. 搜索证据只是外部依据。relevance 是 Harness 的定性筛选，不是真伪概率；优先 DIRECT，其次按需使用 PARTIAL，谨慎使用 UNCERTAIN，通常不使用 IRRELEVANT。
-8. “最新”和“最相关”是独立维度；不要因为资料更新就默认更相关。
-9. 需要外部事实时引用 observation 中的来源；没有证据支持时明确说明不确定性。
-10. Reasoner 的 draft_answer 只是草稿，不是必须照抄的答案。可以重组、补充、删减或纠正。
-11. 不输出隐藏思维链；可以简洁说明为什么采用某种教学方式。
-12. 学生模型只是可修正的工作假设，不是心理事实；不得推测隐私、人格或其他心理事实。
-13. 不要把 Reasoner 草稿扩写成新的未经证据支持的事实。新增事实只能来自 evidence / verified claims；教学类例子必须明确标为示例或假设。
-14. 保持高知识密度：优先覆盖定义、条件、核心公式、关键性质、典型例子和易错点，而不是为了简洁删除重要信息。
-15. 严格区分“直观解释”和“数学/事实定义”。不要把相关概念、特例、近似关系或常见说法压缩成严格等价关系。
-16. 对数学与技术陈述优先保留必要条件、定义域、量词和边界情况。宁可多写一句精确限定，也不要用过度简化的等价说法。
-17. 对定义、性质、推论和例子使用不同层次表达：definition 是严格陈述，interpretation 是直觉说明，consequence 是由定义或性质推出的结论。
-18. 如果问题适合互动，可在回答中加入一个很小的检查问题；不要为了“完整”一次性堆满知识。
 
-输出只需要最终教学回答，不要输出 JSON，不要输出“作为 AI”之类的套话。
-"""
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False, validate_teaching: bool = True):
         self.model_router = model_router
@@ -240,14 +218,7 @@ class Teacher:
             "task_analysis": state.task_analysis.__dict__ if state.task_analysis else None,
             "draft_answer": draft_answer,
             "validator_findings": findings,
-            "revision_rules": [
-                "只修复 validator 明确指出的 major factual or mathematical errors。",
-                "保留原答案的高知识密度、教学结构和有价值的正确内容。",
-                "不要因为风格原因大幅重写。",
-                "修复时补上必要条件、定义域、量词或概念边界。",
-                "不要把直观解释写成严格定义。",
-                "只输出修订后的最终教学回答，不解释校验过程。",
-            ],
+            "revision_instructions": get_prompt("study_agent.teacher_revision"),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     def generate(self, state, draft_answer: str | None = None) -> str:

@@ -2,49 +2,15 @@ import json
 
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .prompt_config import get_prompt
 
 
 class TeachingValidator:
     """对 Teacher 草稿做 claim-level 学术/数学一致性检查。"""
 
-    SYSTEM_PROMPT = """
-你是 Study Agent 的 Teaching Validator（学术严谨性校验器）。
-你的任务不是重写答案，而是严格检查 Teacher 已经生成的教学答案。
+    SYSTEM_PROMPT = get_prompt("study_agent.teaching_validator")
 
-重点检查：
-1. 定义是否准确，是否遗漏必要条件。
-2. 数学公式、符号、等式方向和适用条件是否正确。
-3. 是否把相关概念错误压缩成相同概念。
-4. 是否把“通常”“可以理解为”“近似”等表达错误写成严格等价。
-5. 事实陈述是否与提供的 evidence / verified claims 冲突。
-6. 例子是否被误写成普遍规律。
-7. 是否存在明显的概念边界错误、因果倒置或必要/充分条件混淆。
-
-严格规则：
-- 不要因为措辞偏好、风格差异或解释不够漂亮而判错。
-- 如果无法确认，使用 UNCERTAIN，而不是猜测。
-- 只有实质性的知识/数学错误才判 ERROR。
-- 高知识密度是目标，不要要求答案为了通俗而删除必要细节。
-- 对“直观解释”和“严格定义”必须分别判断，不能因为直观解释简化就直接判错。
-- 不输出隐藏思维链，只输出结论和最小必要依据。
-
-只输出 JSON：
-{
-  "status": "PASS" | "REVISE" | "UNCERTAIN",
-  "claims": [
-    {
-      "claim": "需要检查的原文陈述",
-      "verdict": "PASS" | "ERROR" | "UNCERTAIN",
-      "severity": "major" | "minor",
-      "correction": "若错误，给出最小的正确表述；否则为空字符串"
-    }
-  ],
-  "summary": "一句话总结"
-}
-
-只有出现至少一个确定的 major ERROR 时，status 才应为 REVISE。
-minor ERROR 可以记录，但不能单独触发自动修订。
-""".strip()
+)
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router

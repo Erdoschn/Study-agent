@@ -4,6 +4,7 @@ from typing import Any
 
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .prompt_config import get_prompt
 
 
 @dataclass
@@ -36,31 +37,9 @@ def is_explicit_assessment_request(question: str) -> bool:
 class TaskAnalyzer:
     """Use a reasoning-capable model to understand the task before acting."""
 
-    SYSTEM_PROMPT = """
-你是 Study Agent 的任务分析器，不是最终回答器。
-请把用户问题转成结构化任务分析，帮助后续 Agent 决定如何行动。
+    SYSTEM_PROMPT = get_prompt("study_agent.task_analyzer")
 
-分析：
-- task_type：math / coding / conceptual / research / factual / comparison / troubleshooting / general
-- domain：尽可能具体的知识领域。注意：上下文缓存 / context caching / prompt caching / KV cache 默认属于“大语言模型 / LLM 推理 / 模型服务”，只有明确出现 CPU cache、缓存行、L1/L2/L3、缓存一致性等术语时才归入计算机体系结构。
-- goal：用户真正要解决的目标
-- issues：问题中可能存在的概念、逻辑、前提或范围问题；没有则为空
-- knowledge_gaps：为了可靠回答仍缺少的关键知识
-- required_tools：只填写真正需要的工具，可选 search / calculate / verify
-- external_facts_needed：是否需要外部事实、最新信息、论文或网页证据
-- answer_strategy：给后续 Reasoner 的简短行动建议
-- difficulty：任务难度 1-5；1=直接事实/简单解释，3=需要工具或多步推理，5=复杂研究、多轮证据整合或高难度推理
-- assessment_requested：只有用户明确要求“出题/测试/测测我/检验理解”等时才为 true；普通教学回答不要主动设置为 true。
-- assessment_concept：用户要检验的主要知识点；若用户明确给出则原样保留，否则尽量从问题中提取，不要凭空创造。
-- assessment_difficulty：若用户明确指定难度，使用 basic/undergraduate/graduate/postgraduate/postgraduate_plus；否则使用 graduate。
-- 不要决定执行路径。不要输出 execution_mode；后续 ModelRouter 会根据任务信号自动决定 direct / direct_verified / reasoner。
-不要指定具体搜索来源、搜索排序或工具调用顺序；这些由后续 Reasoner 根据当前证据动态决定。
-不要因为关键词出现就机械判断需要工具。
-输出中若 assessment_requested=true，必须同时填写 assessment_concept；普通问题必须为 false。
-不要编造用户没有表达的背景。
-不要输出隐藏思维链，只输出简洁、可审计的分析摘要。
-必须只输出 JSON。
-"""
+
 
     def __init__(self, reasoner):
         self.model_router = reasoner.model_router
