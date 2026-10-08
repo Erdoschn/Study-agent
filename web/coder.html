@@ -65,15 +65,18 @@
 </div>
 <script>
 window.addEventListener("error", function(e) {
+  if (!e.error && !e.message) return;
+  var message = e.message || String(e.error);
   var health = document.getElementById("health");
-  if (health) health.textContent = "前端脚本错误";
+  if (health) health.textContent = "前端错误：" + message;
   var dot = document.getElementById("dot");
   if (dot) dot.className = "dot dot bad";
-  console.error("Coder UI error:", e.error || e.message);
+  console.error("Coder UI error:", e.error || message);
 });
 window.addEventListener("unhandledrejection", function(e) {
+  var message = e.reason && e.reason.message ? e.reason.message : String(e.reason);
   var health = document.getElementById("health");
-  if (health) health.textContent = "前端请求异常";
+  if (health) health.textContent = "前端异常：" + message;
   var dot = document.getElementById("dot");
   if (dot) dot.className = "dot dot bad";
   console.error("Coder UI rejection:", e.reason);
