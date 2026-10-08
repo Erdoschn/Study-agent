@@ -498,19 +498,20 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"CLIPBOARD READ SKIP → {exc}")
             return ""
 
-    def _clear_browser_clipboard(self, page) -> None:
-        """Clear the OS/browser clipboard through normal page keyboard input."""
+    def _clear_browser_clipboard(self, page) -> str:
+        """Seed the OS/browser clipboard with a sentinel before clicking Copy."""
         probe_id = "__study_agent_clipboard_clear_probe"
+        sentinel = "__study_agent_clipboard_pending__"
         try:
             page.evaluate(
-                """id => {
+                """([id, value]) => {
                     const old = document.getElementById(id);
                     if (old) old.remove();
 
                     const el = document.createElement("textarea");
                     el.id = id;
                     el.setAttribute("aria-hidden", "true");
-                    el.value = "";
+                    el.value = value;
                     el.style.position = "fixed";
                     el.style.left = "-10000px";
                     el.style.top = "0";
@@ -521,7 +522,7 @@ class BrowserModel(ModelClient):
                     el.focus();
                     el.select();
                 }""",
-                probe_id,
+                [probe_id, sentinel],
             )
             page.keyboard.press("Control+C")
         except Exception as exc:
@@ -534,6 +535,7 @@ class BrowserModel(ModelClient):
                 )
             except Exception:
                 pass
+        return sentinel
 
     def _copy_latest_response_markdown(self, page) -> str:
         """Click DeepSeek's native Copy button and capture its Markdown payload."""
@@ -542,7 +544,7 @@ class BrowserModel(ModelClient):
         while time.monotonic() < deadline:
             button = self._find_copy_button(page)
             if button is not None:
-                self._clear_browser_clipboard(page)
+                stale_marker = self._clear_browser_clipboard(page)
                 try:
                     button.click()
                 except Exception as exc:
@@ -552,7 +554,7 @@ class BrowserModel(ModelClient):
                 read_deadline = time.monotonic() + min(2.0, float(self.timeout))
                 while time.monotonic() < read_deadline:
                     markdown = self._read_browser_clipboard(page)
-                    if markdown.strip():
+                    if markdown.strip() and markdown.strip() != stale_marker:
                         debug.log(
                             "BrowserModel",
                             f"COPY SUCCESS → markdown_chars={len(markdown)}",
