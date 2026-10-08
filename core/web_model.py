@@ -601,7 +601,6 @@ class BrowserModel(ModelClient):
                 "请确认已经进入聊天页面，再重试。"
             )
 
-    @staticmethod
     def _wait_for_terminal_enter(self) -> None:
         """Wait for Enter while still allowing an active run to be cancelled."""
         if os.name == "nt":
