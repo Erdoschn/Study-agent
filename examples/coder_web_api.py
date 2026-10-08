@@ -1,4 +1,4 @@
-"""Local web UI and API for the browser-backed Coder Agent.
+r"""Local web UI and API for the browser-backed Coder Agent.
 
 Run:
     python examples/coder_web_api.py
