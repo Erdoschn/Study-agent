@@ -193,6 +193,8 @@ class DockerPythonSandbox:
                 kind,
                 *safe_paths,
             ]
+            if cancellation_event is None:
+                return self._run_limited(command, name)
             return self._run_limited(
                 command,
                 name,
