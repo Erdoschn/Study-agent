@@ -143,6 +143,16 @@ def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
     assert 'void run();' in source
 
 
+def test_coder_web_frontend_keeps_output_position_and_compacts_memory():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "scrollIntoView" not in source
+    assert 'textContent="最近教训："' in source
+    assert 'textContent="知识记录："' in source
+    assert 'textContent="策略："' not in source
+    assert 'textContent="图谱："' not in source
+    assert 'startsWith("最终通过验证：")' in source
+
+
 def test_coder_web_frontend_has_drag_drop_and_timeouts():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "拖到这里" in source
