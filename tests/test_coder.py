@@ -24,6 +24,26 @@ def test_workspace_rejects_sensitive_files(tmp_path):
         fs.read_text(".env")
 
 
+def test_workspace_allows_notebook_read_write(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    notebook = '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}'
+    fs.write_notebook("notes/demo.ipynb", notebook)
+    assert '"nbformat": 4' in fs.read_text("notes/demo.ipynb")
+
+
+def test_workspace_rejects_invalid_notebook(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    with pytest.raises(WorkspaceSecurityError, match="Notebook JSON 无效"):
+        fs.write_notebook("demo.ipynb", "{not-json}")
+
+
+def test_workspace_rejects_invalid_notebook_cell(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    bad = '{"cells":[{"cell_type":"unknown","source":[]}],"metadata":{},"nbformat":4}'
+    with pytest.raises(WorkspaceSecurityError, match="cell\[0\]"):
+        fs.write_notebook("demo.ipynb", bad)
+
+
 def test_workspace_allows_only_python_writes(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError):
