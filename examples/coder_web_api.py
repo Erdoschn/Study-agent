@@ -474,14 +474,6 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             try:
                 actual_project = str(project).strip() if project is not None else ""
-                emit({
-                    "type": "preparing",
-                    "message": (
-                        "正在准备已有项目…"
-                        if actual_project
-                        else "正在根据任务让 LLM 自动命名新项目…"
-                    ),
-                })
                 if actual_project:
                     actual_project = _ensure_project(actual_project, task)
                 else:
