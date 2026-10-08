@@ -10,6 +10,7 @@ from .__debug__ import debug
 from .reasoner import ModelClient
 from .prompt_config import get_prompt
 from coder.cancellation import RunCancelled, raise_if_cancelled
+from coder.cancellation import RunCancelled, raise_if_cancelled
 
 
 class BrowserModel(ModelClient):
@@ -110,6 +111,31 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
+
+
+    def cancel(self) -> None:
+        """Signal the current browser operation to stop as soon as possible."""
+        if self.cancellation_event is not None:
+            self.cancellation_event.set()
+
+    def reset_cancellation(self) -> None:
+        if self.cancellation_event is not None:
+            self.cancellation_event.clear()
+
+    def _check_cancelled(self) -> None:
+        raise_if_cancelled(self.cancellation_event)
+
+    def _sleep(self, seconds: float) -> None:
+        seconds = max(0.0, float(seconds))
+        self._check_cancelled()
+        if seconds <= 0:
+            return
+        event = self.cancellation_event
+        if event is not None:
+            if event.wait(seconds):
+                raise RunCancelled("Coder 任务已被用户中止。")
+        else:
+            time.sleep(seconds)
 
 
     def cancel(self) -> None:
