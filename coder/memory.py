@@ -41,7 +41,11 @@ class CoderMemoryStore:
             data["runs"] = data["runs"][-self.MAX_RUNS:]
             self._merge_knowledge(data, entry)
             self._write_unlocked(data)
-        self.knowledge_graph.record_run(entry)
+        try:
+            self.knowledge_graph.record_run(entry)
+        except Exception:
+            # Graph persistence is additive; a graph I/O failure must not erase a run history entry.
+            pass
         return entry
 
     def recent_runs(self, limit: int = 30) -> list[dict[str, Any]]:
