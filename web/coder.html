@@ -433,9 +433,14 @@ async function run(){
   resetFeedback();
   state.running=true;
   state.failed=false;
+  state.cancelling=false;
+  state.cancelRequested=false;
+  state.runProject=project;
+  state.lastRunId="";
   state.startedAt=Date.now();
-  $("run").textContent="停止等待";
+  $("run").textContent="中止";
   $("run").classList.add("stop");
+  $("project").disabled=true;
   $("task").disabled=true;
   $("timeline").innerHTML="";
   $("request").textContent=request;
@@ -477,20 +482,41 @@ async function run(){
         }
 
         const e=JSON.parse(data);
+        if(e.id&&!state.lastRunId)state.lastRunId=String(e.id).trim();
+        if(state.cancelRequested&&state.lastRunId&&!state.cancelling)void requestCancel();
         if(e.type==="preparing"){
           appendStep("PREPARING",true,e.message||"正在准备…");
         }else if(e.type==="named"){
-          if(e.project)setProject(e.project);
-          appendStep("PROJECT",true,"项目："+(e.project||"未知"));
+          const namedProject=String(e.project||"").trim();
+          if(state.runProject){
+            if(namedProject&&namedProject!==state.runProject){
+              state.failed=true;
+              appendStep("ERROR",false,"后端返回的项目与本次运行锁定项目不一致："+namedProject);
+              void requestCancel();
+            }
+          }else if(namedProject){
+            state.runProject=namedProject;
+            setProject(namedProject);
+          }
+          appendStep("PROJECT",true,"项目："+(namedProject||"未知"));
         }else if(e.type==="started"){
-          if(e.project)setProject(e.project);
-          appendStep("START",true,"项目："+(e.project||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s");
+          const startedProject=String(e.project||"").trim();
+          if(state.runProject){
+            if(startedProject&&startedProject!==state.runProject){
+              state.failed=true;
+              appendStep("ERROR",false,"后端返回的项目与本次运行锁定项目不一致："+startedProject);
+              void requestCancel();
+            }
+          }else if(startedProject){
+            state.runProject=startedProject;
+            setProject(startedProject);
+          }
+          appendStep("START",true,"项目："+(startedProject||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s");
         }else if(e.type==="step"){
           const s=e.step;
           appendStep(s.action,s.success,s.summary||s.error||"已完成",s.step_id);
           if(["WRITE_FILE","WRITE_NOTEBOOK","PATCH_FILE","CREATE_TEST","RUN_PYTHON","RUN_PYTEST"].includes(s.action)){
-            void loadFiles();
-            void loadProjects();
+            void loadFiles(state.runProject);
           }
         }else if(e.type==="finished"){
           appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");
