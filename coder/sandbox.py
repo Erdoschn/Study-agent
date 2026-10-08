@@ -41,10 +41,36 @@ class DockerPythonSandbox:
         self.cpus = cpus
         self.pids = max(16, int(pids))
 
+    def preflight(self) -> None:
+        try:
+            probe = subprocess.run(
+                ["docker", "image", "inspect", self.IMAGE],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                shell=False,
+                timeout=10,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("安全执行被拒绝：未找到 docker CLI。") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("安全执行被拒绝：docker preflight 超时。") from exc
+        if probe.returncode != 0:
+            detail = probe.stderr.decode("utf-8", errors="replace").strip()[:300]
+            raise RuntimeError(
+                f"安全执行被拒绝：未找到受信任的本地 Coder 镜像 {self.IMAGE}。"
+                + (f" {detail}" if detail else "")
+            )
+
     def run(self, kind: str, paths: Iterable[str] = ()) -> SandboxResult:
         if kind not in {"python", "pytest"}:
             raise ValueError("只支持 python / pytest。")
         safe_paths = [str(p) for p in paths]
+        for path in safe_paths:
+            if not path or path.startswith(("/", "\\")) or ".." in path.replace("\\", "/").split("/"):
+                raise PermissionError("sandbox 路径非法。")
+            if path.startswith("-") or ":" in path or "::" in path:
+                raise PermissionError("sandbox 参数包含禁止路径形式。")
         if kind == "python" and len(safe_paths) != 1:
             raise ValueError("RUN_PYTHON 需要且只能需要一个 script_path。")
 
