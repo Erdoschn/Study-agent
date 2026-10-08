@@ -39,6 +39,7 @@ class CoderState:
     test_generation: int = -1
     chat_resets: int = 0
     project: str = ""
+    cancelled: bool = False
     backup_generation: int = -1
     initial_backup_generation: int = -1
     metrics: dict[str, Any] = field(default_factory=dict)
