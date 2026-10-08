@@ -686,7 +686,7 @@ def test_coder_web_api_sends_sse_done_after_worker_finishes():
 
 def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refresh_guard():
     source = _frontend_path("/").read_text(encoding="utf-8")
-    assert ".timeline{max-width:920px;width:100%;flex:1;min-height:0;overflow:auto;" in source
+    assert ".timeline{max-width:920px;width:100%;flex:1;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;" in source
     assert ".body{flex:1;min-height:0;overflow:hidden;" in source
     assert "try{\n      await loadProjects();" in source
     assert 'console.error("Coder final refresh failed",e);' in source
@@ -698,6 +698,25 @@ def test_coder_web_frontend_shows_and_follows_step_scrollbar():
     assert ".timeline::-webkit-scrollbar{width:10px}" in source
     assert "const follow=box.scrollHeight-box.scrollTop-box.clientHeight<80" in source
     assert "if(follow)box.scrollTop=box.scrollHeight" in source
+
+
+
+
+def test_coder_web_frontend_uses_terminal_state_as_authoritative_completion():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "let finalState=null;" in source
+    assert 'finalState=e.state||finalState;' in source
+    assert "state.finalState=finalState;" in source
+    assert "if(doneReceived&&finalState)updateSummary(finalState);" in source
+    assert "await loadHistory();" in source
+    assert "if(finalState)updateSummary(finalState);" in source
+
+
+def test_coder_web_frontend_renders_completion_state_human_readably_and_accepts_history_shape():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'st.goal_verified??st.verified' in source
+    assert 'finished?"✓ 已完成":"— 未完成"' in source
+    assert 'verified?"✓ 已验证":"— 未验证"' in source
 
 
 def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
