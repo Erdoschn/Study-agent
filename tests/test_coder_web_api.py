@@ -20,6 +20,23 @@ def test_coder_web_frontend_exists():
     assert path.stat().st_size > 5000
 
 
+def test_coder_web_multipart_upload_parser_preserves_relative_filename():
+    boundary = "----study-agent-path-test"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="src/models/demo.py"\r\n'
+        "Content-Type: text/plain\r\n\r\n"
+        "print(1)\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+    filename, payload = parse_multipart_upload(
+        f"multipart/form-data; boundary={boundary}",
+        body,
+    )
+    assert filename == "src/models/demo.py"
+    assert payload == b"print(1)"
+
+
 def test_coder_web_multipart_upload_parser_reads_browser_file():
     boundary = "----study-agent-test"
     body = (
@@ -49,6 +66,17 @@ def test_coder_web_rejects_non_multipart_upload():
 def test_coder_web_limits_upload_and_runtime():
     assert UPLOAD_MAX_BYTES <= WorkspaceFS.MAX_FILE_BYTES
     assert MAX_RUNTIME_SECONDS >= 30.0
+
+
+def test_coder_web_frontend_supports_importing_files_into_a_new_project():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "把已有工程文件拖到这里" in source
+    assert "自动创建一个新项目" in source
+    assert "createProjectForImport" in source
+    assert 'JSON.stringify({name:base,unique:true})' in source
+    assert "webkitRelativePath" in source
+    assert "拖入的目录结构" in source
+    assert "文件框架已导入" in source
 
 
 def test_coder_web_frontend_has_drag_drop_and_timeouts():
@@ -250,6 +278,16 @@ def test_coder_memory_is_stored_at_workspace_root_not_project(tmp_path):
     store = CoderMemoryStore(tmp_path)
     assert store.path == tmp_path / ".coder-memory.json"
     assert not (tmp_path / ".coder-memory.json").is_dir()
+
+
+def test_coder_import_project_creation_can_force_unique_name(tmp_path, monkeypatch):
+    import examples.coder_web_api as api
+
+    monkeypatch.setattr(api, "WORKSPACE", str(tmp_path))
+    assert api._ensure_project("starter", unique_if_requested=True) == "starter"
+    assert api._ensure_project("starter", unique_if_requested=True) == "starter-2"
+    assert (tmp_path / "starter").is_dir()
+    assert (tmp_path / "starter-2").is_dir()
 
 
 def test_coder_project_creation_keeps_projects_separate(tmp_path, monkeypatch):
