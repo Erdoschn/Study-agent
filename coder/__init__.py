@@ -3,6 +3,8 @@ from .state import CoderState, CoderStep
 from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .harness import CoderHarness
 from .sandbox import DockerPythonSandbox, SandboxResult
+from .study_bridge import StudyAgentBridge
+from .knowledge_graph import CoderKnowledgeGraph
 
 __all__ = [
     "CoderAgent",
@@ -13,4 +15,6 @@ __all__ = [
     "WorkspaceSecurityError",
     "DockerPythonSandbox",
     "SandboxResult",
+    "StudyAgentBridge",
+    "CoderKnowledgeGraph",
 ]
