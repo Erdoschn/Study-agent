@@ -698,6 +698,31 @@ def test_factory_caches_browser_client():
     assert first.browser_channel == "msedge"
 
 
+def test_factory_closes_cached_browser_clients():
+    config = {
+        "providers": {"web": {"type": "browser", "enabled": True}},
+        "models": {
+            "web-model": {
+                "provider": "web",
+                "model": "deepseek-web",
+                "enabled": True,
+                "paid": False,
+            }
+        },
+    }
+    registry = ModelRegistry(config)
+    factory = ModelClientFactory(config)
+    client = factory.create(registry.get("web-model"))
+
+    closed = []
+    client.close = lambda: closed.append(True)
+
+    factory.close()
+
+    assert closed == [True]
+    assert factory._browser_clients == {}
+
+
 def test_browser_provider_does_not_require_api_endpoint():
     config = {
         "providers": {
