@@ -527,3 +527,84 @@ def test_study_agent_bridge_is_available_from_study_api():
     assert "STUDY_AGENT_BRIDGE_KEY" in source
     assert "Study Agent Bridge 仅允许本机调用" in source
     assert "learner_context" in source
+
+def test_coder_memory_persists_user_feedback_and_recent_feedback(tmp_path):
+    from types import SimpleNamespace
+
+    memory = CoderMemoryStore(tmp_path)
+    state = SimpleNamespace(
+        request="修复登录功能",
+        steps=[],
+        finished=True,
+        goal_verified=True,
+        error="",
+        summary="任务已完成",
+        step_count=3,
+        modified_files={"auth.py"},
+        created_tests={"tests/test_auth.py"},
+        chat_resets=0,
+        metrics={},
+    )
+    entry = memory.record_run(project="login-demo", state=state)
+
+    saved = memory.record_feedback(
+        run_id=entry["id"],
+        feedback="以后修改前先说明计划，尽量保持改动范围小。",
+    )
+
+    assert saved is not None
+    assert saved["run_id"] == entry["id"]
+    loaded = memory.load()
+    assert loaded["runs"][-1]["feedback"] == "以后修改前先说明计划，尽量保持改动范围小。"
+    assert memory.recent_feedback(1)[0]["feedback"] == "以后修改前先说明计划，尽量保持改动范围小。"
+
+
+def test_coder_reasoner_includes_recent_user_feedback():
+    from types import SimpleNamespace
+
+    from coder.reasoner import CoderReasoner
+    from coder.state import CoderGoal, CoderState
+
+    class FakeModel:
+        def __init__(self):
+            self.payload = None
+
+        def generate(self, _system, user, json_mode=True):
+            self.payload = user
+            return '{"action":"FINISH","arguments":{},"reasoning_summary":"","goal":{},"answer":null}'
+
+    model = FakeModel()
+    reasoner = CoderReasoner(
+        model=model,
+        recent_user_feedback=[{
+            "project": "login-demo",
+            "request": "修复登录功能",
+            "feedback": "以后修改前先说明计划，尽量保持改动范围小。",
+        }],
+    )
+    state = CoderState("当前任务")
+    state.goal = CoderGoal("当前任务")
+    result = reasoner.decide(state, [])
+
+    assert result["action"] == "FINISH"
+    payload = json.loads(model.payload)
+    assert payload["user_feedback"][0]["feedback"] == "以后修改前先说明计划，尽量保持改动范围小。"
+
+
+def test_coder_web_feedback_endpoint_and_frontend_are_wired():
+    import examples.coder_web_api as api
+
+    api_source = Path(api.__file__).read_text(encoding="utf-8")
+    source = _frontend_path("/").read_text(encoding="utf-8")
+
+    assert 'if path == "/v1/coder/feedback":' in api_source
+    assert "record_feedback" in api_source
+    assert "recent_user_feedback" in api_source
+    assert "FEEDBACK_MAX_BYTES" in api_source
+    assert 'id="feedbackPanel"' in source
+    assert 'id="feedback"' in source
+    assert 'id="submitFeedback"' in source
+    assert 'API+"/feedback"' in source
+    assert 'state.lastRunId=String(e.memory?.id||"").trim();' in source
+    assert "后续任务会参考这条评价" in source
+
