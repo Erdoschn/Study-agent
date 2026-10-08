@@ -146,7 +146,6 @@ class CoderHarness:
             "kind": "python", "paths": [path], "passed": result.passed,
             "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
         }
-        state.test_generation = state.modification_generation
         return state.last_test_result
 
     def _run_pytest(self, args, state):
@@ -192,13 +191,16 @@ class CoderHarness:
         required_files = goal.required_files
         for path in required_files:
             checks.append({"check": f"required_file:{path}", "ok": self.fs.exists(path)})
+        for path in goal.required_tests:
+            checks.append({"check": f"required_test:{path}", "ok": self.fs.exists(path)})
         checks.append({"check": "modified_files", "ok": bool(state.modified_files) if goal.must_modify else True})
         checks.append({"check": "pytest_created", "ok": bool(state.created_tests) if goal.must_create_tests else True})
         checks.append({
-            "check": "tests_pass_after_latest_change",
+            "check": "pytest_passed_after_latest_change",
             "ok": bool(
                 goal.must_pass_tests
                 and state.last_test_result
+                and state.last_test_result.get("kind") == "pytest"
                 and state.last_test_result.get("passed")
                 and state.test_generation == state.modification_generation
             ) if goal.must_pass_tests else True,
