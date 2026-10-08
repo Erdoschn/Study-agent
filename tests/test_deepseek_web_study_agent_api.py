@@ -136,7 +136,7 @@ def test_web_frontend_protects_latex_before_markdown():
 def test_web_frontend_shows_agent_status_before_final_answer():
     source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     status_marker = 'b.append(renderStatus(m.statuses,!m.done));'
-    body_marker = 'b.append(body);el.append(av,b);'
+    body_marker = 'else body.innerHTML=markdown(m.content||"");'
     assert source.index(status_marker) < source.index(body_marker)
 
 
