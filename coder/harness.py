@@ -4,9 +4,11 @@ import difflib
 import re
 import unicodedata
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from .backup import CoderBackupStore
+from .cancellation import raise_if_cancelled
 from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
 from .study_bridge import StudyAgentBridge
@@ -50,8 +52,18 @@ class CoderHarness:
     MAX_REWRITE_LINE_RATIO = 0.70
     MIN_REMOVED_LINES = 10
 
-    def __init__(self, workspace: str, *, search_router=None, sandbox=None, backup=None, study_bridge=None):
+    def __init__(
+        self,
+        workspace: str,
+        *,
+        search_router=None,
+        sandbox=None,
+        backup=None,
+        study_bridge=None,
+        cancellation_event: Event | None = None,
+    ):
         self.fs = WorkspaceFS(workspace)
+        self.cancellation_event = cancellation_event
         self.search_router = search_router
         self.sandbox = sandbox
         if self.sandbox is None:
@@ -84,6 +96,7 @@ class CoderHarness:
         ]
 
     def execute(self, action: str, arguments: dict[str, Any], state: CoderState) -> Any:
+        raise_if_cancelled(self.cancellation_event)
         action = str(action or "").upper()
         if action not in self.ALLOWED_ACTIONS:
             raise PermissionError(f"安全策略禁止动作：{action}")
@@ -317,6 +330,19 @@ class CoderHarness:
             "evidence": result.get("evidence", []),
         }
 
+    def _sandbox_run(self, kind: str, paths: list[str]):
+        raise_if_cancelled(self.cancellation_event)
+        if self.cancellation_event is None:
+            result = self.sandbox.run(kind, paths)
+        else:
+            result = self.sandbox.run(
+                kind,
+                paths,
+                cancellation_event=self.cancellation_event,
+            )
+        raise_if_cancelled(self.cancellation_event)
+        return result
+
     def _run_python(self, args, state):
         path = str(args.get("script_path", "")).strip()
         rel, _ = self.fs._target(path)
@@ -326,7 +352,7 @@ class CoderHarness:
         self._test_count += 1
         if self._test_count > self.MAX_TEST_RUNS:
             raise PermissionError("超过单次 Coder 执行次数上限。")
-        result = self.sandbox.run("python", [path])
+        result = self._sandbox_run("python", [path])
         state.last_test_result = {
             "kind": "python", "paths": [path], "passed": result.passed,
             "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
@@ -346,7 +372,7 @@ class CoderHarness:
             self.fs._policy(rel)
             if rel.suffix.casefold() != ".py":
                 raise ValueError(f"pytest 目标必须是 Python 文件：{path}")
-        result = self.sandbox.run("pytest", paths)
+        result = self._sandbox_run("pytest", paths)
         state.last_test_result = {
             "kind": "pytest", "paths": paths, "passed": result.passed,
             "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
