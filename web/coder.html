@@ -94,7 +94,7 @@ const UI_IDS=[
   "modified","tests","finished","verified","steps","summary","memory"
 ];
 let ui=Object.create(null);
-const state={running:false,controller:null,startedAt:0,timer:null,project:""};
+const state={running:false,controller:null,startedAt:0,timer:null,project:"",failed:false};
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
   const node=ui[id];
@@ -332,6 +332,7 @@ async function run(){
   if(!request||state.running)return;
 
   state.running=true;
+  state.failed=false;
   state.startedAt=Date.now();
   $("run").textContent="停止等待";
   $("run").classList.add("stop");
@@ -344,6 +345,7 @@ async function run(){
   },250);
   state.controller=new AbortController();
 
+  let doneReceived=false;
   try{
     const r=await fetch("/v1/coder/run",{
       method:"POST",
@@ -358,7 +360,7 @@ async function run(){
     const decoder=new TextDecoder();
     let buf="";
 
-    while(true){
+    outer:while(true){
       const q=await reader.read();
       buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});
       const parts=buf.split("\n\n");
@@ -369,14 +371,17 @@ async function run(){
         if(!line)continue;
 
         const data=line.slice(6);
-        if(data==="[DONE]")return;
+        if(data==="[DONE]"){
+          doneReceived=true;
+          break outer;
+        }
 
         const e=JSON.parse(data);
         if(e.type==="preparing"){
           appendStep("PREPARING",true,e.message||"正在准备…");
         }else if(e.type==="named"){
           if(e.project)setProject(e.project);
-          appendStep("PROJECT",true,"自动命名："+(e.project||"未知"));
+          appendStep("PROJECT",true,"项目："+(e.project||"未知"));
         }else if(e.type==="started"){
           if(e.project)setProject(e.project);
           appendStep("START",true,"项目："+(e.project||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s");
@@ -394,14 +399,26 @@ async function run(){
           updateSummary(e.state);
           void loadProjects();
           void loadHistory();
+        }else if(e.type==="error"){
+          state.failed=true;
+          appendStep("ERROR",false,e.error||"Coder 后端执行失败。");
+          $("summary").textContent="Coder 执行失败："+(e.error||"未知错误");
         }
       }
 
       if(q.done)break;
     }
+
+    if(!doneReceived&&!state.failed){
+      state.failed=true;
+      appendStep("ERROR",false,"Coder SSE 连接在收到完成信号前就结束了。");
+      $("summary").textContent="Coder 连接异常结束，请查看终端日志。";
+    }
   }catch(e){
     if(e.name!=="AbortError"){
+      state.failed=true;
       appendStep("ERROR",false,e.message||String(e));
+      $("summary").textContent="Coder 执行失败："+(e.message||String(e));
       console.error("Coder run failed",e);
     }
   }finally{
@@ -412,7 +429,7 @@ async function run(){
     $("task").disabled=false;
     $("run").textContent="运行 Coder";
     $("run").classList.remove("stop");
-    $("timer").textContent="完成";
+    $("timer").textContent=state.failed?"失败":"完成";
     await loadFiles();
   }
 }
@@ -443,6 +460,12 @@ function initCoderUI(attempt=0){
   try{
     $("project").onchange=async()=>{setProject(selectedProject());await loadFiles()};
     $("run").onclick=()=>state.running?state.controller?.abort():run();
+    $("task").onkeydown=e=>{
+      if(e.key==="Enter"&&e.shiftKey&&!e.isComposing){
+        e.preventDefault();
+        void run();
+      }
+    };
     $("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("hot")};
     $("drop").ondragleave=()=>$("drop").classList.remove("hot");
     $("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("hot");uploadMany([...e.dataTransfer.files])};
