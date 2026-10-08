@@ -1,12 +1,15 @@
 import os
 import re
+import sys
 import time
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from .__debug__ import debug
 from .reasoner import ModelClient
 from .prompt_config import get_prompt
+from coder.cancellation import RunCancelled, raise_if_cancelled
 
 
 class BrowserModel(ModelClient):
@@ -66,6 +69,7 @@ class BrowserModel(ModelClient):
         stable_seconds: float = 1.2,
         invalid_json_grace_seconds: float = 3.0,
         debug_mode: bool = False,
+        cancellation_event: Event | None = None,
     ):
         self.model = model
         self.url = url or os.getenv("STUDY_AGENT_WEB_URL", self.DEFAULT_URL)
@@ -95,6 +99,7 @@ class BrowserModel(ModelClient):
             self.stable_seconds, float(invalid_json_grace_seconds)
         )
         self.debug_mode = bool(debug_mode)
+        self.cancellation_event = cancellation_event
         self._created_edge_window_handles: set[int] = set()
         self._json_mode_active = False
 
@@ -105,6 +110,31 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
+
+
+    def cancel(self) -> None:
+        """Signal the current browser operation to stop as soon as possible."""
+        if self.cancellation_event is not None:
+            self.cancellation_event.set()
+
+    def reset_cancellation(self) -> None:
+        if self.cancellation_event is not None:
+            self.cancellation_event.clear()
+
+    def _check_cancelled(self) -> None:
+        raise_if_cancelled(self.cancellation_event)
+
+    def _sleep(self, seconds: float) -> None:
+        seconds = max(0.0, float(seconds))
+        self._check_cancelled()
+        if seconds <= 0:
+            return
+        event = self.cancellation_event
+        if event is not None:
+            if event.wait(seconds):
+                raise RunCancelled("Coder 任务已被用户中止。")
+        else:
+            time.sleep(seconds)
 
     def prepare_browser(self) -> None:
         """Open this model's browser profile without sending a model prompt.
