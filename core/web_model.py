@@ -54,6 +54,7 @@ class BrowserModel(ModelClient):
         post_cleanup_pause_seconds: float = 1.5,
         cleanup_after_generate: bool = True,
         reuse_chat: bool = False,
+        min_send_interval_seconds: float = 5.0,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         debug_mode: bool = False,
@@ -76,6 +77,9 @@ class BrowserModel(ModelClient):
         self.cleanup_pause_seconds = max(0.0, float(cleanup_pause_seconds))
         self.post_cleanup_pause_seconds = max(0.0, float(post_cleanup_pause_seconds))
         self.reuse_chat = bool(reuse_chat)
+        self.min_send_interval_seconds = max(
+            0.0, float(min_send_interval_seconds)
+        )
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
@@ -89,6 +93,7 @@ class BrowserModel(ModelClient):
         self._pending_prompt: str | None = None
         self._chat_initialized = False
         self._chat_reset_count = 0
+        self._last_send_monotonic: float | None = None
 
     def generate(
         self,
@@ -185,6 +190,7 @@ class BrowserModel(ModelClient):
             "READ_DIFF",
             "VERIFY_GOAL",
             "FINISH",
+            "NEW_CHAT",
         }
 
     def _recover_json_response(self, page, previous_answer: str) -> str:
@@ -796,6 +802,20 @@ class BrowserModel(ModelClient):
         debug.log("BrowserModel", "COPY SKIP → native Copy button not found")
         return ""
 
+    def _wait_for_send_slot(self) -> None:
+        """Throttle browser message sends to reduce web UI rate-limit errors."""
+        if self._last_send_monotonic is not None:
+            elapsed = time.monotonic() - self._last_send_monotonic
+            remaining = self.min_send_interval_seconds - elapsed
+            if remaining > 0:
+                debug.log(
+                    "BrowserModel",
+                    f"SEND THROTTLE → sleeping {remaining:.2f}s "
+                    f"(min_interval={self.min_send_interval_seconds:.2f}s)",
+                )
+                time.sleep(remaining)
+        self._last_send_monotonic = time.monotonic()
+
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(
             page,
@@ -810,6 +830,7 @@ class BrowserModel(ModelClient):
                 "可检查 BrowserModel 的输入选择器。"
             )
 
+        self._wait_for_send_slot()
         textbox.fill(prompt)
         textbox.press("Enter")
 
