@@ -870,11 +870,13 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
 
     calls = []
 
-    def fake_input():
+    def fake_wait_for_enter():
         calls.append("enter")
         page.logged_in = True
 
-    monkeypatch.setattr("builtins.input", fake_input)
+    # Windows production code uses msvcrt.kbhit() here. Patch the model-level
+    # wait hook so this unit test never blocks on the real pytest console.
+    monkeypatch.setattr(model, "_wait_for_terminal_enter", fake_wait_for_enter)
 
     answer = model.generate("", "hello")
 
