@@ -147,7 +147,7 @@ class CoderReasoner:
         rendered = cls._render_untrusted(value)
         return (
             "<UNTRUSTED_TOOL_OUTPUT>\n"
-            + rendered[:12000]
+            + rendered[:48000]
             + "\n</UNTRUSTED_TOOL_OUTPUT>"
         )
 
