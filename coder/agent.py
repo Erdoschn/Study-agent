@@ -29,6 +29,7 @@ class CoderAgent:
         debug_mode: bool = False,
     ):
         self.workspace = Path(workspace)
+        self.debug_mode = bool(debug_mode)
         if search_router is None:
             from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
             search_router = SearchRouter()
@@ -39,7 +40,6 @@ class CoderAgent:
         if self.reasoner is None:
             self.reasoner = CoderReasoner(debug_mode=self.debug_mode)
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
-        self.debug_mode = bool(debug_mode)
 
     def run(self, request: str) -> CoderState:
         request = str(request or "").strip()
