@@ -162,14 +162,13 @@ class BrowserModel(ModelClient):
 
     @classmethod
     def _extract_json_object(cls, answer: str) -> str:
-        """Extract the last complete Agent JSON object from one assistant response."""
+        """Extract the last complete top-level Agent JSON object from a response."""
         import json
 
         text = str(answer or "").strip()
         if not text:
             return ""
 
-        decoder = json.JSONDecoder()
         allowed_actions = {
             "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
             "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",
@@ -178,18 +177,46 @@ class BrowserModel(ModelClient):
         }
 
         last = ""
+        start: int | None = None
+        depth = 0
+        in_string = False
+        escaped = False
+
         for index, char in enumerate(text):
-            if char != "{":
+            if start is None:
+                if char == "{":
+                    start = index
+                    depth = 1
                 continue
-            try:
-                data, end = decoder.raw_decode(text[index:])
-            except json.JSONDecodeError:
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
                 continue
-            if not isinstance(data, dict):
-                continue
-            if str(data.get("action", "")).upper() not in allowed_actions:
-                continue
-            last = text[index:index + end].strip()
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:index + 1].strip()
+                    try:
+                        data = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        data = None
+                    if (
+                        isinstance(data, dict)
+                        and str(data.get("action", "")).upper() in allowed_actions
+                    ):
+                        last = candidate
+                    start = None
+
         return last
 
     @classmethod
