@@ -64,6 +64,7 @@ class BrowserModel(ModelClient):
         min_send_interval_seconds: float = 5.0,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
+        invalid_json_grace_seconds: float = 3.0,
         debug_mode: bool = False,
     ):
         self.model = model
@@ -90,6 +91,9 @@ class BrowserModel(ModelClient):
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
+        self.invalid_json_grace_seconds = max(
+            self.stable_seconds, float(invalid_json_grace_seconds)
+        )
         self.debug_mode = bool(debug_mode)
         self._created_edge_window_handles: set[int] = set()
         self._json_mode_active = False
@@ -1140,6 +1144,7 @@ class BrowserModel(ModelClient):
         candidate_seen = False
         loading_block_logged = False
         json_wait_logged = False
+        invalid_json_since: float | None = None
 
         while time.monotonic() < deadline:
             candidate = self._latest_response(page, before_snapshot)
@@ -1167,11 +1172,30 @@ class BrowserModel(ModelClient):
                 json_mode = bool(getattr(self, "_json_mode_active", False))
                 json_candidate = self._extract_json_object(candidate) if json_mode else ""
                 json_ready = not json_mode or bool(json_candidate)
+                now = time.monotonic()
                 stable = (
                     stable_since is not None
-                    and time.monotonic() - stable_since >= self.stable_seconds
+                    and now - stable_since >= self.stable_seconds
                 )
                 loading = self._loading_visible(page)
+
+                if json_mode and not json_ready:
+                    if invalid_json_since is None:
+                        invalid_json_since = now
+                    invalid_json_age = now - invalid_json_since
+                    # Do not wait for the full 180s request timeout when the web
+                    # model has clearly settled on a non-JSON answer. Return the
+                    # stable text so generate() can immediately use the existing
+                    # structured-output recovery path.
+                    if stable and not loading and invalid_json_age >= self.invalid_json_grace_seconds:
+                        debug.log(
+                            "BrowserModel",
+                            "JSON WAIT → stable non-JSON response; returning for recovery "
+                            f"after {invalid_json_age:.1f}s",
+                        )
+                        return latest
+                else:
+                    invalid_json_since = None
 
                 # A complete JSON object is not enough to conclude that
                 # DeepSeek has finished the current turn: the thinking area can
