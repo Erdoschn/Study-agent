@@ -1273,6 +1273,34 @@ def test_browser_model_marks_recovery_failure_as_request_failure(monkeypatch):
     assert events == ["cleanup"]
 
 
+def test_browser_model_extracts_agent_json_from_mixed_thinking_text():
+    mixed = (
+        "我需要先检查文件结构，然后决定下一步。"
+        '最终决定：{"action":"READ_FILE","arguments":{"path":"score_utils.py"},'
+        '"reasoning_summary":"读取目标文件"}。'
+    )
+
+    extracted = BrowserModel._extract_json_object(mixed)
+
+    assert extracted == (
+        '{"action":"READ_FILE","arguments":{"path":"score_utils.py"},'
+        '"reasoning_summary":"读取目标文件"}'
+    )
+    assert BrowserModel._is_json_object(extracted) is True
+
+
+def test_browser_model_extracts_nested_json_with_braces_inside_strings():
+    mixed = (
+        '分析中...{"action":"WRITE_FILE","arguments":{"path":"demo.py",'
+        '"content":"value = {\\"key\\": 1}\\n"},"reasoning_summary":"write"}'
+    )
+
+    extracted = BrowserModel._extract_json_object(mixed)
+
+    assert extracted.startswith('{"action":"WRITE_FILE"')
+    assert '"content":"value = {\\"key\\": 1}\\n"' in extracted
+
+
 def test_browser_model_accepts_coder_agent_actions_in_json_mode():
     response = '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect workspace"}'
 
