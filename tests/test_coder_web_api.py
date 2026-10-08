@@ -126,3 +126,6 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert 'window.addEventListener("unhandledrejection"' in source
     assert "DOMContentLoaded" in source
     assert "Coder UI DOM 初始化失败" in source
+    assert "document.getElementById" in source
+    assert "attempt<100" in source
+    assert "setTimeout(()=>initCoderUI(attempt+1),50)" in source
