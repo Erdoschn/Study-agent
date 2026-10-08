@@ -65,7 +65,7 @@ class CoderHarness:
         query = str(args.get("query", "")).strip()
         if not query:
             raise ValueError("SEARCH 需要 query。")
-        if len(query) > 240 or "
+        if len(query) > 240 or "\n" in query:
 " in query:
             raise PermissionError("SEARCH query 过长或包含换行；禁止把代码/文件内容外发到搜索源。")
         lowered = query.casefold()
