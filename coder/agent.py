@@ -106,6 +106,7 @@ class CoderAgent:
         except RunCancelled:
             state.finished = True
             state.goal_verified = False
+            state.cancelled = True
             state.summary = "任务已被用户中止。"
             state.metrics["cancelled"] = True
             emit({"type": "cancelled", "state": state})
@@ -208,6 +209,7 @@ class CoderAgent:
         except RunCancelled as exc:
             state.finished = True
             state.goal_verified = False
+            state.cancelled = True
             state.error = None
             state.metrics["cancelled"] = True
             state.summary = "任务已被用户中止。"
