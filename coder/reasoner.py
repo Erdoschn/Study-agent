@@ -24,7 +24,8 @@ class CoderReasoner:
         self.model = model or BrowserModel(
             model="deepseek-web",
             user_data_dir=".coder-browser",
-            cleanup_after_generate=True,
+            cleanup_after_generate=False,
+            reuse_chat=True,
             debug_mode=debug_mode,
         )
 
@@ -46,6 +47,10 @@ class CoderReasoner:
             "created_tests": sorted(state.created_tests),
             "last_test_result_untrusted": self._untrusted(state.last_test_result),
             "last_observation_untrusted": self._untrusted(state.last_observation),
+            "chat": {
+                "reuse_enabled": bool(getattr(self.model, "reuse_chat", False)),
+                "reset_count": int(getattr(state, "chat_resets", 0)),
+            },
             "tools": tool_specs,
         }
         raw = self.model.generate(
@@ -107,6 +112,7 @@ class CoderReasoner:
         allowed = {
             "PLAN", "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE",
             "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
+            "NEW_CHAT",
             "READ_DIFF", "VERIFY_GOAL", "FINISH",
         }
         if action not in allowed:
