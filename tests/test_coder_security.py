@@ -222,6 +222,27 @@ def test_real_sandbox_output_limit_is_enforced(tmp_path):
     assert len(result.stdout.encode("utf-8")) <= DockerPythonSandbox.MAX_OUTPUT_BYTES
 
 
+def test_harness_exposes_notebook_action(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    names = {spec["name"] for spec in harness.tool_specs()}
+    assert "WRITE_NOTEBOOK" in names
+
+
+def test_harness_writes_only_valid_notebook(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState("notebook")
+    result = harness.execute(
+        "WRITE_NOTEBOOK",
+        {
+            "path": "analysis.ipynb",
+            "content": '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}',
+        },
+        state,
+    )
+    assert result == {"status": "notebook_written", "path": "analysis.ipynb"}
+    assert state.modified_files == {"analysis.ipynb"}
+
+
 def test_reasoner_parser_never_accepts_unknown_action():
     with pytest.raises(RuntimeError):
         CoderReasoner._parse(
