@@ -113,6 +113,62 @@ class FakePage:
 
 
 
+def test_browser_model_has_long_response_recovery_labels():
+    assert "继续生成" in BrowserModel.DEFAULT_CONTINUE_LABELS
+    assert "消息发送过于频繁" in BrowserModel.DEFAULT_RATE_LIMIT_LABELS
+    assert "重新发送" in BrowserModel.DEFAULT_RESEND_LABELS
+    assert BrowserModel.MAX_CONTINUE_GENERATIONS == 3
+    assert BrowserModel.MAX_RATE_LIMIT_RETRIES == 3
+
+
+def test_browser_model_generate_auto_continues_long_response(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    page = object()
+    waits = iter(["first part", "complete answer"])
+    continue_calls = iter([True, False])
+    snapshots = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_minimize_browser_window", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: None)
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, _prompt: None)
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: snapshots.append("snapshot") or [])
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: next(waits))
+    monkeypatch.setattr(model, "_continue_generation_if_available", lambda _page: next(continue_calls))
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: None)
+
+    assert model.generate("", "hello") == "complete answer"
+    assert len(snapshots) == 1
+
+
+def test_browser_model_wait_response_recovers_rate_limit(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        poll_interval=0.01,
+        stable_seconds=0.3,
+    )
+    states = iter([True, False, False, False])
+    retries = []
+
+    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: next(states, False))
+    monkeypatch.setattr(
+        model,
+        "_retry_rate_limited_prompt",
+        lambda _page: retries.append(True) or True,
+    )
+    monkeypatch.setattr(model, "_latest_response", lambda _page, _snapshot: "answer")
+
+    assert model._wait_for_response(object(), []) == "answer"
+    assert retries == [True]
+
+
 def test_browser_model_default_chat_policy_is_fresh():
     model = BrowserModel()
     assert model.reuse_chat is False
