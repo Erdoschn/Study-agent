@@ -388,30 +388,30 @@ class BrowserModel(ModelClient):
         return False
 
     def _find_copy_button(self, page):
-        """Find Copy in the item belonging to the latest visible assistant message."""
-        message = None
-        messages = page.locator(".ds-message")
-
-        for index in range(messages.count() - 1, -1, -1):
-            try:
-                candidate = messages.nth(index)
-                if not candidate.is_visible():
-                    continue
-
-                has_response = False
-                for response_selector in self.response_selectors:
-                    try:
-                        if candidate.locator(response_selector).count() > 0:
-                            has_response = True
-                            break
-                    except Exception:
+        """Find Copy in the item belonging to the current response."""
+        message = self._latest_response_message(page)
+        if message is None:
+            messages = page.locator(".ds-message")
+            for index in range(messages.count() - 1, -1, -1):
+                try:
+                    candidate = messages.nth(index)
+                    if not candidate.is_visible():
                         continue
 
-                if has_response:
-                    message = candidate
-                    break
-            except Exception:
-                continue
+                    has_response = False
+                    for response_selector in self.response_selectors:
+                        try:
+                            if candidate.locator(response_selector).count() > 0:
+                                has_response = True
+                                break
+                        except Exception:
+                            continue
+
+                    if has_response:
+                        message = candidate
+                        break
+                except Exception:
+                    continue
 
         if message is None:
             debug.log("BrowserModel", "COPY SKIP → latest visible ds-message not found")
