@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import difflib
+import re
+import unicodedata
 from typing import Any
 
 from .filesystem import WorkspaceFS
@@ -12,6 +14,29 @@ class CoderHarness:
         "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "PATCH_FILE",
         "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "READ_DIFF", "VERIFY_GOAL",
     })
+    ARGUMENT_KEYS = {
+        "SEARCH": frozenset({"query"}),
+        "LIST_FILES": frozenset(),
+        "READ_FILE": frozenset({"path"}),
+        "WRITE_FILE": frozenset({"path", "content"}),
+        "PATCH_FILE": frozenset({"path", "old_text", "new_text"}),
+        "CREATE_TEST": frozenset({"path", "content"}),
+        "RUN_PYTHON": frozenset({"script_path"}),
+        "RUN_PYTEST": frozenset({"paths"}),
+        "READ_DIFF": frozenset(),
+        "VERIFY_GOAL": frozenset(),
+    }
+    _SECRET_PATTERNS = (
+        re.compile(r"(?i)(?:password|passwd|api[_ -]?key|secret|token|private[_ -]?key)\s*[:=]"),
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+        re.compile(r"(?<![A-Za-z0-9])(sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})(?![A-Za-z0-9])"),
+        re.compile(r"(?<![A-Za-z0-9])(AIza[0-9A-Za-z_-]{30,}|(?:AKIA|ASIA)[A-Z0-9]{16})(?![A-Za-z0-9])"),
+    )
+    _PATH_EXFIL_PATTERNS = (
+        re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/home/|/users/|/workspace/|file://)"),
+        re.compile(r"(?<!\w)(?:\.{1,2}[\\/])"),
+    )
+    MAX_SEARCH_QUERY_BYTES = 240
 
     def __init__(self, workspace: str, *, search_router=None, sandbox=None):
         self.fs = WorkspaceFS(workspace)
@@ -46,6 +71,7 @@ class CoderHarness:
             raise PermissionError(f"安全策略禁止动作：{action}")
         if not isinstance(arguments, dict):
             raise ValueError("工具参数必须是 JSON 对象。")
+        self._validate_arguments(action, arguments)
 
         handlers = {
             "SEARCH": self._search,
@@ -61,15 +87,63 @@ class CoderHarness:
         }
         return handlers[action](arguments, state)
 
-    def _search(self, args, _state):
-        query = str(args.get("query", "")).strip()
-        if not query:
+
+    def _validate_arguments(self, action: str, arguments: dict[str, Any]) -> None:
+        expected = self.ARGUMENT_KEYS[action]
+        extra = set(arguments) - expected
+        if extra:
+            raise PermissionError(
+                f"{action} 包含未授权参数：{sorted(map(str, extra))}"
+            )
+
+        string_fields = {
+            "query", "path", "script_path", "content", "old_text", "new_text"
+        }
+        for key, value in arguments.items():
+            if key in string_fields and not isinstance(value, str):
+                raise ValueError(f"{action}.{key} 必须是字符串。")
+        if "paths" in arguments:
+            paths = arguments["paths"]
+            if not isinstance(paths, list):
+                raise ValueError("RUN_PYTEST.paths 必须是数组。")
+            if len(paths) > 20 or any(not isinstance(path, str) for path in paths):
+                raise ValueError("RUN_PYTEST.paths 必须是最多 20 个字符串。")
+        for key in string_fields:
+            value = arguments.get(key)
+            if isinstance(value, str) and len(value.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
+                raise PermissionError(f"{action}.{key} 超过安全长度上限。")
+
+    @classmethod
+    def _validate_search_query(cls, query: str) -> str:
+        normalized = unicodedata.normalize("NFKC", query).strip()
+        if not normalized:
             raise ValueError("SEARCH 需要 query。")
-        if len(query) > 240 or "\n" in query:
-            raise PermissionError("SEARCH query 过长或包含换行；禁止把代码/文件内容外发到搜索源。")
-        lowered = query.casefold()
-        if any(token in lowered for token in ("password=", "api_key=", "secret=", "private key", "begin rsa")):
-            raise PermissionError("SEARCH query 疑似包含敏感凭据，已拒绝发送。")
+        if len(normalized.encode("utf-8")) > cls.MAX_SEARCH_QUERY_BYTES:
+            raise PermissionError("SEARCH query 超过安全长度上限。")
+        if any(ord(ch) < 32 for ch in normalized):
+            raise PermissionError("SEARCH query 包含控制字符。")
+        if "\x60\x60\x60" in normalized:
+            raise PermissionError("SEARCH query 不允许携带代码块。")
+        if any(pattern.search(normalized) for pattern in cls._SECRET_PATTERNS):
+            raise PermissionError("SEARCH query 疑似包含凭据或敏感数据，已拒绝发送。")
+        if any(pattern.search(normalized) for pattern in cls._PATH_EXFIL_PATTERNS):
+            raise PermissionError("SEARCH query 疑似包含本地路径，已拒绝发送。")
+        quoted = re.findall(r"['\"]([^'\"]{32,})['\"]", normalized)
+        if quoted:
+            raise PermissionError("SEARCH query 疑似携带长文本片段，已拒绝发送。")
+        for token in re.findall(r"[A-Za-z0-9_+/=-]{40,}", normalized):
+            categories = sum([
+                bool(re.search(r"[a-z]", token)),
+                bool(re.search(r"[A-Z]", token)),
+                bool(re.search(r"[0-9]", token)),
+                bool(re.search(r"[^A-Za-z0-9]", token)),
+            ])
+            if len(token) >= 40 and categories >= 3:
+                raise PermissionError("SEARCH query 疑似包含高熵凭据/内容片段，已拒绝发送。")
+        return normalized
+
+    def _search(self, args, _state):
+        query = self._validate_search_query(args.get("query", ""))
         if self.search_router is None:
             raise RuntimeError("Coder SearchRouter 未配置。")
         from tools.search import SearchQuery
