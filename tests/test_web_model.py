@@ -819,3 +819,81 @@ def test_browser_model_minimizes_native_window_on_windows(monkeypatch):
     model._minimize_browser_window(object())
 
     assert fake_ctypes.windll.user32.calls == [(1234, 6)]
+
+
+
+def test_browser_model_detects_invalid_json_for_recovery():
+    assert BrowserModel._needs_json_recovery(
+        "Kernel k-means 是标准 k-means 的非线性扩展。"
+    ) is True
+    assert BrowserModel._needs_json_recovery(
+        '{"action":"ANSWER","answer":"ok"}'
+    ) is False
+    assert BrowserModel._needs_json_recovery(
+        '{"answer":"ok"}'
+    ) is True
+
+
+def test_browser_model_recovers_invalid_json_in_same_chat(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    events = []
+    responses = [
+        "Kernel k-means 是标准 k-means 的非线性扩展。",
+        '{"action":"ANSWER","reasoning_summary":"direct answer","answer":"ok"}',
+    ]
+    monkeypatch.setattr(model, "_ensure_page", lambda: object())
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_minimize_browser_window", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: events.append("fresh"))
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(
+        model,
+        "_send_prompt",
+        lambda _page, prompt: events.append(("send", prompt)),
+    )
+    monkeypatch.setattr(
+        model,
+        "_wait_for_response",
+        lambda _page, _snapshot: responses.pop(0),
+    )
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append("cleanup"))
+
+    answer = model.generate("You are a reasoner.", "choose an action", json_mode=True)
+
+    assert '"action":"ANSWER"' in answer
+    assert events[0] == "fresh"
+    assert events[-1] == "cleanup"
+    sent_prompts = [event[1] for event in events if isinstance(event, tuple)]
+    assert len(sent_prompts) == 2
+    assert sent_prompts[1].startswith("STRUCTURED OUTPUT RECOVERY.")
+
+
+def test_browser_model_marks_recovery_failure_as_request_failure(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    events = []
+    responses = ["plain answer", "still plain answer"]
+    monkeypatch.setattr(model, "_ensure_page", lambda: object())
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_minimize_browser_window", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: None)
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: None)
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: responses.pop(0))
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append("cleanup"))
+
+    with pytest.raises(RuntimeError, match="JSON 恢复失败"):
+        model.generate("", "choose an action", json_mode=True)
+
+    assert events == ["cleanup"]
