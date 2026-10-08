@@ -674,3 +674,29 @@ def test_coder_web_api_exposes_cancel_and_strict_existing_project_resolution():
     assert "_resolve_existing_project" in source
     assert "browser_model.begin_run()" in source
     assert "ACTIVE_RUNS" in source
+
+
+
+def test_coder_web_api_sends_sse_done_after_worker_finishes():
+    source = Path(__import__("examples.coder_web_api").coder_web_api.__file__).read_text(encoding="utf-8")
+    assert 'events.put({"type": "done"})' in source
+    assert 'elif kind == "done":' in source
+    assert 'self.wfile.write(b"data: [DONE]\\n\\n")' in source
+
+
+def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refresh_guard():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert ".timeline{max-width:920px;width:100%;flex:1;min-height:0;overflow:auto;" in source
+    assert ".body{flex:1;min-height:0;overflow:hidden;" in source
+    assert "try{\n      await loadProjects();" in source
+    assert 'console.error("Coder final refresh failed",e);' in source
+
+
+def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "activeRunId" in source
+    assert "memoryRunId" in source
+    assert 'const runId=state.activeRunId;' in source
+    assert 'const runId=state.memoryRunId;' in source
+
+
