@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .backup import CoderBackupStore
-from .filesystem import WorkspaceFS
+from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
 
 
