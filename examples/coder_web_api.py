@@ -160,8 +160,6 @@ def _llm_project_name(
         debug.log("CoderWebAPI", "PROJECT NAME → model output unusable; using coder-project")
     except RunCancelled:
         raise
-    except RunCancelled:
-        raise
     except Exception as exc:
         debug.log(
             "CoderWebAPI",
@@ -752,6 +750,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 events.put({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
             finally:
+                events.put({"type": "done"})
                 with RUNS_LOCK:
                     ACTIVE_RUNS.pop(control.run_id, None)
                     control.finished = True
