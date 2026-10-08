@@ -39,6 +39,7 @@ class BrowserModel(ModelClient):
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
+    SEND_ACTION_TIMEOUT_MS = 1500
 
     def __init__(
         self,
@@ -851,8 +852,26 @@ class BrowserModel(ModelClient):
             )
 
         self._wait_for_send_slot()
-        textbox.fill(prompt)
-        textbox.press("Enter")
+        debug.log("BrowserModel", f"SEND FILL → chars={len(prompt)}")
+        try:
+            textbox.fill(prompt, timeout=self.SEND_ACTION_TIMEOUT_MS)
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"SEND FILL SKIP → {type(exc).__name__}: {exc}",
+            )
+            raise RuntimeError("DeepSeek Web 输入框填充超时或不可操作。") from exc
+
+        debug.log("BrowserModel", "SEND ENTER → submitting prompt")
+        try:
+            textbox.press("Enter", timeout=self.SEND_ACTION_TIMEOUT_MS)
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"SEND ENTER SKIP → {type(exc).__name__}: {exc}",
+            )
+            raise RuntimeError("DeepSeek Web 输入框发送超时或不可操作。") from exc
+        debug.log("BrowserModel", "SEND SUCCESS → prompt submitted")
 
     def _response_counts(self, page) -> list[int]:
         return [
