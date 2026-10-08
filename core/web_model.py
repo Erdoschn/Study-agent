@@ -113,6 +113,10 @@ class BrowserModel(ModelClient):
             elif not answer:
                 raise RuntimeError("DeepSeek Web 返回为空。")
 
+            if json_mode and self._needs_json_recovery(answer):
+                completed = True
+                answer = self._recover_json_response(page, answer)
+
             completed = True
             debug.log(
                 "BrowserModel",
@@ -123,6 +127,58 @@ class BrowserModel(ModelClient):
             self._pending_prompt = None
             if completed and self.cleanup_after_generate:
                 self._cleanup_current_chat(page)
+
+    @staticmethod
+    def _needs_json_recovery(answer: str) -> bool:
+        """Return whether a browser response is unusable for structured JSON mode."""
+        try:
+            import json
+
+            data = json.loads(str(answer or "").strip())
+        except (TypeError, ValueError):
+            return True
+        return not isinstance(data, dict) or str(data.get("action", "")).upper() not in {
+            "SEARCH",
+            "CALCULATE",
+            "VERIFY",
+            "ASSESS",
+            "ANSWER",
+            "STOP",
+        }
+
+    def _recover_json_response(self, page, previous_answer: str) -> str:
+        """Ask the same DeepSeek chat to convert its previous answer into Agent JSON."""
+        recovery_prompt = (
+            "STRUCTURED OUTPUT RECOVERY. Your previous response did not follow "
+            "the StudyAgent decision protocol. Do not answer or explain the "
+            "user's question again. Convert your previous response into the "
+            "decision JSON required by the instructions above. Return exactly "
+            "one valid JSON object, starting with '{' and ending with '}'. "
+            "The object must contain a valid action field from "
+            "SEARCH, CALCULATE, VERIFY, ASSESS, ANSWER, STOP. "
+            "Preserve useful information from the previous response only in "
+            "the appropriate JSON fields. Output no Markdown, prose, code "
+            "fences, or surrounding text."
+        )
+        debug.log(
+            "BrowserModel",
+            f"JSON RECOVERY → previous_chars={len(str(previous_answer or ''))}",
+        )
+        before_snapshot = self._response_snapshot(page)
+        self._pending_prompt = recovery_prompt
+        self._send_prompt(page, recovery_prompt)
+        answer = self._wait_for_response(page, before_snapshot)
+        markdown = self._copy_latest_response_markdown(page)
+        if markdown:
+            answer = markdown
+        if self._needs_json_recovery(answer):
+            preview = " ".join(str(answer or "")[:160].split())
+            raise RuntimeError(
+                "DeepSeek Web JSON 恢复失败：仍未返回合法 Agent JSON。"
+                f" 原始恢复输出：{preview}"
+            )
+        debug.log("BrowserModel", "JSON RECOVERY → success")
+        return answer
 
     def close(self) -> None:
         """Close the browser context owned by this client."""
