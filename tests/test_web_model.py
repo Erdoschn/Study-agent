@@ -769,9 +769,8 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
 
 def test_browser_model_falls_back_to_response_snapshot_when_fast_reply_has_no_separate_assistant_node():
     class Message:
-        def __init__(self, text, response_text=""):
+        def __init__(self, text):
             self.text = text
-            self.response_text = response_text
 
         def is_visible(self):
             return True
@@ -780,15 +779,11 @@ def test_browser_model_falls_back_to_response_snapshot_when_fast_reply_has_no_se
             return self.text
 
         def locator(self, selector):
-            if selector == ".ds-markdown":
-                return FakeLocator([self.response_text] if self.response_text else [])
             return FakeLocator([])
 
     class Messages:
         def __init__(self):
-            self.values = [
-                Message("User request: current prompt"),
-            ]
+            self.values = [Message("current prompt")]
 
         def count(self):
             return len(self.values)
@@ -799,8 +794,7 @@ def test_browser_model_falls_back_to_response_snapshot_when_fast_reply_has_no_se
     class Page:
         def __init__(self):
             self.messages = Messages()
-            self.responses = ["old answer"]
-            self.messages.values[0].response_text = "new answer"
+            self.responses = ["new answer"]
 
         def locator(self, selector):
             if selector == ".ds-message":
@@ -814,7 +808,6 @@ def test_browser_model_falls_back_to_response_snapshot_when_fast_reply_has_no_se
 
     page = Page()
     assert model._latest_response(page, [(1, "old answer")]) == "new answer"
-
 
 def test_browser_model_does_not_reuse_previous_response(monkeypatch):
     model = BrowserModel(
