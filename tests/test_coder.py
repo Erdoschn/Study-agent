@@ -17,6 +17,17 @@ def test_workspace_rejects_escape_and_absolute_paths(tmp_path):
         fs.read_text(r"C:\Users\secret.py")
 
 
+def test_workspace_rejects_internal_coder_backup_directory(tmp_path):
+    backup = tmp_path / ".coder-backup"
+    backup.mkdir()
+    (backup / "main.py").write_text("SECRET = True", encoding="utf-8")
+    fs = WorkspaceFS(tmp_path)
+
+    with pytest.raises(WorkspaceSecurityError):
+        fs.read_text(".coder-backup/main.py")
+    assert all(".coder-backup" not in path for path in fs.list_files())
+
+
 def test_workspace_rejects_sensitive_files(tmp_path):
     fs = WorkspaceFS(tmp_path)
     (tmp_path / ".env").write_text("SECRET=x", encoding="utf-8")
