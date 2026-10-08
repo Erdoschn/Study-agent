@@ -85,6 +85,30 @@ class FakePage:
 
 
 
+def test_browser_model_default_chat_policy_is_fresh():
+    model = BrowserModel()
+    assert model.reuse_chat is False
+
+
+def test_browser_model_send_interval_is_configurable():
+    model = BrowserModel(min_send_interval_seconds=7.5)
+    assert model.min_send_interval_seconds == 7.5
+
+
+def test_browser_model_throttles_consecutive_sends(monkeypatch):
+    model = BrowserModel(min_send_interval_seconds=5.0)
+    model._last_send_monotonic = 100.0
+    sleeps = []
+    clock = iter([102.0, 107.0])
+    monkeypatch.setattr(web_model_module.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(web_model_module.time, "sleep", lambda value: sleeps.append(value))
+
+    model._wait_for_send_slot()
+
+    assert sleeps == [3.0]
+    assert model._last_send_monotonic == 107.0
+
+
 def test_browser_model_json_mode_prioritizes_structured_output_contract():
     prompt = BrowserModel._build_prompt(
         "Choose SEARCH or ANSWER.",
