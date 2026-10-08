@@ -120,6 +120,7 @@ class CoderAgent:
                             success=False,
                             error=str(exc),
                         ))
+                        emit({"type": "step", "step": state.steps[-1]})
                     continue
 
                 if action == "FINISH":
@@ -138,6 +139,7 @@ class CoderAgent:
                 try:
                     observation = self.harness.execute(action, arguments, state)
                     state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
+                    emit({"type": "step", "step": state.steps[-1]})
                 except Exception as exc:
                     observation = {"error": f"{type(exc).__name__}: {exc}"}
                     state.add_step(CoderStep(
@@ -156,6 +158,7 @@ class CoderAgent:
         except Exception as exc:
             state.error = f"Coder 执行失败：{type(exc).__name__}: {exc}"
             debug.log("CoderAgent", state.error)
+            emit({"type": "error", "state": state})
             return state
         finally:
             model = getattr(self.reasoner, "model", None)
