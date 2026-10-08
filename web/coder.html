@@ -106,7 +106,7 @@ function setProject(name){
 
 const API="/v1/coder";
 function headers(json=true){const h={};if(json)h["Content-Type"]="application/json";return h}
-async async function fetchTimeout(resource,options={},ms=10000){
+async function fetchTimeout(resource,options={},ms=10000){
   const timeoutCtrl=new AbortController();
   const timer=setTimeout(()=>timeoutCtrl.abort(),ms);
   let signal=timeoutCtrl.signal;
