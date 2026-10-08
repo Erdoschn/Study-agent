@@ -250,6 +250,17 @@ def test_reasoner_parser_accepts_notebook_action():
     assert result["action"] == "WRITE_NOTEBOOK"
 
 
+def test_create_test_rejects_notebook_target(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState("notebook")
+    with pytest.raises(Exception, match=r"\.py"):
+        harness.execute(
+            "CREATE_TEST",
+            {"path": "tests/test_demo.ipynb", "content": "{}"},
+            state,
+        )
+
+
 def test_harness_rejects_direct_notebook_patch(tmp_path):
     harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
     state = CoderState("notebook")
