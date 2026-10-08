@@ -38,6 +38,7 @@ if str(ROOT) not in sys.path:
 
 from coder import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
+from coder.reasoner import CoderReasoner
 from core.__debug__ import debug
 from core.web_model import BrowserModel
 
@@ -84,16 +85,52 @@ def _project_slug_from_llm(value: str) -> str:
     return ""
 
 
-def _llm_project_name(task: str) -> str:
-    model = BrowserModel(
+def _new_coder_browser_model() -> BrowserModel:
+    return BrowserModel(
         model="deepseek-web",
         user_data_dir=".coder-browser",
-        timeout=60,
-        cleanup_after_generate=True,
-        reuse_chat=False,
+        timeout=max(1, int(os.getenv("CODER_WEB_BROWSER_TIMEOUT", "180"))),
+        cleanup_after_generate=False,
+        reuse_chat=True,
         min_send_interval_seconds=5.0,
         debug_mode=False,
     )
+
+
+def _prewarm_coder_browser() -> BrowserModel | None:
+    """Open the Coder browser profile before the web API starts serving."""
+    model = _new_coder_browser_model()
+    try:
+        model.prepare_browser()
+        debug.log(
+            "CoderWebAPI",
+            f"BROWSER PREWARM → model={model.model}, profile={model.user_data_dir}",
+        )
+        return model
+    except Exception as exc:
+        debug.log(
+            "CoderWebAPI",
+            f"BROWSER PREWARM FAILED → {type(exc).__name__}: {exc}",
+        )
+        try:
+            model.close()
+        except Exception:
+            pass
+        return None
+
+
+def _llm_project_name(task: str, model: BrowserModel | None = None) -> str:
+    owns_model = model is None
+    if model is None:
+        model = BrowserModel(
+            model="deepseek-web",
+            user_data_dir=".coder-browser",
+            timeout=60,
+            cleanup_after_generate=True,
+            reuse_chat=False,
+            min_send_interval_seconds=5.0,
+            debug_mode=False,
+        )
     try:
         raw = model.generate(
             PROJECT_NAME_PROMPT,
@@ -111,10 +148,11 @@ def _llm_project_name(task: str) -> str:
             f"PROJECT NAME FALLBACK → {type(exc).__name__}: {exc}",
         )
     finally:
-        try:
-            model.close()
-        except Exception:
-            pass
+        if owns_model:
+            try:
+                model.close()
+            except Exception:
+                pass
     return "coder-project"
 
 def _project_root(name: str) -> Path:
@@ -497,22 +535,27 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             try:
                 actual_project = str(project).strip() if project is not None else ""
+                browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
                     actual_project = _ensure_project(actual_project, task)
                 else:
-                    generated_name = _llm_project_name(task)
+                    generated_name = _llm_project_name(task, browser_model)
                     actual_project = _ensure_project(
                         generated_name,
                         task,
                         unique_if_requested=True,
                     )
                 emit({"type": "named", "project": actual_project})
+                if browser_model is not None:
+                    # Naming may have used a chat; every coding task starts in
+                    # its own Coder conversation while reusing the same browser.
+                    browser_model.new_chat()
                 emit({
                     "type": "started",
                     "project": actual_project,
                     "runtime_timeout_seconds": MAX_RUNTIME_SECONDS,
                 })
-                agent = self.server.build_agent(actual_project)
+                agent = self.server.build_agent(actual_project, browser_model)
                 previous = debug.log
 
                 def debug_hook(module: str, message: str) -> None:
@@ -625,13 +668,28 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
 
-def build_agent(project: str) -> CoderAgent:
+def build_agent(
+    project: str,
+    browser_model: BrowserModel | None = None,
+) -> CoderAgent:
+    reasoner = (
+        CoderReasoner(
+            model=browser_model,
+            reuse_chat=True,
+            min_send_interval_seconds=5.0,
+            debug_mode=False,
+        )
+        if browser_model is not None
+        else None
+    )
     return CoderAgent(
         workspace=str(_project_root(project)),
+        reasoner=reasoner,
         max_runtime_seconds=MAX_RUNTIME_SECONDS,
         debug_mode=False,
         reuse_chat=True,
         min_send_interval_seconds=5.0,
+        close_model_on_run=browser_model is None,
     )
 
 
@@ -639,8 +697,13 @@ def main() -> None:
     workspace = WorkspaceFS(WORKSPACE)
     server = CoderServer((HOST, PORT), Handler)
     server.workspace = workspace
+    server.coder_browser_model = _prewarm_coder_browser()
     server.build_agent = build_agent
     print(f"Coder Web API listening on http://{HOST}:{PORT}")
+    if server.coder_browser_model is not None:
+        print("Coder browser: .coder-browser 已启动，可在 Edge 中登录 DeepSeek。")
+    else:
+        print("Coder browser: 启动预热失败，将在首次任务时重试。")
     print(f"Coder UI: http://{HOST}:{PORT}/coder")
     print(f"Workspace root: {workspace.root}")
     print(f"Runtime timeout: {MAX_RUNTIME_SECONDS}s")
@@ -651,6 +714,12 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nCoder Web API stopped.")
     finally:
+        try:
+            browser_model = getattr(server, "coder_browser_model", None)
+            if browser_model is not None:
+                browser_model.close()
+        except Exception as exc:
+            debug.log("CoderWebAPI", f"BROWSER CLOSE SKIP → {type(exc).__name__}: {exc}")
         server.server_close()
 
 
