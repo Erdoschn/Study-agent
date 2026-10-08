@@ -55,3 +55,26 @@ def test_coder_web_frontend_has_drag_drop_and_timeouts():
     assert "fetchTimeout" in source
     assert "AbortController" in source
     assert "15000" in source
+
+
+def test_coder_web_state_payload_exposes_completion_summary():
+    from types import SimpleNamespace
+    from examples.coder_web_api import _state_payload
+
+    state = SimpleNamespace(
+        request="fix",
+        finished=True,
+        goal_verified=True,
+        summary="任务已完成。\n本次修改：\n  - 修改 score_utils.py",
+        error=None,
+        step_count=2,
+        chat_resets=0,
+        modified_files={"score_utils.py"},
+        created_tests={"tests/test_score_utils.py"},
+        metrics={},
+        last_test_result={"kind": "pytest", "passed": True},
+        steps=[],
+    )
+    payload = _state_payload(state)
+    assert payload["summary"] == state.summary
+    assert payload["finished"] is True
