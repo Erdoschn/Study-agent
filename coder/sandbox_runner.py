@@ -31,13 +31,26 @@ def main() -> int:
     work = Path("/sandbox")
     if work.exists():
         shutil.rmtree(work)
-    shutil.copytree(source, work, ignore=_ignore)
+    shutil.copytree(source, work, ignore=_ignore, symlinks=True)
 
     os.chdir(work)
     sys.path.insert(0, str(work))
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["HOME"] = "/tmp/home"
+
+    for raw_path in args.paths:
+        path = raw_path.replace("\\", "/")
+        parts = [p for p in path.split("/") if p not in {"", "."}]
+        if (
+            not parts
+            or any(p == ".." for p in parts)
+            or any(p.startswith("-") for p in parts)
+            or ":" in raw_path
+            or "::" in raw_path
+            or path.startswith("/")
+        ):
+            return 125
 
     if args.kind == "python":
         if len(args.paths) != 1:
