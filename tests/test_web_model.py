@@ -681,6 +681,41 @@ def test_browser_model_prefers_markdown_response_selector():
     assert ".ds-markdown" in BrowserModel.DEFAULT_RESPONSE_SELECTORS
 
 
+def test_browser_model_waits_for_copy_completion_before_accepting_json(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        response_selectors=(".ds-markdown",),
+        loading_selectors=(".ds-message-loading",),
+        poll_interval=0.01,
+        stable_seconds=0.3,
+    )
+    model._json_mode_active = True
+
+    class Page:
+        def locator(self, selector):
+            if selector == ".ds-markdown":
+                return FakeLocator([
+                    '{"action":"READ_FILE","arguments":{"path":"score_utils.py"}}'
+                ])
+            if selector == ".ds-message-loading":
+                return FakeLocator([])
+            return FakeLocator([])
+
+    page = Page()
+    copy_calls = []
+
+    def copy_target(_page):
+        copy_calls.append(True)
+        return object() if len(copy_calls) >= 3 else None
+
+    monkeypatch.setattr(model, "_find_copy_button", copy_target)
+
+    answer = model._wait_for_response(page, [(0, "")])
+
+    assert answer == '{"action":"READ_FILE","arguments":{"path":"score_utils.py"}}'
+    assert len(copy_calls) >= 3
+
+
 def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
     class Page:
         def __init__(self):
