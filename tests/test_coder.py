@@ -122,6 +122,61 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
     assert second["verified"] is True
 
 
+def test_agent_builds_deterministic_completion_summary(tmp_path):
+    class FakeHarness(CoderHarness):
+        def _verify_goal(self, args, state):
+            return {"verified": True, "checks": []}
+
+    class FakeReasoner:
+        def __init__(self):
+            self.model = SimpleNamespace(close=lambda: None)
+            self.calls = 0
+
+        def decide(self, state, tools):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "action": "WRITE_FILE",
+                    "arguments": {
+                        "path": "score_utils.py",
+                        "content": "print(1)\n",
+                    },
+                    "reasoning_summary": "",
+                    "goal": {},
+                }
+            if self.calls == 2:
+                return {
+                    "action": "CREATE_TEST",
+                    "arguments": {
+                        "path": "tests/test_score_utils.py",
+                        "content": "def test_ok(): assert True\n",
+                    },
+                    "reasoning_summary": "",
+                    "goal": {},
+                }
+            if self.calls == 3:
+                return {
+                    "action": "RUN_PYTEST",
+                    "arguments": {"paths": []},
+                    "reasoning_summary": "",
+                    "goal": {},
+                }
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+
+    class PassSandbox:
+        def run(self, kind, paths):
+            return SandboxResult(0, "1 passed", "")
+
+    harness = FakeHarness(str(tmp_path), sandbox=PassSandbox())
+    result = CoderAgent(tmp_path, reasoner=FakeReasoner(), harness=harness).run("fix")
+
+    assert result.finished is True
+    assert result.goal_verified is True
+    assert "score_utils.py" in result.summary
+    assert "tests/test_score_utils.py" in result.summary
+    assert "pytest 测试通过" in result.summary
+
+
 def test_agent_emits_progress_events(tmp_path):
     class FakeHarness(CoderHarness):
         def _verify_goal(self, args, state):
