@@ -181,40 +181,68 @@ function renderHistory(runs){
 }
 function renderMemory(knowledge,graph){
   const box=$("memory");
-  const groups=[
-    ["技术",knowledge?.technologies||[],x=>x.name+" ×"+x.count],
-    ["策略",knowledge?.strategies||[],x=>x.text],
-    ["经验",knowledge?.experiences||[],x=>x.text],
-  ];
+  const technologies=Array.isArray(knowledge?.technologies)?knowledge.technologies:[];
+  const rawExperiences=Array.isArray(knowledge?.experiences)?knowledge.experiences:[];
+  const experiences=rawExperiences
+    .filter(item=>{
+      const text=String(item?.text||"").trim();
+      return text && !text.startsWith("最终通过验证：");
+    })
+    .slice(-4)
+    .reverse();
+
   box.textContent="";
-  let empty=true;
-  for(const [label,items,format] of groups){
-    if(!items.length)continue;
-    empty=false;
+  if(technologies.length){
     const title=document.createElement("b");
-    title.textContent=label+"：";
+    title.textContent="技术：";
     box.append(title);
-    items.slice(0,5).forEach(item=>{
+    const line=document.createElement("div");
+    line.className="memory-line";
+    line.textContent=technologies
+      .slice(0,8)
+      .map(item=>String(item?.name||"")+(item?.count>1?" ×"+item.count:""))
+      .filter(Boolean)
+      .join(" · ");
+    box.append(line);
+  }
+
+  if(experiences.length){
+    const title=document.createElement("b");
+    title.textContent="最近教训：";
+    box.append(title);
+    experiences.forEach(item=>{
       const line=document.createElement("div");
       line.className="memory-line";
-      line.textContent=format(item);
+      const text=String(item.text||"").replace(/\s+/g," ").trim();
+      line.textContent="• "+text.slice(0,180)+(text.length>180?"…":"");
       box.append(line);
     });
   }
+
   const nodes=Array.isArray(graph?.nodes)?graph.nodes:[];
   if(nodes.length){
-    empty=false;
-    const title=document.createElement("b");
-    title.textContent="图谱：";
-    box.append(title);
-    nodes.slice(0,8).forEach(item=>{
+    const typeCounts=Object.create(null);
+    nodes.forEach(item=>{
+      const type=String(item?.type||"");
+      if(type && !["action","experience"].includes(type)){
+        typeCounts[type]=(typeCounts[type]||0)+1;
+      }
+    });
+    const graphSummary=Object.entries(typeCounts)
+      .map(([type,count])=>type+" "+count)
+      .join(" · ");
+    if(graphSummary){
+      const title=document.createElement("b");
+      title.textContent="知识记录：";
+      box.append(title);
       const line=document.createElement("div");
       line.className="memory-line";
-      line.textContent=String(item.type||"node")+" · "+String(item.name||"")+" ×"+String(item.count||1);
+      line.textContent=graphSummary;
       box.append(line);
-    });
+    }
   }
-  if(empty)box.textContent="暂无策略、经验、技术或图谱记录。";
+
+  if(!box.childNodes.length)box.textContent="暂无可用的 Coder 记忆。";
 }
 async function loadHistory(){
   try{
@@ -325,7 +353,7 @@ async function uploadMany(files){
     appendStep("PROJECT",false,"创建导入项目失败："+(e.message||String(e)));
   }
 }
-function appendStep(action,ok,observation,stepNo){const box=$("timeline");if(box.querySelector(".empty"))box.textContent="";const el=document.createElement("div");el.className="step";const head=document.createElement("div");head.className="step-head";const n=document.createElement("span");n.className="num";n.textContent=stepNo?("#"+stepNo):"";const a=document.createElement("span");a.className="action";a.textContent=action;const s=document.createElement("span");s.className=ok?"ok":"bad";s.textContent=ok?"✓":"✕";head.append(n,a,s);el.append(head);if(observation){const meta=document.createElement("div");meta.className="meta";meta.textContent=typeof observation==="string"?observation:JSON.stringify(observation,null,2);el.append(meta)}box.append(el);el.scrollIntoView({block:"end",behavior:"smooth"})}
+function appendStep(action,ok,observation,stepNo){const box=$("timeline");if(box.querySelector(".empty"))box.textContent="";const el=document.createElement("div");el.className="step";const head=document.createElement("div");head.className="step-head";const n=document.createElement("span");n.className="num";n.textContent=stepNo?("#"+stepNo):"";const a=document.createElement("span");a.className="action";a.textContent=action;const s=document.createElement("span");s.className=ok?"ok":"bad";s.textContent=ok?"✓":"✕";head.append(n,a,s);el.append(head);if(observation){const meta=document.createElement("div");meta.className="meta";meta.textContent=typeof observation==="string"?observation:JSON.stringify(observation,null,2);el.append(meta)}box.append(el)}
 function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
 async function run(){
   const request=$("task").value.trim();
