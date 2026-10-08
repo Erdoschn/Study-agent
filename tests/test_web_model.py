@@ -358,6 +358,27 @@ def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
     assert page.messages_present is False
 
 
+def test_browser_model_does_not_accept_stale_clipboard(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    button = FakeLocator(["copy"], on_press=lambda key: None)
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: button)
+    cleared = []
+
+    def clear(_page):
+        cleared.append(True)
+        return "__study_agent_clipboard_pending__"
+
+    monkeypatch.setattr(model, "_clear_browser_clipboard", clear)
+    monkeypatch.setattr(
+        model,
+        "_read_browser_clipboard",
+        lambda _page: "__study_agent_clipboard_pending__",
+    )
+
+    assert model._copy_latest_response_markdown(object()) == ""
+    assert cleared == [True]
+
+
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
     model = BrowserModel(timeout=1)
     page = object()
