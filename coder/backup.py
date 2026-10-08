@@ -32,13 +32,11 @@ class CoderBackupStore:
 
     def __init__(self, workspace: str | Path):
         self.workspace = Path(workspace).resolve()
-        self.root = (self.workspace.parent / f"{self.workspace.name}.coder-backup").resolve()
+        self.root = (self.workspace / ".coder-backup").resolve()
         try:
             self.root.relative_to(self.workspace)
-        except ValueError:
-            pass
-        else:
-            raise WorkspaceSecurityError("Coder backup 必须位于 workspace 同级或其外部。")
+        except ValueError as exc:
+            raise WorkspaceSecurityError("Coder backup 必须位于 workspace 内。") from exc
 
         self.root.mkdir(parents=True, exist_ok=True)
         try:
