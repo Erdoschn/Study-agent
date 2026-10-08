@@ -83,6 +83,23 @@ class FakePage:
             self.responses.append(f"answer for: {self.input.values[0]}")
 
 
+
+
+def test_browser_model_json_mode_prioritizes_structured_output_contract():
+    prompt = BrowserModel._build_prompt(
+        "Choose SEARCH or ANSWER.",
+        '{"question":"kernel k-means是什么？"}',
+        json_mode=True,
+    )
+
+    assert prompt.startswith("CRITICAL RESPONSE CONTRACT:")
+    assert "Do not directly answer or teach the user's question." in prompt
+    assert "exactly one valid JSON object" in prompt
+    assert prompt.endswith(
+        "Return ONLY the JSON object requested by the Agent decision "
+        "instructions. Do not answer the user's question directly."
+    )
+
 def test_build_prompt_keeps_system_and_user_separate():
     prompt = BrowserModel._build_prompt(
         "You are a reasoner.",
