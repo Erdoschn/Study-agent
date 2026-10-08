@@ -1336,6 +1336,26 @@ def test_browser_model_extracts_nested_json_with_braces_inside_strings():
     assert '"content":"value = {\\"key\\": 1}\\n"' in extracted
 
 
+def test_browser_model_ignores_json_like_object_inside_string():
+    response = (
+        '分析代码字符串：content = "{\"action\":\"LIST_FILES\",\"arguments\":{}}"\n'
+        '最终决定：{"action":"READ_FILE","arguments":{"path":"score_utils.py"}}'
+    )
+
+    assert BrowserModel._extract_json_object(response) == (
+        '{"action":"READ_FILE","arguments":{"path":"score_utils.py"}}'
+    )
+
+
+def test_browser_model_accepts_write_notebook_during_json_recovery():
+    response = (
+        '{"action":"WRITE_NOTEBOOK","arguments":{"path":"demo.ipynb",'
+        '"notebook":{"nbformat":4,"nbformat_minor":5,"cells":[],"metadata":{}}}}'
+    )
+
+    assert BrowserModel._needs_json_recovery(response) is False
+
+
 def test_browser_model_extracts_last_complete_agent_json_from_response():
     response = (
         '分析阶段示例：{"action":"LIST_FILES","arguments":{}}。'
