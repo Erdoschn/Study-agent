@@ -361,6 +361,7 @@ def test_coder_memory_store_persists_history_and_knowledge(tmp_path):
         modified_files={"calculator.py", "tests/test_calculator.py"},
         created_tests={"tests/test_calculator.py"},
         chat_resets=0,
+        last_test_result={"kind": "pytest", "passed": True, "stdout": "1 passed", "stderr": ""},
     )
 
     first = CoderMemoryStore(tmp_path)
@@ -372,6 +373,7 @@ def test_coder_memory_store_persists_history_and_knowledge(tmp_path):
     assert data["runs"][-1]["request"] == "build a calculator"
     assert data["runs"][-1]["strategy"] == "READ_FILE → PATCH_FILE → CREATE_TEST → RUN_PYTEST"
     assert data["runs"][-1]["study_agent_calls"] == 0
+    assert data["runs"][-1]["last_test_result"]["passed"] is True
     assert any(item["name"] == "Python" for item in data["technologies"])
     assert any(item["name"] == "pytest" for item in data["technologies"])
     assert data["experiences"][0]["text"].startswith("PATCH_FILE: pytest failed")
