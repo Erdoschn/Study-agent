@@ -22,7 +22,17 @@ class CoderReasoner:
         debug_mode: bool = False,
         reuse_chat: bool = True,
         min_send_interval_seconds: float = 5.0,
+        recent_user_feedback: list[dict[str, Any]] | None = None,
     ):
+        self.recent_user_feedback = [
+            {
+                "project": str(item.get("project", ""))[:120],
+                "request": str(item.get("request", ""))[:300],
+                "feedback": str(item.get("feedback", ""))[:800],
+            }
+            for item in (recent_user_feedback or [])
+            if isinstance(item, dict) and str(item.get("feedback", "")).strip()
+        ][:8]
         self.model = model or BrowserModel(
             model="deepseek-web",
             user_data_dir=".coder-browser",
@@ -57,6 +67,7 @@ class CoderReasoner:
             "created_tests": sorted(state.created_tests),
             "last_test_result_untrusted": self._untrusted(state.last_test_result),
             "last_observation_untrusted": self._untrusted(state.last_observation),
+            "user_feedback": self.recent_user_feedback,
             "chat": {
                 "reuse_enabled": bool(getattr(self.model, "reuse_chat", False)),
                 "reset_count": int(getattr(state, "chat_resets", 0)),
