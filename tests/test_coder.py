@@ -99,21 +99,21 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
 
 
 def test_agent_does_not_finish_before_goal_is_verified(tmp_path):
+    class FakeHarness(CoderHarness):
+        def _verify_goal(self, args, state):
+            state.goal_verified = self._verified
+            return {"verified": self._verified, "checks": []}
+        _verified = False
+
     class FakeReasoner:
         def __init__(self):
             self.calls = 0
             self.model = SimpleNamespace(close=lambda: None)
         def decide(self, state, tools):
             self.calls += 1
-            if self.calls <= 2:
-                return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
-            raise RuntimeError("test stop")
-
-    class FakeHarness(CoderHarness):
-        def _verify_goal(self, args, state):
-            state.goal_verified = self._verified
-            return {"verified": self._verified, "checks": []}
-        _verified = False
+            if self.calls == 2:
+                harness._verified = True
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
 
     harness = FakeHarness(str(tmp_path), sandbox=SimpleNamespace())
     agent = CoderAgent(
@@ -123,6 +123,37 @@ def test_agent_does_not_finish_before_goal_is_verified(tmp_path):
         max_runtime_seconds=30,
     )
     result = agent.run("fix")
-    assert result.goal_verified is False
+    assert result.goal_verified is True
+    assert result.finished is True
     assert result.error is None
-    assert result.step_count >= 2
+    assert result.step_count == 2
+
+
+def test_sandbox_staging_excludes_sensitive_files(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("SECRET=x", encoding="utf-8")
+    (tmp_path / "main.py").write_text("print(1)", encoding="utf-8")
+    observed = {}
+
+    def fake_run(command, name):
+        mount_arg = command[command.index("--mount") + 1]
+        stage = Path(mount_arg.split("src=", 1)[1].split(",dst=", 1)[0])
+        observed["files"] = {p.name for p in stage.rglob("*") if p.is_file()}
+        return SandboxResult(0, "", "")
+
+    sandbox = DockerPythonSandbox(tmp_path)
+    monkeypatch.setattr(sandbox, "_run_limited", fake_run)
+    result = sandbox.run("python", ["main.py"])
+
+    assert result.passed is True
+    assert observed["files"] == {"main.py"}
+
+
+def test_harness_rejects_python_execution_outside_workspace(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("fix")
+    with pytest.raises(WorkspaceSecurityError):
+        harness.execute(
+            "RUN_PYTHON",
+            {"script_path": "../outside.py"},
+            state,
+        )
