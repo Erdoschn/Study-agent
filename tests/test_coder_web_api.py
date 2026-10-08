@@ -102,6 +102,62 @@ def test_coder_project_slug_from_llm_prefers_specific_last_candidate():
     assert api._project_slug_from_llm("Project") == ""
 
 
+def test_coder_browser_prewarm_creates_shared_browser_model(monkeypatch):
+    import examples.coder_web_api as api
+
+    class FakeModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.model = kwargs["model"]
+            self.user_data_dir = kwargs["user_data_dir"]
+            self.prepared = False
+            self.closed = False
+
+        def prepare_browser(self):
+            self.prepared = True
+
+        def close(self):
+            self.closed = True
+
+    holder = {}
+
+    def factory(**kwargs):
+        model = FakeModel(**kwargs)
+        holder["model"] = model
+        return model
+
+    monkeypatch.setattr(api, "BrowserModel", factory)
+    model = api._prewarm_coder_browser()
+
+    assert model is holder["model"]
+    assert model.prepared is True
+    assert model.closed is False
+    assert model.model == "deepseek-web"
+    assert model.user_data_dir == ".coder-browser"
+    assert model.kwargs["cleanup_after_generate"] is False
+    assert model.kwargs["reuse_chat"] is True
+
+
+def test_coder_project_name_shared_browser_is_not_closed(monkeypatch):
+    import examples.coder_web_api as api
+
+    class FakeModel:
+        closed = False
+
+        def generate(self, system_prompt, user_prompt, json_mode=False):
+            assert system_prompt == api.PROJECT_NAME_PROMPT
+            assert "build a tiny calculator" in user_prompt
+            assert json_mode is False
+            return "simple-calculator"
+
+        def close(self):
+            self.closed = True
+
+    model = FakeModel()
+    assert api._llm_project_name("build a tiny calculator", model) == "simple-calculator"
+    assert model.closed is False
+
+
 def test_coder_project_name_uses_llm_and_closes_browser(monkeypatch):
     import examples.coder_web_api as api
 
