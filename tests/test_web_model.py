@@ -117,7 +117,9 @@ def test_browser_model_json_mode_prioritizes_structured_output_contract():
     )
 
     assert prompt.startswith("CRITICAL RESPONSE CONTRACT:")
+    assert "You are a browser-backed agent runtime." in prompt
     assert "Do not directly answer or teach the user's question." in prompt
+    assert "You are controlling StudyAgent through a browser UI." not in prompt
     assert "exactly one valid JSON object" in prompt
     assert prompt.endswith(
         "Return ONLY the JSON object requested by the Agent decision "
