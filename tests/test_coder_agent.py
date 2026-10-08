@@ -92,6 +92,17 @@ def test_coder_agent_handles_model_selected_new_chat(tmp_path):
     assert [step.action for step in state.steps] == ["NEW_CHAT", "FINISH"]
 
 
+def test_coder_reasoner_accepts_patch_notebook_action():
+    from coder.reasoner import CoderReasoner
+
+    decision = CoderReasoner._parse(
+        '{"action":"PATCH_NOTEBOOK","arguments":{"path":"demo.ipynb","cell_index":0,"old_source":"x","new_source":"y"}}'
+    )
+
+    assert decision["action"] == "PATCH_NOTEBOOK"
+    assert decision["arguments"]["cell_index"] == 0
+
+
 def test_coder_reasoner_accepts_new_chat_action():
     from coder.reasoner import CoderReasoner
 
