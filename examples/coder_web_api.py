@@ -346,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         )
         if len(data) > UPLOAD_MAX_BYTES:
             raise WorkspaceSecurityError("上传文件超过安全大小上限。")
-        filename = filename.replace("\\", "/").strip("/")
+        filename = filename.replace("\\", "/")
         if not filename:
             raise ValueError("上传文件缺少文件名。")
 
