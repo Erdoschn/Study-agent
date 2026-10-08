@@ -37,7 +37,7 @@ class CoderState:
     modification_generation: int = 0
     test_generation: int = -1
     backup_generation: int = -1
-    backup_path: str | None = None
+    initial_backup_generation: int = -1
     metrics: dict[str, Any] = field(default_factory=dict)
 
     @property
