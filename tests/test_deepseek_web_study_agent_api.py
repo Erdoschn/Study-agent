@@ -144,3 +144,10 @@ def test_web_frontend_exists():
     path = WEB_ROOT / "index.html"
     assert path.is_file()
     assert path.stat().st_size > 1000
+
+
+def test_web_api_exposes_health_under_v1_prefix():
+    source = (WEB_ROOT.parent / "examples" / "deepseek_web_study_agent_api.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if path in {"/health", "/v1/health"}:' in source
