@@ -28,6 +28,11 @@ class CoderAgent:
         max_runtime_seconds: float = 1800,
     ):
         self.workspace = Path(workspace)
+        if search_router is None:
+            from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
+            search_router = SearchRouter()
+            search_router.register(ArxivSearchProvider())
+            search_router.register(WikipediaSearchProvider())
         self.reasoner = reasoner
         self.harness = harness or CoderHarness(str(self.workspace), search_router=search_router, sandbox=sandbox)
         if self.reasoner is None:
