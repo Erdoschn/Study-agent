@@ -300,6 +300,11 @@ class CoderHarness:
             ) if goal.must_pass_tests else True,
         })
         backup_present = self.backup.has_latest_snapshot()
+        initial_present = self.backup.has_initial_snapshot()
+        checks.append({
+            "check": "initial_baseline_backup",
+            "ok": initial_present,
+        })
         checks.append({
             "check": "last_known_good_backup",
             "ok": bool(
