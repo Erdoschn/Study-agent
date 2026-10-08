@@ -94,6 +94,7 @@ def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
     third = harness.execute("RUN_PYTEST", {"paths": []}, state)
     assert third["passed"] is True
     assert third["backup_ok"] is True
+    assert "backup_path" not in third
     assert state.backup_generation == state.modification_generation
     assert backup_text(harness, "main.py") == "VERSION = 2\n"
 
@@ -132,8 +133,15 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
     assert result["backup_ok"] is True
     assert state.backup_generation == state.modification_generation
 
+    state.created_tests.add("tests/test_a.py")
     verified = harness.execute("VERIFY_GOAL", {}, state)
-    assert verified["verified"] is False
+    assert verified["verified"] is True
+
+    import os
+    os.remove(state.backup_path)
+    state.goal_verified = False
+    hidden = harness.execute("VERIFY_GOAL", {}, state)
+    assert hidden["verified"] is False
 
 
 def backup_text(harness: CoderHarness, path: str) -> str:
