@@ -26,8 +26,16 @@ class CoderReasoner:
             user_data_dir=".coder-browser",
             cleanup_after_generate=False,
             reuse_chat=True,
+            min_send_interval_seconds=5.0,
             debug_mode=debug_mode,
         )
+
+    def new_chat(self) -> None:
+        """Reset only the Coder's browser conversation when needed."""
+        reset = getattr(self.model, "new_chat", None)
+        if not callable(reset):
+            raise RuntimeError("当前 Coder WebModel 不支持新会话。")
+        reset()
 
     def decide(self, state: CoderState, tool_specs: list[dict[str, Any]]) -> dict[str, Any]:
         payload = {
