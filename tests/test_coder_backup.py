@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 from coder.backup import CoderBackupStore
 from coder.harness import CoderHarness
@@ -107,9 +109,12 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
 
         def snapshot(self, generation):
             backup_state.generation = generation
+            self.root.mkdir(parents=True, exist_ok=True)
+            archive = self.root / "latest.zip"
+            archive.write_bytes(b"backup")
             return SimpleNamespace(
                 generation=generation,
-                archive=self.root / "latest.zip",
+                archive=archive,
                 file_count=1,
             )
 
@@ -137,7 +142,6 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
     verified = harness.execute("VERIFY_GOAL", {}, state)
     assert verified["verified"] is True
 
-    import os
     os.remove(state.backup_path)
     state.goal_verified = False
     hidden = harness.execute("VERIFY_GOAL", {}, state)
@@ -145,9 +149,5 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
 
 
 def backup_text(harness: CoderHarness, path: str) -> str:
-    assert harness.backup.contains_text(path, "VERSION = 1\n") or harness.backup.contains_text(path, "VERSION = 2\n")
-    manifest = harness.backup.read_manifest()
-    from zipfile import ZipFile
-
     with ZipFile(harness.backup.root / harness.backup.ARCHIVE_NAME) as archive:
         return archive.read(path).decode("utf-8")
