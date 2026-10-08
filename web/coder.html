@@ -193,11 +193,21 @@ function renderHistory(runs){
       try{
         if(item.project)setProject(item.project);
         await loadFiles(state.project);
-        $("request").textContent=item.request||"";
-        $("summary").textContent=item.summary||item.error||"历史任务无总结。";
-        $("finished").textContent=String(item.finished);
-        $("verified").textContent=String(item.verified);
-        $("steps").textContent=String(item.step_count);
+        const historyState={
+          request:item.request||"",
+          finished:Boolean(item.finished),
+          goal_verified:Boolean(item.verified),
+          error:item.error||null,
+          summary:item.summary||item.error||"历史任务无总结。",
+          step_count:Number(item.step_count||0),
+          modified_files:Array.isArray(item.modified_files)?item.modified_files:[],
+          created_tests:Array.isArray(item.created_tests)?item.created_tests:[],
+          chat_resets:Number(item.chat_resets||0),
+          cancelled:Boolean(item.cancelled),
+          last_test_result:item.last_test_result||null,
+        };
+        state.finalState=historyState;
+        updateSummary(historyState);
       }catch(e){
         console.error("Coder history selection failed",e);
       }
