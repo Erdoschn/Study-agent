@@ -68,6 +68,41 @@ def test_coder_web_limits_upload_and_runtime():
     assert MAX_RUNTIME_SECONDS >= 30.0
 
 
+def test_coder_web_frontend_javascript_parses():
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        return
+
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    scripts = []
+    marker = "<script>"
+    pos = 0
+    while True:
+        start = source.find(marker, pos)
+        if start < 0:
+            break
+        end = source.find("</script>", start)
+        if end < 0:
+            break
+        scripts.append(source[start + len(marker):end])
+        pos = end + len("</script>")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, script in enumerate(scripts):
+            path = Path(tmp) / f"script_{index}.js"
+            path.write_text(script, encoding="utf-8")
+            result = subprocess.run(
+                [node, "--check", str(path)],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+
 def test_coder_web_frontend_supports_importing_files_into_a_new_project():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "把已有工程文件拖到这里" in source
