@@ -19,12 +19,16 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
     (tmp_path / "tests" / "test_main.py").write_text(
         "def test_main():\n    assert True\n", encoding="utf-8"
     )
+    (tmp_path / "analysis.ipynb").write_text(
+        '{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}',
+        encoding="utf-8",
+    )
 
     backup = CoderBackupStore(tmp_path)
     snapshot = backup.snapshot(3)
 
     assert snapshot.generation == 3
-    assert snapshot.file_count == 3
+    assert snapshot.file_count == 4
     assert snapshot.archive == tmp_path / ".coder-backup" / "latest.zip"
     initial = backup.ensure_initial_snapshot(0)
     assert initial.file_count == 3
@@ -37,6 +41,7 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
         "main.py",
         "helper.pyi",
         "tests/test_main.py",
+        "analysis.ipynb",
     }
     assert backup.contains_text("main.py", "VERSION = 1\n")
     assert not backup.contains_text(".env", "SECRET=x")
