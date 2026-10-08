@@ -68,7 +68,7 @@ class CoderAgent:
         request = str(request or "").strip()
         if not request:
             raise ValueError("Coder 请求不能为空。")
-        state = CoderState(request=request)
+        state = CoderState(request=request, project=self.workspace.name)
 
         def emit(event: dict) -> None:
             if callable(event_hook):
