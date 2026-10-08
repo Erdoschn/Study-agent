@@ -36,6 +36,8 @@ class CoderState:
     error: str | None = None
     modification_generation: int = 0
     test_generation: int = -1
+    backup_generation: int = -1
+    backup_path: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
 
     @property
