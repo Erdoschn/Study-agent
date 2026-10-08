@@ -22,10 +22,17 @@
 <div class="shell">
 <aside class="side">
   <div class="brand"><div class="mark">C</div><div><strong>Coder</strong><small>StudyAgent Coding Agent</small></div></div>
-  <div class="workspace"><b>Workspace</b><span id="workspace">加载中…</span></div>
+  <div class="workspace"><b>Workspace</b><span id="workspace">正在连接…</span></div>
+  <div class="workspace">
+    <b>项目</b>
+    <select id="project" style="width:100%;margin-top:7px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:#101319;color:var(--text)">
+      <option value="">新建项目（直接描述要求）</option>
+    </select>
+    <span id="projectHint">没有项目也可以直接输入要求，Coder 会自动创建独立目录。</span>
+  </div>
   <div class="drop" id="drop">
     <strong>把文件拖到这里</strong>
-    自动复制到当前 workspace
+    自动复制到当前项目
     <label>选择文件<input id="fileInput" type="file" multiple></label>
   </div>
   <div class="files" id="files"></div>
@@ -38,8 +45,8 @@
   </header>
   <section class="body">
     <div class="hero">
-      <h1>让 Coder 修改当前工作区</h1>
-      <p>先拖入项目文件，再描述目标。Agent 会自行读取、修改、测试和验证。</p>
+      <h1>直接告诉 Coder 你要做什么</h1>
+      <p>可以直接创建新项目，也可以选择已有项目继续修改。拖入文件只是可选输入。</p>
       <div class="task">
         <textarea id="task" maxlength="100000" placeholder="例如：检查 score_utils.py 的平均分计算问题，修复它，并补充 pytest 回归测试。"></textarea>
         <div class="taskbar"><span id="timer">未运行</span><button class="run" id="run">运行 Coder</button></div>
@@ -58,24 +65,81 @@
 </div>
 <script>
 const $=s=>document.querySelector(s);
-const state={running:false,controller:null,startedAt:0,timer:null};
+const state={running:false,controller:null,startedAt:0,timer:null,project:""};
+function selectedProject(){return $("project").value.trim()}
+function setProject(name){
+  state.project=name||"";
+  $("project").value=state.project;
+  if(state.project) $("projectHint").textContent="当前项目："+state.project+"；文件和 Agent 操作都限制在该目录。";
+  else $("projectHint").textContent="没有项目也可以直接输入要求，Coder 会自动创建独立目录。";
+}
+
 const API="/v1/coder";
 function headers(json=true){const h={};if(json)h["Content-Type"]="application/json";return h}
 async function fetchTimeout(resource,options={},ms=10000){const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),ms);try{return await fetch(resource,{...options,signal:options.signal||ctrl.signal})}finally{clearTimeout(timer)}}
 function setHealth(ok,text){$("dot").className="dot dot "+(ok?"ok":"bad");$("health").textContent=text}
-async function health(){try{const r=await fetchTimeout("/health",{cache:"no-store"},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("workspace").textContent=d.workspace;setHealth(true,"API 在线")}catch(e){setHealth(false,"API 离线")}}
+async function health(){
+  try{
+    const r=await fetchTimeout("/health",{cache:"no-store"},3000);
+    if(!r.ok)throw Error("HTTP "+r.status);
+    const d=await r.json();
+    $("workspace").textContent=d.workspace||"已连接";
+    setHealth(true,"API 在线");
+  }catch(e){
+    $("workspace").textContent="连接失败（可重试）";
+    setHealth(false,"API 离线");
+  }
+}
 function ext(path){const m=/\.([^.]+)$/.exec(path);return m?"."+m[1].toLowerCase():""}
 function renderFiles(files){const box=$("files");box.textContent="";if(!files.length){box.innerHTML='<div class="empty">workspace 里还没有可读文件</div>';return}for(const path of files){const b=document.createElement("button");b.className="file";b.textContent=path;b.title="查看 "+path;b.onclick=()=>openFile(path);box.append(b)}}
-async function loadFiles(){try{const r=await fetchTimeout(API+"/files",{cache:"no-store"},5000);if(!r.ok)throw Error(await r.text());const d=await r.json();$("workspace").textContent=d.workspace;renderFiles(d.files||[])}catch(e){renderFiles([])}}
+async function loadProjects(){
+  try{
+    const r=await fetchTimeout(API+"/projects",{cache:"no-store"},3000);
+    if(!r.ok)throw Error(await r.text());
+    const d=await r.json();
+    $("workspace").textContent=d.workspace||"已连接";
+    const select=$("project"), current=state.project;
+    select.innerHTML="";
+    const fresh=document.createElement("option");
+    fresh.value="";
+    fresh.textContent="新建项目（直接描述要求）";
+    select.append(fresh);
+    for(const p of (d.projects||[])){
+      const option=document.createElement("option");
+      option.value=p.name;
+      option.textContent=p.name+" ("+(p.file_count||0)+" 个文件)";
+      select.append(option);
+    }
+    if(current && (d.projects||[]).some(p=>p.name===current)) setProject(current);
+    else setProject("");
+  }catch(e){
+    $("workspace").textContent="项目列表加载失败（可重试）";
+  }
+}
+async function loadFiles(){
+  const project=selectedProject();
+  if(!project){renderFiles([]);return}
+  try{
+    const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{cache:"no-store"},3000);
+    if(!r.ok)throw Error(await r.text());
+    const d=await r.json();
+    renderFiles(d.files||[]);
+  }catch(e){renderFiles([])}
+}
 async function openFile(path){try{const r=await fetchTimeout(API+"/file?path="+encodeURIComponent(path),{},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000)}catch(e){$("request").textContent="读取失败："+e.message}}
-async function upload(file){const fd=new FormData();fd.append("file",file,file.name);try{const r=await fetchTimeout(API+"/files",{method:"POST",body:fd},15000);if(!r.ok)throw Error((await r.text()).slice(0,500));await loadFiles();return {ok:true,file}}catch(e){return {ok:false,file,error:e}}}
+async function upload(file){
+  const project=selectedProject();
+  if(!project)return {ok:false,file,error:new Error("请先选择项目；新项目请先运行一次自然语言要求。")};
+  const fd=new FormData();fd.append("file",file,file.name);
+  try{const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{method:"POST",body:fd},15000);if(!r.ok)throw Error((await r.text()).slice(0,500));await loadFiles();return {ok:true,file}}catch(e){return {ok:false,file,error:e}}}
 async function uploadMany(files){for(const file of files){const result=await upload(file);if(!result.ok)appendStep("UPLOAD",false,result.file.name+": "+result.error.message)}}
 function appendStep(action,ok,observation,stepNo){const box=$("timeline");if(box.querySelector(".empty"))box.textContent="";const el=document.createElement("div");el.className="step";const head=document.createElement("div");head.className="step-head";const n=document.createElement("span");n.className="num";n.textContent=stepNo?("#"+stepNo):"";const a=document.createElement("span");a.className="action";a.textContent=action;const s=document.createElement("span");s.className=ok?"ok":"bad";s.textContent=ok?"✓":"✕";head.append(n,a,s);el.append(head);if(observation){const meta=document.createElement("div");meta.className="meta";meta.textContent=typeof observation==="string"?observation:JSON.stringify(observation,null,2);el.append(meta)}box.append(el);el.scrollIntoView({block:"end",behavior:"smooth"})}
 function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
-async function run(){const request=$("task").value.trim();if(!request||state.running)return;state.running=true;state.startedAt=Date.now();$("run").textContent="停止等待";$("run").classList.add("stop");$("task").disabled=true;$("timeline").innerHTML="";$("request").textContent=request;$("timer").textContent="运行中";state.timer=setInterval(()=>{$("timer").textContent=Math.floor((Date.now()-state.startedAt)/1000)+"s"},250);state.controller=new AbortController();try{const r=await fetch("/v1/coder/run",{method:"POST",headers:headers(),body:JSON.stringify({request}),signal:state.controller.signal});if(!r.ok)throw Error((await r.text()).slice(0,800));if(!r.body)throw Error("浏览器不支持 SSE");const reader=r.body.getReader(),decoder=new TextDecoder();let buf="";for(;;){const q=await reader.read();buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});const parts=buf.split("\n\n");buf=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(!line)continue;const data=line.slice(6);if(data==="[DONE]"){break}const e=JSON.parse(data);if(e.type==="started"){appendStep("START",true,"运行上限 "+e.runtime_timeout_seconds+"s")}else if(e.type==="step"){const s=e.step;appendStep(s.action,s.success,s.error||s.observation,s.step_id)}else if(e.type==="finished"){appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");updateSummary(e.state)}else if(e.type==="result"){updateSummary(e.state)}}if(q.done)break}}catch(e){if(e.name!=="AbortError")appendStep("ERROR",false,e.message||String(e))}finally{state.running=false;state.controller=null;clearInterval(state.timer);state.timer=null;$("task").disabled=false;$("run").textContent="运行 Coder";$("run").classList.remove("stop");$("timer").textContent="完成";await loadFiles()}}
+async function run(){const request=$("task").value.trim();if(!request||state.running)return;state.running=true;state.startedAt=Date.now();$("run").textContent="停止等待";$("run").classList.add("stop");$("task").disabled=true;$("timeline").innerHTML="";$("request").textContent=request;$("timer").textContent="运行中";state.timer=setInterval(()=>{$("timer").textContent=Math.floor((Date.now()-state.startedAt)/1000)+"s"},250);state.controller=new AbortController();try{const r=await fetch("/v1/coder/run",{method:"POST",headers:headers(),body:JSON.stringify({request,project:selectedProject()||null}),signal:state.controller.signal});if(!r.ok)throw Error((await r.text()).slice(0,800));if(!r.body)throw Error("浏览器不支持 SSE");const reader=r.body.getReader(),decoder=new TextDecoder();let buf="";for(;;){const q=await reader.read();buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});const parts=buf.split("\n\n");buf=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(!line)continue;const data=line.slice(6);if(data==="[DONE]"){break}const e=JSON.parse(data);if(e.type==="started"){if(e.project)setProject(e.project);appendStep("START",true,"项目："+(e.project||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s")}else if(e.type==="step"){const s=e.step;appendStep(s.action,s.success,s.error||s.observation,s.step_id)}else if(e.type==="finished"){appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");updateSummary(e.state)}else if(e.type==="result"){updateSummary(e.state)}}if(q.done)break}}catch(e){if(e.name!=="AbortError")appendStep("ERROR",false,e.message||String(e))}finally{state.running=false;state.controller=null;clearInterval(state.timer);state.timer=null;$("task").disabled=false;$("run").textContent="运行 Coder";$("run").classList.remove("stop");$("timer").textContent="完成";await loadFiles()}}
+$("project").onchange=async()=>{setProject(selectedProject());await loadFiles()};
 $("run").onclick=()=>state.running?state.controller?.abort():run();
 $("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("hot")};$("drop").ondragleave=()=>$("drop").classList.remove("hot");$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("hot");uploadMany([...e.dataTransfer.files])};$("fileInput").onchange=e=>uploadMany([...e.target.files]);window.onbeforeunload=()=>state.running?"Coder 仍在后台执行，确定离开？":undefined;
-loadFiles();health();setInterval(health,30000);
+loadProjects();health();setInterval(health,30000);
 </script>
 </body>
 </html>
