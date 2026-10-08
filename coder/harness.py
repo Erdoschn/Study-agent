@@ -4,8 +4,9 @@ import difflib
 import re
 import unicodedata
 from pathlib import Path
-from threading import Event
-from typing import Any
+from queue import Empty, Queue
+from threading import Event, Thread
+from typing import Any, Callable
 
 from .backup import CoderBackupStore
 from core.cancellation import raise_if_cancelled
@@ -146,6 +147,31 @@ class CoderHarness:
             if isinstance(value, str) and len(value.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise PermissionError(f"{action}.{key} 超过安全长度上限。")
 
+    def _run_blocking_cancellable(self, operation: Callable[[], Any]) -> Any:
+        """Run a potentially slow external operation without holding cancellation hostage."""
+        if self.cancellation_event is None:
+            return operation()
+
+        result_queue: Queue = Queue(maxsize=1)
+
+        def worker() -> None:
+            try:
+                result_queue.put((True, operation()))
+            except BaseException as exc:
+                result_queue.put((False, exc))
+
+        Thread(target=worker, name="coder-external-call", daemon=True).start()
+        while True:
+            raise_if_cancelled(self.cancellation_event)
+            try:
+                ok, value = result_queue.get(timeout=0.05)
+            except Empty:
+                continue
+            raise_if_cancelled(self.cancellation_event)
+            if ok:
+                return value
+            raise value
+
     @classmethod
     def _validate_search_query(cls, query: str) -> str:
         normalized = unicodedata.normalize("NFKC", query).strip()
@@ -180,15 +206,17 @@ class CoderHarness:
         if self.search_router is None:
             raise RuntimeError("Coder SearchRouter 未配置。")
         from tools.search import SearchQuery
-        results = self.search_router.search(SearchQuery(
-            query=query,
-            source="auto",
-            source_preferences=[],
-            categories=[],
-            max_results=15,
-            sort_by="relevance",
-            sort_order="descending",
-        ))
+        results = self._run_blocking_cancellable(
+            lambda: self.search_router.search(SearchQuery(
+                query=query,
+                source="auto",
+                source_preferences=[],
+                categories=[],
+                max_results=15,
+                sort_by="relevance",
+                sort_order="descending",
+            ))
+        )
         return [
             {
                 "source": item.source,
@@ -309,7 +337,9 @@ class CoderHarness:
             "recent_actions": [step.action for step in state.steps[-12:]],
         }
         try:
-            result = self.study_bridge.ask(question, context=context)
+            result = self._run_blocking_cancellable(
+                lambda: self.study_bridge.ask(question, context=context)
+            )
         except Exception:
             self._study_agent_calls -= 1
             raise
