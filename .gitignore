@@ -19,3 +19,12 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local browser profiles: cookies, login/session storage, cache, and other private state.
+.study-agent-browser/
+.study_agent_browser/
+.coder-browser/
+
+# Local runtime / user state (keep directory placeholders when desired).
+data/*.sqlite3
+data/*.db
