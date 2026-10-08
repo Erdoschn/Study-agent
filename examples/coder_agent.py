@@ -34,6 +34,9 @@ def main() -> int:
         f"tests={result.metrics.get('test_runs', 0)}"
     )
     print(status)
+    if result.summary:
+        print("Coder summary:")
+        print(result.summary)
     if result.error:
         print(f"Coder error: {result.error}")
         return 1
