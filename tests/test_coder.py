@@ -71,6 +71,70 @@ def test_workspace_allows_notebook_read_write(tmp_path):
     assert '"nbformat": 4' in fs.read_text("notes/demo.ipynb")
 
 
+def test_workspace_patches_one_notebook_cell_without_rewriting_other_cells(tmp_path):
+    import json
+
+    fs = WorkspaceFS(tmp_path)
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "execution_count": 3,
+                "metadata": {"keep": True},
+                "outputs": [{"output_type": "stream", "name": "stdout", "text": ["keep\n"]}],
+                "source": ["x = 1\n", "print(x)\n"],
+                "id": "cell-a",
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": ["说明\n"],
+                "id": "cell-b",
+            },
+        ],
+        "metadata": {"kernelspec": {"name": "python3"}},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    fs.write_notebook("demo.ipynb", json.dumps(notebook, ensure_ascii=False))
+
+    fs.patch_notebook(
+        "demo.ipynb",
+        0,
+        "x = 1\nprint(x)\n",
+        "x = 2\nprint(x)\n",
+    )
+
+    value = json.loads(fs.read_text("demo.ipynb"))
+    assert value["cells"][0]["source"] == "x = 2\nprint(x)\n"
+    assert value["cells"][0]["metadata"] == {"keep": True}
+    assert value["cells"][0]["outputs"] == notebook["cells"][0]["outputs"]
+    assert value["cells"][0]["execution_count"] == 3
+    assert value["cells"][1] == notebook["cells"][1]
+
+
+def test_workspace_patch_notebook_requires_exact_source(tmp_path):
+    import json
+
+    fs = WorkspaceFS(tmp_path)
+    fs.write_notebook(
+        "demo.ipynb",
+        json.dumps({
+            "cells": [{
+                "cell_type": "code",
+                "metadata": {},
+                "source": ["x = 1\n"],
+            }],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }),
+    )
+
+    with pytest.raises(WorkspaceSecurityError, match="old_source"):
+        fs.patch_notebook("demo.ipynb", 0, "x = 2\n", "x = 3\n")
+
+
 def test_workspace_rejects_invalid_notebook(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError, match="Notebook JSON 无效"):
@@ -90,6 +154,74 @@ def test_workspace_allows_only_python_writes(tmp_path):
         fs.write_text("notes.txt", "no")
     fs.write_text("src/a.py", "print(1)")
     assert fs.read_text("src/a.py") == "print(1)"
+
+
+def test_harness_rejects_destructive_existing_notebook_rewrite(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    fs = WorkspaceFS(tmp_path)
+    original = {
+        "cells": [
+            {"cell_type": "code", "metadata": {}, "source": ["a = 1\n"], "id": "a"},
+            {"cell_type": "code", "metadata": {}, "source": ["b = 2\n"], "id": "b"},
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    fs.write_notebook("demo.ipynb", json.dumps(original))
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("update notebook")
+    harness.execute("READ_FILE", {"path": "demo.ipynb"}, state)
+
+    shortened = {
+        "cells": [original["cells"][0]],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    with pytest.raises(WorkspaceSecurityError, match="cell 数量减少"):
+        harness.execute(
+            "WRITE_NOTEBOOK",
+            {"path": "demo.ipynb", "content": json.dumps(shortened)},
+            state,
+        )
+
+
+def test_harness_supports_patch_notebook_action(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    fs = WorkspaceFS(tmp_path)
+    original = {
+        "cells": [
+            {"cell_type": "code", "metadata": {}, "source": ["a = 1\n"], "id": "a"},
+            {"cell_type": "markdown", "metadata": {}, "source": ["note\n"], "id": "b"},
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    fs.write_notebook("demo.ipynb", json.dumps(original))
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("update notebook")
+
+    result = harness.execute(
+        "PATCH_NOTEBOOK",
+        {
+            "path": "demo.ipynb",
+            "cell_index": 0,
+            "old_source": "a = 1\n",
+            "new_source": "a = 2\n",
+        },
+        state,
+    )
+
+    assert result["status"] == "notebook_cell_patched"
+    assert json.loads(fs.read_text("demo.ipynb"))["cells"][1] == original["cells"][1]
+    assert "demo.ipynb" in state.modified_files
+    assert "PATCH_NOTEBOOK" in [h["name"] for h in harness.tool_specs()]
 
 
 def test_harness_rejects_destructive_existing_file_rewrite(tmp_path):
