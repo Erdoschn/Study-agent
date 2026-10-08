@@ -129,7 +129,12 @@ def _prewarm_coder_browser() -> CoderBrowserSession | None:
         return None
 
 
-def _llm_project_name(task: str, model: BrowserModel | None = None) -> str:
+def _llm_project_name(
+    task: str,
+    model: BrowserModel | CoderBrowserSession | None = None,
+    *,
+    cancellation_event: threading.Event | None = None,
+) -> str:
     owns_model = model is None
     if model is None:
         model = BrowserModel(
@@ -140,6 +145,7 @@ def _llm_project_name(task: str, model: BrowserModel | None = None) -> str:
             reuse_chat=False,
             min_send_interval_seconds=5.0,
             debug_mode=False,
+            cancellation_event=cancellation_event,
         )
     try:
         raw = model.generate(
@@ -152,6 +158,8 @@ def _llm_project_name(task: str, model: BrowserModel | None = None) -> str:
             debug.log("CoderWebAPI", f"PROJECT NAME → {name}")
             return name
         debug.log("CoderWebAPI", "PROJECT NAME → model output unusable; using coder-project")
+    except RunCancelled:
+        raise
     except RunCancelled:
         raise
     except Exception as exc:
@@ -688,7 +696,11 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise_if_cancelled(control.cancel_event)
                 if not actual_project:
-                    generated_name = _llm_project_name(task, browser_model)
+                    generated_name = _llm_project_name(
+                        task,
+                        browser_model,
+                        cancellation_event=control.cancel_event,
+                    )
                     actual_project = _ensure_project(
                         generated_name,
                         task,
