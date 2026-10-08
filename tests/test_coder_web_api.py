@@ -622,7 +622,8 @@ def test_coder_web_feedback_endpoint_and_frontend_are_wired():
     assert 'id="feedback"' in source
     assert 'id="submitFeedback"' in source
     assert 'API+"/feedback"' in source
-    assert 'state.lastRunId=String(e.memory?.id||"").trim();' in source
+    assert 'state.memoryRunId=String(e.memory?.id||"").trim();' in source
+    assert 'state.activeRunId=String(e.id).trim();' in source
     assert "后续任务会参考这条评价" in source
 
 
@@ -636,6 +637,11 @@ def test_coder_web_frontend_locks_project_identity_during_run():
     assert 'body:JSON.stringify({request,project:project||null})' in source
     assert 'void loadFiles(state.runProject);' in source
     assert 'const current=state.project;' in source
+
+def test_coder_web_frontend_sends_explicit_project_mode():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'project_mode:project?"existing":"new"' in source
+    assert 'body:JSON.stringify({request,project:project||null})' not in source
 
 
 def test_coder_web_frontend_uses_backend_cancel_instead_of_aborting_only_sse():
