@@ -63,6 +63,7 @@ class CoderAgent:
                 debug_mode=self.debug_mode,
                 reuse_chat=reuse_chat,
                 min_send_interval_seconds=min_send_interval_seconds,
+                cancellation_event=cancellation_event,
             )
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
