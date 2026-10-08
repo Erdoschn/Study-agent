@@ -229,6 +229,6 @@ def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
     assert 'throw new Error("Coder UI DOM 初始化失败")' not in source
     assert "void loadProjects();" in source
     assert "void health();" in source
-    assert "requested_project = request.get("project")" in source
+    assert 'requested_project = request.get("project")' in source
     assert "self._stream_run(task, requested_project)" in source
     assert "setInterval(()=>void health(),30000);" in source
