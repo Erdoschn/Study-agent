@@ -9,6 +9,24 @@ from coder.harness import CoderHarness
 from coder.sandbox import DockerPythonSandbox, SandboxResult
 
 
+
+def test_agent_rejects_its_own_runtime_source_tree():
+    from coder.agent import RUNTIME_ROOT
+
+    with pytest.raises(WorkspaceSecurityError, match="自身源码目录"):
+        CoderAgent(RUNTIME_ROOT, reasoner=SimpleNamespace(), harness=SimpleNamespace())
+
+
+def test_agent_rejects_workspace_nested_under_runtime_source_tree():
+    from coder.agent import RUNTIME_ROOT
+
+    with pytest.raises(WorkspaceSecurityError, match="自身源码目录"):
+        CoderAgent(
+            RUNTIME_ROOT / ".coder-test-workspace",
+            reasoner=SimpleNamespace(),
+            harness=SimpleNamespace(),
+        )
+
 def test_workspace_rejects_escape_and_absolute_paths(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError):
