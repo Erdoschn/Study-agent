@@ -586,6 +586,12 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
     ]
 
 
+def test_browser_model_starts_browser_minimized():
+    model = BrowserModel()
+    options = model._browser_launch_kwargs()
+    assert options["args"] == ["--start-minimized"]
+
+
 def test_browser_model_filters_playwright_no_sandbox_on_windows(monkeypatch):
     model = BrowserModel()
     monkeypatch.setattr(web_model_module.os, "name", "nt")
