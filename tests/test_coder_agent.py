@@ -1,5 +1,3 @@
-import pytest
-
 from coder import agent as agent_module
 
 
