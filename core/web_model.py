@@ -656,7 +656,7 @@ class BrowserModel(ModelClient):
 
     def _start_fresh_chat(self, page) -> None:
         if self.session_pause_seconds:
-            time.sleep(self.session_pause_seconds)
+            self._sleep(self.session_pause_seconds)
 
         old_session = self._session_id_from_url(getattr(page, "url", ""))
 
@@ -719,13 +719,13 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", "FRESH CHAT → previous visible messages cleared")
                 return
 
-            time.sleep(self.poll_interval)
+            self._sleep(self.poll_interval)
 
         raise TimeoutError("创建新的 DeepSeek Web 对话后未确认旧消息已清除。")
 
     def _cleanup_current_chat(self, page) -> None:
         if self.cleanup_pause_seconds:
-            time.sleep(self.cleanup_pause_seconds)
+            self._sleep(self.cleanup_pause_seconds)
         session_id = self._session_id_from_url(getattr(page, "url", ""))
         if not session_id:
             debug.log("BrowserModel", "CLEANUP SKIP → current page has no session id")
@@ -766,7 +766,7 @@ class BrowserModel(ModelClient):
             try:
                 if page.locator(f'a[href*="/a/chat/s/{session_id}"]').count() == 0:
                     if self.post_cleanup_pause_seconds:
-                        time.sleep(self.post_cleanup_pause_seconds)
+                        self._sleep(self.post_cleanup_pause_seconds)
                     debug.log("BrowserModel", f"CLEANUP SUCCESS → session={session_id}")
                     return
             except Exception:
@@ -1005,7 +1005,7 @@ class BrowserModel(ModelClient):
                             f"clipboard_preview={preview!r}",
                         )
                         return markdown
-                    time.sleep(min(0.1, self.poll_interval))
+                    self._sleep(min(0.1, self.poll_interval))
 
                 debug.log("BrowserModel", "COPY WARNING → clipboard remained empty")
                 return ""
@@ -1026,7 +1026,7 @@ class BrowserModel(ModelClient):
                     f"SEND THROTTLE → sleeping {remaining:.2f}s "
                     f"(min_interval={self.min_send_interval_seconds:.2f}s)",
                 )
-                time.sleep(remaining)
+                self._sleep(remaining)
         self._last_send_monotonic = time.monotonic()
 
     def _send_prompt(self, page, prompt: str) -> None:
@@ -1217,6 +1217,7 @@ class BrowserModel(ModelClient):
         invalid_json_since: float | None = None
 
         while time.monotonic() < deadline:
+            self._check_cancelled()
             candidate = self._latest_response(page, before_snapshot)
             if candidate:
                 saw_new_response = True
