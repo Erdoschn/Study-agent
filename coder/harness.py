@@ -65,6 +65,12 @@ class CoderHarness:
         query = str(args.get("query", "")).strip()
         if not query:
             raise ValueError("SEARCH 需要 query。")
+        if len(query) > 240 or "
+" in query:
+            raise PermissionError("SEARCH query 过长或包含换行；禁止把代码/文件内容外发到搜索源。")
+        lowered = query.casefold()
+        if any(token in lowered for token in ("password=", "api_key=", "secret=", "private key", "begin rsa")):
+            raise PermissionError("SEARCH query 疑似包含敏感凭据，已拒绝发送。")
         if self.search_router is None:
             raise RuntimeError("Coder SearchRouter 未配置。")
         from tools.search import SearchQuery
@@ -138,6 +144,10 @@ class CoderHarness:
 
     def _run_python(self, args, state):
         path = str(args.get("script_path", "")).strip()
+        rel, _ = self.fs._target(path)
+        self.fs._policy(rel)
+        if rel.suffix.casefold() != ".py":
+            raise ValueError(f"Python 执行目标必须是 .py：{path}")
         self._test_count += 1
         if self._test_count > self.MAX_TEST_RUNS:
             raise PermissionError("超过单次 Coder 执行次数上限。")
