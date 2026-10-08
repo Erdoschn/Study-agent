@@ -24,7 +24,7 @@ class CoderBackupStore:
     INITIAL_ARCHIVE_NAME = "initial.zip"
     ARCHIVE_NAME = "latest.zip"
     MANIFEST_NAME = "backup-manifest.json"
-    EDITABLE_SUFFIXES = frozenset({".py", ".pyi"})
+    EDITABLE_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
     SKIP_DIRS = frozenset({
         ".git", ".venv", "__pycache__", ".pytest_cache",
         ".mypy_cache", ".ruff_cache", ".idea",
