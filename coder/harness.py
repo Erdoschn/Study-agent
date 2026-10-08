@@ -8,7 +8,7 @@ from threading import Event
 from typing import Any
 
 from .backup import CoderBackupStore
-from .cancellation import raise_if_cancelled
+from core.cancellation import raise_if_cancelled
 from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
 from .study_bridge import StudyAgentBridge
