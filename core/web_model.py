@@ -1029,28 +1029,55 @@ class BrowserModel(ModelClient):
         stable_since: float | None = None
         previous = ""
 
+        debug.log(
+            "BrowserModel",
+            f"WAIT RESPONSE → timeout={self.timeout}s, json_mode={getattr(self, '_json_mode_active', False)}",
+        )
+        candidate_seen = False
+        loading_block_logged = False
+
         while time.monotonic() < deadline:
             candidate = self._latest_response(page, before_snapshot)
             if candidate:
                 saw_new_response = True
+                if not candidate_seen:
+                    candidate_seen = True
+                    debug.log(
+                        "BrowserModel",
+                        f"WAIT RESPONSE → candidate detected chars={len(candidate)}",
+                    )
                 if candidate != previous:
                     previous = candidate
                     latest = candidate
                     stable_since = None
+                    loading_block_logged = False
                 elif stable_since is None:
                     stable_since = time.monotonic()
 
-                json_ready = (
-                    not getattr(self, "_json_mode_active", False)
-                    or self._is_json_object(candidate)
-                )
-                if (
+                json_mode = bool(getattr(self, "_json_mode_active", False))
+                json_ready = not json_mode or self._is_json_object(candidate)
+                stable = (
                     stable_since is not None
                     and time.monotonic() - stable_since >= self.stable_seconds
-                    and not self._loading_visible(page)
-                    and json_ready
-                ):
+                )
+                loading = self._loading_visible(page)
+
+                # Structured Coder decisions are complete once they are valid
+                # JSON and stable. DeepSeek may keep a visual thinking/loading
+                # indicator alive briefly after the structured response is done.
+                ready = stable and json_ready and (json_mode or not loading)
+                if ready:
+                    debug.log(
+                        "BrowserModel",
+                        f"WAIT RESPONSE → ready chars={len(latest)}, loading={loading}",
+                    )
                     return latest
+                if json_mode and json_ready and stable and loading and not loading_block_logged:
+                    loading_block_logged = True
+                    debug.log(
+                        "BrowserModel",
+                        "WAIT RESPONSE → valid JSON ready; ignoring lingering loading indicator",
+                    )
 
             time.sleep(self.poll_interval)
 
