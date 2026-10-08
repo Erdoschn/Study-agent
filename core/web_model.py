@@ -488,10 +488,30 @@ class BrowserModel(ModelClient):
             time.sleep(self.session_pause_seconds)
 
         old_session = self._session_id_from_url(getattr(page, "url", ""))
+
+        # DeepSeek can open directly on an already-empty chat page. In that
+        # state there is no reason to click "New chat"; the current page is
+        # already a fresh conversation. Only require the New Chat control when
+        # visible messages prove that the current conversation is non-empty.
+        if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+            visible_messages = page.locator(".ds-message")
+            has_visible_message = False
+            for index in range(visible_messages.count() - 1, -1, -1):
+                try:
+                    if visible_messages.nth(index).is_visible():
+                        has_visible_message = True
+                        break
+                except Exception:
+                    continue
+            if not has_visible_message:
+                debug.log("BrowserModel", "FRESH CHAT → current blank chat accepted")
+                return
+
         if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS, role="button"):
             if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS):
                 raise RuntimeError(
-                    "DeepSeek Web 未找到“New chat/新对话”控件，无法保证每个 Agent 角色使用独立上下文。"
+                    "DeepSeek Web 未找到“New chat/新对话”控件，且当前会话已有消息，"
+                    "无法保证 Coder 使用独立上下文。"
                 )
 
         deadline = time.monotonic() + min(15.0, float(self.timeout))
