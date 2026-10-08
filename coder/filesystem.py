@@ -24,7 +24,9 @@ class WorkspaceFS:
     })
     BLOCKED_SUFFIXES = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
     BLOCKED_PREFIXES = (".coder-sandbox-", ".coder-backup")
-    MAX_FILE_BYTES = 1_048_576
+    # Keep a generous hard safety bound, while READ_FILE can stream a huge
+    # source file to the model in line-addressed chunks.
+    MAX_FILE_BYTES = 16 * 1024 * 1024
     WINDOWS_DEVICE_NAMES = frozenset(
         {"con", "prn", "aux", "nul"}
         | {f"com{i}" for i in range(1, 10)}
@@ -122,8 +124,43 @@ class WorkspaceFS:
         if not target.is_file():
             raise FileNotFoundError(rel.as_posix())
         if target.stat().st_size > self.MAX_FILE_BYTES:
-            raise WorkspaceSecurityError("文件超过安全读取上限。")
+            raise WorkspaceSecurityError("文件超过安全读取上限（16 MiB）。")
         return target.read_text(encoding="utf-8")
+
+    def read_text_range(
+        self,
+        path: str,
+        start_line: int,
+        end_line: int,
+    ) -> dict[str, object]:
+        """Read an inclusive line range without silently discarding the rest."""
+        rel, target = self._target(path)
+        self._policy(rel)
+        self._reject_reparse(target)
+        if not target.is_file():
+            raise FileNotFoundError(rel.as_posix())
+        if target.stat().st_size > self.MAX_FILE_BYTES:
+            raise WorkspaceSecurityError("文件超过安全读取上限（16 MiB）。")
+        start = int(start_line)
+        end = int(end_line)
+        if start < 1 or end < start:
+            raise WorkspaceSecurityError("READ_FILE 行范围无效。")
+
+        lines: list[str] = []
+        total = 0
+        with target.open("r", encoding="utf-8", newline="") as handle:
+            for number, line in enumerate(handle, 1):
+                total = number
+                if start <= number <= end:
+                    lines.append(line)
+        return {
+            "path": rel.as_posix(),
+            "content": "".join(lines),
+            "start_line": start,
+            "end_line": min(end, total),
+            "total_lines": total,
+            "complete": start == 1 and end >= total,
+        }
 
     def write_text(self, path: str, content: str, *, test: bool = False) -> None:
         rel, target = self._target(path)
