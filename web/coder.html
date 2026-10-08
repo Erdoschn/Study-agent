@@ -119,6 +119,8 @@ function $(selector){
 function selectedProject(){return String(state.project||"").trim()}
 function setProject(name){
   state.project=name||"";
+  projectsLoadSeq++;
+  filesLoadSeq++;
   $("project").value=state.project;
   if(state.project) $("projectHint").textContent="当前项目："+state.project+"；文件和 Agent 操作都限制在该目录。";
   else $("projectHint").textContent="没有项目也可以直接输入要求，Coder 会自动创建独立目录。";
@@ -274,13 +276,13 @@ async function loadHistory(){
 async function loadProjects(){
   if(state.running)return;
   const requestSeq=++projectsLoadSeq;
-  const current=state.project;
   try{
     const r=await fetchTimeout(API+"/projects",{cache:"no-store"},3000);
     if(!r.ok)throw Error(await r.text());
     const d=await r.json();
     if(requestSeq!==projectsLoadSeq||state.running)return;
     $("workspace").textContent=d.workspace||"已连接";
+    const current=state.project;
     const projects=Array.isArray(d.projects)?d.projects:[];
     const select=$("project");
     select.innerHTML="";
