@@ -85,7 +85,7 @@ def _list_projects() -> list[dict]:
     return sorted(projects, key=lambda x: x["name"].casefold())
 
 def _ensure_project(name: str | None = None, task: str = "") -> str:
-    requested = str(name or "").strip()
+    requested = str(name).strip() if name is not None else ""
     base = _project_name(requested or task)
     root = WorkspaceFS(WORKSPACE).root
     project = base
@@ -351,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": {"message": "Coder 正在运行，暂时不能创建项目。"}}, 409)
                     return
                 request = self._body_json()
-                name = _ensure_project(str(request.get("name", "")))
+                name = _ensure_project(request.get("name"))
                 self._json({"status": "created", "project": name}, 201)
                 return
 
@@ -378,7 +378,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Coder request 不能为空。")
             if len(task.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise WorkspaceSecurityError("Coder request 超过安全长度上限。")
-            project = _ensure_project(str(request.get("project", "")).strip(), task)
+            project = _ensure_project(request.get("project"), task)
             if not RUN_LOCK.acquire(blocking=False):
                 self._json(
                     {"error": {"message": "已有 Coder 任务正在运行。"}},
