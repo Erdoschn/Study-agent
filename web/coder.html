@@ -387,7 +387,7 @@ async function run(){
           appendStep("START",true,"项目："+(e.project||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s");
         }else if(e.type==="step"){
           const s=e.step;
-          appendStep(s.action,s.success,s.error||s.observation,s.step_id);
+          appendStep(s.action,s.success,s.summary||s.error||"已完成",s.step_id);
           if(["WRITE_FILE","WRITE_NOTEBOOK","PATCH_FILE","CREATE_TEST","RUN_PYTHON","RUN_PYTEST"].includes(s.action)){
             void loadFiles();
             void loadProjects();
