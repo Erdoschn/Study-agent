@@ -92,6 +92,7 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
 
     harness = CoderHarness(str(tmp_path), sandbox=FakeSandbox())
     state = __import__("coder.state", fromlist=["CoderState"]).CoderState("fix")
+    harness.backup.ensure_initial_snapshot(0)
     harness.execute("WRITE_FILE", {"path": "a.py", "content": "print(1)"}, state)
     first = harness.execute("VERIFY_GOAL", {}, state)
     assert first["verified"] is False
@@ -102,7 +103,7 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
 
 
 def test_agent_captures_initial_backup_before_reasoning(tmp_path):
-    (tmp_path / "main.py").write_text("VERSION = 0\n", encoding="utf-8")
+    (tmp_path / "main.py").write_bytes(b"VERSION = 0\n")
 
     class FakeHarness(CoderHarness):
         _verified = True
