@@ -982,20 +982,27 @@ class BrowserModel(ModelClient):
         user_index = self._current_user_message_index(page)
         if user_index is not None:
             current_message = self._latest_response_message(page)
-            if current_message is None:
-                return ""
-            for selector in self.response_selectors:
-                try:
-                    locator = current_message.locator(selector)
-                    count = locator.count()
-                    if count <= 0:
+            if current_message is not None:
+                for selector in self.response_selectors:
+                    try:
+                        locator = current_message.locator(selector)
+                        count = locator.count()
+                        if count <= 0:
+                            continue
+                        candidate = locator.nth(count - 1).inner_text().strip()
+                        if candidate:
+                            return candidate
+                    except Exception:
                         continue
-                    candidate = locator.nth(count - 1).inner_text().strip()
-                    if candidate:
-                        return candidate
-                except Exception:
-                    continue
-            return ""
+
+            # Fast web responses can briefly appear before DeepSeek finishes
+            # splitting the assistant DOM node away from the current user node.
+            # Fall back to the pre-send response snapshot instead of waiting
+            # forever for the transient DOM structure to settle.
+            debug.log(
+                "BrowserModel",
+                "RESPONSE BINDING FALLBACK → current user turn has no separate assistant node yet",
+            )
 
         for index, selector in enumerate(self.response_selectors):
             try:
