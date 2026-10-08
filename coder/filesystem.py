@@ -23,7 +23,7 @@ class WorkspaceFS:
         "id_rsa", "id_ed25519",
     })
     BLOCKED_SUFFIXES = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
-    BLOCKED_PREFIXES = (".coder-sandbox-",)
+    BLOCKED_PREFIXES = (".coder-sandbox-", ".coder-backup")
     MAX_FILE_BYTES = 1_048_576
     WINDOWS_DEVICE_NAMES = frozenset(
         {"con", "prn", "aux", "nul"}
@@ -102,7 +102,11 @@ class WorkspaceFS:
         if (
             name in self.BLOCKED_NAMES
             or suffix in self.BLOCKED_SUFFIXES
-            or any(name.startswith(prefix) for prefix in self.BLOCKED_PREFIXES)
+            or any(
+                part.casefold().startswith(prefix)
+                for part in rel.parts
+                for prefix in self.BLOCKED_PREFIXES
+            )
         ):
             raise WorkspaceSecurityError(f"禁止访问敏感文件：{rel}")
         allowed = self.EDITABLE_EXTENSIONS if write else self.READABLE_EXTENSIONS
