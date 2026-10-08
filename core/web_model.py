@@ -31,6 +31,10 @@ class BrowserModel(ModelClient):
     )
     DEFAULT_NEW_CHAT_LABELS = ("New chat", "新对话", "新建对话")
     DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
+    # DeepSeek currently renders the per-conversation action control as the
+    # third child div of the history-row anchor. Keep this as a primary
+    # selector, then retain the accessible-label fallbacks for UI changes.
+    DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
 
@@ -369,6 +373,24 @@ class BrowserModel(ModelClient):
 
     def _click_session_more(self, page, row_link) -> bool:
         import re as _re
+
+        # Current DeepSeek UI: the history-row action button is reachable as
+        # ./div[3]/div from the conversation <a>. Prefer this structural path
+        # because the control currently has no stable text/aria/title label.
+        for xpath in self.DEFAULT_MORE_XPATHS:
+            try:
+                button = row_link.locator(f"xpath={xpath}")
+                if button.count() > 0 and button.is_visible():
+                    button.click()
+                    debug.log(
+                        "BrowserModel",
+                        f"CLEANUP MENU → structural selector {xpath}",
+                    )
+                    return True
+            except Exception:
+                continue
+
+        # Keep semantic fallbacks for future DeepSeek UI variants.
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in self.DEFAULT_MORE_LABELS]
         try:
             parent = row_link.locator("xpath=..")
