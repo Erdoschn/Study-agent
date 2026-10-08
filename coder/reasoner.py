@@ -71,18 +71,13 @@ class CoderReasoner:
         return self._parse(raw)
 
     @staticmethod
-    def _untrusted(value: Any) -> str:
-        if value is None:
-            text = "<empty>"
-        else:
-            try:
-                text = json.dumps(value, ensure_ascii=False, default=str)
-            except Exception:
-                text = str(value)
+    def _scrub_text(value: str, *, redact_paths: bool = True) -> str:
         scrubbed = "".join(
-            ch for ch in text
+            ch for ch in str(value or "")
             if ch in "\n\t" or unicodedata.category(ch) not in {"Cc", "Cf"}
         )
+        if not redact_paths:
+            return scrubbed
         scrubbed = re.sub(
             r"(?i)(?:[A-Z]:[\\/]|\\\\)[^\s\"'<>]+",
             "<REDACTED_HOST_PATH>",
@@ -93,11 +88,80 @@ class CoderReasoner:
             "<REDACTED_BACKUP_PATH>",
             scrubbed,
         )
-        scrubbed = re.sub(
+        return re.sub(
             r"(?<![A-Za-z0-9_])/(?:workspace|host_mnt|run/desktop/mnt/host)(?:/[^\s\"'<>]*)?",
             "<REDACTED_SANDBOX_PATH>",
             scrubbed,
         )
+
+    @classmethod
+    def _untrusted(cls, value: Any) -> str:
+        if value is None:
+            text = "<empty>"
+        else:
+            try:
+                if isinstance(value, dict):
+                    safe = {}
+                    for key, item in value.items():
+                        if str(key).casefold() == "content":
+                            safe[key] = cls._scrub_text(str(item), redact_paths=False)
+                        else:
+                            safe[key] = item
+                    text = json.dumps(safe, ensure_ascii=False, default=str)
+                else:
+                    text = json.dumps(value, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(value)
+
+        if isinstance(value, dict):
+            # The READ_FILE content itself is source material, not host-path
+            # metadata. Preserve it so a coding model can actually inspect and
+            # edit the file; continue sanitizing all non-content fields.
+            try:
+                parts = []
+                for key, item in value.items():
+                    if str(key).casefold() == "content":
+                        parts.append(
+                            json.dumps(
+                                {key: cls._scrub_text(str(item), redact_paths=False)},
+                                ensure_ascii=False,
+                            )
+                        )
+                    else:
+                        parts.append(
+                            json.dumps(
+                                {key: item},
+                                ensure_ascii=False,
+                                default=str,
+                            )
+                        )
+                if parts:
+                    text = " ".join(parts)
+            except Exception:
+                pass
+
+        scrubbed = cls._scrub_text(text, redact_paths=False)
+        # Re-serialize the non-content representation through a safe pass so
+        # host/sandbox path redaction still applies outside source content.
+        if isinstance(value, dict):
+            try:
+                rendered = []
+                for key, item in value.items():
+                    key_text = cls._scrub_text(str(key), redact_paths=True)
+                    if str(key).casefold() == "content":
+                        value_text = cls._scrub_text(str(item), redact_paths=False)
+                    else:
+                        value_text = cls._scrub_text(
+                            json.dumps(item, ensure_ascii=False, default=str),
+                            redact_paths=True,
+                        )
+                    rendered.append(f"{key_text}={value_text}")
+                scrubbed = "{" + ", ".join(rendered) + "}"
+            except Exception:
+                pass
+        else:
+            scrubbed = cls._scrub_text(text, redact_paths=True)
+
         return (
             "<UNTRUSTED_TOOL_OUTPUT>\n"
             + scrubbed[:12000]
