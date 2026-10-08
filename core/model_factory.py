@@ -107,6 +107,10 @@ class ModelClientFactory:
             browser_channel=provider.get("browser_channel"),
             timeout=int(provider.get("timeout", 180)),
             response_selectors=response_selectors,
+            reuse_chat=bool(provider.get("reuse_chat", False)),
+            min_send_interval_seconds=float(
+                provider.get("min_send_interval_seconds", 5.0)
+            ),
         )
         self._browser_clients[model.name] = client
         return client
