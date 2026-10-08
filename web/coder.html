@@ -108,7 +108,7 @@ let projectsLoadSeq=0;
 let filesLoadSeq=0;
 const state={
   running:false,startedAt:0,timer:null,project:"",runProject:"",
-  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:""
+  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:"",finalState:null
 };
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
@@ -418,6 +418,7 @@ function appendStep(action,ok,observation,stepNo){const box=$("timeline");const 
 function resetFeedback(){
   state.activeRunId="";
   state.memoryRunId="";
+  state.finalState=null;
   $("feedback").value="";
   $("feedbackStatus").textContent="";
   $("submitFeedback").disabled=false;
@@ -447,7 +448,7 @@ async function submitFeedback(){
     $("submitFeedback").disabled=false;
   }
 }
-function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
+function updateSummary(st){if(!st)return;const finished=Boolean(st.finished);const verified=Boolean(st.goal_verified??st.verified);$("request").textContent=st.request||"";$("finished").textContent=finished?"✓ 已完成":"— 未完成";$("verified").textContent=verified?"✓ 已验证":"— 未验证";$("steps").textContent=String(st.step_count??0);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
 async function requestCancel(){
   if(!state.running)return;
   state.cancelRequested=true;
@@ -511,6 +512,7 @@ async function run(){
     $("timer").textContent=Math.floor((Date.now()-state.startedAt)/1000)+"s";
   },250);
   let doneReceived=false;
+  let finalState=null;
   try{
     const r=await fetch("/v1/coder/run",{
       method:"POST",
@@ -587,10 +589,14 @@ async function run(){
           appendStep("CANCELLED",true,e.state?.summary||"任务已中止。");
           if(e.state)updateSummary(e.state);
         }else if(e.type==="finished"){
+          finalState=e.state||finalState;
+          state.finalState=finalState;
           appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");
-          updateSummary(e.state);
+          updateSummary(finalState);
         }else if(e.type==="result"){
-          updateSummary(e.state);
+          finalState=e.state||finalState;
+          state.finalState=finalState;
+          updateSummary(finalState);
           state.memoryRunId=String(e.memory?.id||"").trim();
           if(state.memoryRunId){
             $("feedbackPanel").classList.remove("hidden");
@@ -622,8 +628,9 @@ async function run(){
     if(!doneReceived&&!state.failed){
       state.failed=true;
       appendStep("ERROR",false,"Coder SSE 连接在收到完成信号前就结束了。");
-      $("summary").textContent="Coder 连接异常结束，请查看终端日志。";
+      $("summary").textContent="Coder 连接异常结束，请查看终端日志.";
     }
+    if(doneReceived&&finalState)updateSummary(finalState);
   }catch(e){
     if(e.name!=="AbortError"){
       state.failed=true;
@@ -643,9 +650,11 @@ async function run(){
     try{
       await loadProjects();
       await loadFiles(state.project);
+      await loadHistory();
     }catch(e){
       console.error("Coder final refresh failed",e);
     }finally{
+      if(finalState)updateSummary(finalState);
       state.runProject="";
       state.cancelling=false;
       state.cancelRequested=false;
