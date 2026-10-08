@@ -67,6 +67,10 @@ PROJECT_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[-_][a-z0-9]+){0,7}\b", re.IGN
 PROJECT_NAME_FILLER = {
     "project", "project-name", "name", "coder", "code", "here", "the", "new",
 }
+def _coder_debug_hook(module: str, message: str) -> None:
+    print(f"[{module}] {message}", flush=True)
+
+
 PROJECT_NAME_PROMPT = (
     "You are naming a coding project. Based only on the user's coding task, "
     "choose one short, specific project slug. Return ONLY the slug, using "
@@ -110,6 +114,7 @@ def _prewarm_coder_browser() -> CoderBrowserSession | None:
             user_data_dir=".coder-browser",
             reuse_chat=True,
             min_send_interval_seconds=5.0,
+            debug_sink=_coder_debug_hook,
         )
         debug.log(
             "CoderWebAPI",
@@ -696,13 +701,7 @@ class Handler(BaseHTTPRequestHandler):
                     recent_user_feedback=recent_feedback,
                     cancellation_event=control.cancel_event,
                 )
-                def debug_hook(module: str, message: str) -> None:
-                    print(f"[{module}] {message}", flush=True)
-
-                debug.bind_thread(debug_hook)
-                browser_debug_sink = debug_hook
-                if isinstance(browser_model, CoderBrowserSession):
-                    browser_model._debug_sink = browser_debug_sink
+                debug.bind_thread(_coder_debug_hook)
                 try:
                     def agent_event_hook(event: dict) -> None:
                         # The Web API already emits its own STARTED event carrying
