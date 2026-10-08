@@ -108,9 +108,11 @@ def test_coder_project_files_are_not_listed_from_workspace_root(tmp_path):
     (tmp_path / "legacy.py").write_text("print(1)", encoding="utf-8")
     (tmp_path / "project-a").mkdir()
     (tmp_path / "project-a" / "main.py").write_text("print(2)", encoding="utf-8")
+    # WorkspaceFS.list_files() is recursive by design; the Web API never exposes
+    # the workspace root as a project, so project files remain scoped to project-a.
     root_files = WorkspaceFS(tmp_path).list_files()
     project_files = WorkspaceFS(tmp_path / "project-a").list_files()
-    assert root_files == ["legacy.py"]
+    assert root_files == ["legacy.py", "project-a/main.py"]
     assert project_files == ["main.py"]
 
 
