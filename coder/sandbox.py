@@ -59,22 +59,34 @@ class DockerPythonSandbox:
         self.cpus = cpus
         self.pids = max(16, int(pids))
 
-    def preflight(self) -> None:
+    def preflight(self, *, cancellation_event: Event | None = None) -> None:
+        raise_if_cancelled(cancellation_event)
         try:
-            probe = subprocess.run(
+            probe = subprocess.Popen(
                 ["docker", "image", "inspect", self.IMAGE],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 shell=False,
-                timeout=10,
             )
         except FileNotFoundError as exc:
             raise RuntimeError("安全执行被拒绝：未找到 docker CLI。") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("安全执行被拒绝：docker preflight 超时。") from exc
+
+        started = time.monotonic()
+        while probe.poll() is None:
+            if cancellation_event is not None and cancellation_event.is_set():
+                probe.kill()
+                probe.wait()
+                raise_if_cancelled(cancellation_event)
+            if time.monotonic() - started >= 10:
+                probe.kill()
+                probe.wait()
+                raise RuntimeError("安全执行被拒绝：docker preflight 超时。")
+            time.sleep(0.05)
+
+        stderr = probe.stderr.read() if probe.stderr is not None else b""
         if probe.returncode != 0:
-            detail = probe.stderr.decode("utf-8", errors="replace").strip()[:300]
+            detail = stderr.decode("utf-8", errors="replace").strip()[:300]
             raise RuntimeError(
                 f"安全执行被拒绝：未找到本地 Coder 沙箱镜像 {self.IMAGE}。"
                 + (f" {detail}" if detail else "")
@@ -91,13 +103,18 @@ class DockerPythonSandbox:
             or (os.name == "nt" and getattr(st, "st_file_attributes", 0) & 0x400)
         )
 
-    def _stage_workspace(self) -> tempfile.TemporaryDirectory:
+    def _stage_workspace(
+        self,
+        *,
+        cancellation_event: Event | None = None,
+    ) -> tempfile.TemporaryDirectory:
         stage = tempfile.TemporaryDirectory(
             prefix=".coder-sandbox-",
             dir=str(self.workspace),
         )
         root = Path(stage.name)
         for current, dirs, files in os.walk(self.workspace, topdown=True, followlinks=False):
+            raise_if_cancelled(cancellation_event)
             current_path = Path(current)
             dirs[:] = [
                 name for name in dirs
@@ -110,6 +127,7 @@ class DockerPythonSandbox:
             target_dir = root / relative_dir
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in files:
+                raise_if_cancelled(cancellation_event)
                 source = current_path / name
                 if self._is_special(source):
                     continue
@@ -124,6 +142,7 @@ class DockerPythonSandbox:
                 if source.stat().st_size > 1_048_576:
                     continue
                 shutil.copyfile(source, destination)
+        raise_if_cancelled(cancellation_event)
         return stage
 
     def run(
@@ -153,7 +172,7 @@ class DockerPythonSandbox:
             raise ValueError("RUN_PYTHON 需要且只能需要一个 script_path。")
 
         name = "coder-sandbox-" + uuid.uuid4().hex[:20]
-        with self._stage_workspace() as staged:
+        with self._stage_workspace(cancellation_event=cancellation_event) as staged:
             command = [
                 "docker", "run", "--rm", "--init", "--pull=never",
                 "--name", name,
