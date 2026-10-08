@@ -1434,7 +1434,7 @@ def test_browser_model_accepts_coder_agent_actions_in_json_mode():
     assert BrowserModel._needs_json_recovery(response) is False
 
 
-def test_browser_model_json_wait_accepts_stable_json_despite_lingering_loading(monkeypatch):
+def test_browser_model_json_wait_accepts_completed_json_with_lingering_loading(monkeypatch):
     model = BrowserModel(
         timeout=1,
         poll_interval=0.05,
@@ -1445,10 +1445,11 @@ def test_browser_model_json_wait_accepts_stable_json_despite_lingering_loading(m
 
     monkeypatch.setattr(model, "_latest_response", lambda _page, _snapshot: answer)
     monkeypatch.setattr(model, "_loading_visible", lambda _page: True)
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: object())
 
     started = time.monotonic()
     assert model._wait_for_response(object(), [(0, "")]) == answer
-    assert time.monotonic() - started < 0.05 + 0.1
+    assert time.monotonic() - started < 0.05 * 2
 
 def test_browser_model_json_wait_does_not_accept_incomplete_stream():
     class Page:
