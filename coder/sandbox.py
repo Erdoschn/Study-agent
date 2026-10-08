@@ -12,6 +12,8 @@ from pathlib import Path
 from threading import Event, Thread
 from typing import Iterable
 
+from .cancellation import raise_if_cancelled
+
 
 READABLE_EXTENSIONS = {
     ".py", ".pyi", ".txt", ".md", ".rst", ".json", ".toml",
@@ -124,7 +126,14 @@ class DockerPythonSandbox:
                 shutil.copyfile(source, destination)
         return stage
 
-    def run(self, kind: str, paths: Iterable[str] = ()) -> SandboxResult:
+    def run(
+        self,
+        kind: str,
+        paths: Iterable[str] = (),
+        *,
+        cancellation_event: Event | None = None,
+    ) -> SandboxResult:
+        raise_if_cancelled(cancellation_event)
         if kind not in {"python", "pytest"}:
             raise ValueError("只支持 python / pytest。")
         safe_paths = [str(p) for p in paths]
@@ -165,9 +174,19 @@ class DockerPythonSandbox:
                 kind,
                 *safe_paths,
             ]
-            return self._run_limited(command, name)
+            return self._run_limited(
+                command,
+                name,
+                cancellation_event=cancellation_event,
+            )
 
-    def _run_limited(self, command: list[str], name: str) -> SandboxResult:
+    def _run_limited(
+        self,
+        command: list[str],
+        name: str,
+        *,
+        cancellation_event: Event | None = None,
+    ) -> SandboxResult:
         try:
             proc = subprocess.Popen(
                 command,
@@ -203,7 +222,12 @@ class DockerPythonSandbox:
 
         started = time.monotonic()
         timed_out = False
+        cancelled = False
         while proc.poll() is None:
+            if cancellation_event is not None and cancellation_event.is_set():
+                cancelled = True
+                proc.kill()
+                break
             if exceeded.is_set():
                 proc.kill()
                 break
@@ -216,7 +240,7 @@ class DockerPythonSandbox:
         returncode = proc.wait()
         for thread in threads:
             thread.join(timeout=1.0)
-        if timed_out or exceeded.is_set():
+        if cancelled or timed_out or exceeded.is_set():
             subprocess.run(
                 ["docker", "rm", "-f", name],
                 stdin=subprocess.DEVNULL,
@@ -225,6 +249,8 @@ class DockerPythonSandbox:
                 shell=False,
                 timeout=10,
             )
+        if cancelled:
+            raise_if_cancelled(cancellation_event)
         return SandboxResult(
             returncode=returncode,
             stdout=bytes(stdout).decode("utf-8", errors="replace"),
