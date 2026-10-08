@@ -425,6 +425,32 @@ async function submitFeedback(){
   }
 }
 function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
+async function requestCancel(){
+  if(!state.running)return;
+  state.cancelRequested=true;
+  if(state.cancelling)return;
+  state.cancelling=true;
+  $("run").textContent="正在中止…";
+  const runId=state.lastRunId;
+  if(!runId){
+    $("timer").textContent="等待中止信号";
+    return;
+  }
+  try{
+    const r=await fetchTimeout(API+"/cancel",{
+      method:"POST",
+      headers:headers(),
+      body:JSON.stringify({run_id:runId})
+    },5000);
+    if(!r.ok&&r.status!==404)throw Error((await r.text()).slice(0,500));
+    $("timer").textContent="正在中止…";
+  }catch(e){
+    state.cancelling=false;
+    $("timer").textContent="中止请求失败："+(e.message||String(e));
+    console.error("Coder cancel request failed",e);
+  }
+}
+
 async function run(){
   const request=$("task").value.trim();
   const project=selectedProject();
@@ -518,6 +544,11 @@ async function run(){
           if(["WRITE_FILE","WRITE_NOTEBOOK","PATCH_FILE","CREATE_TEST","RUN_PYTHON","RUN_PYTEST"].includes(s.action)){
             void loadFiles(state.runProject);
           }
+        }else if(e.type==="cancelled"){
+          state.failed=false;
+          state.cancelling=false;
+          appendStep("CANCELLED",true,e.state?.summary||"任务已中止。");
+          if(e.state)updateSummary(e.state);
         }else if(e.type==="finished"){
           appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");
           updateSummary(e.state);
@@ -530,12 +561,16 @@ async function run(){
             $("feedback").value="";
             $("submitFeedback").textContent="提交评价";
           }
+          if(e.state?.cancelled){
+            state.failed=false;
+            state.cancelRequested=true;
+            state.cancelling=false;
+          }
           if(e.state?.error){
             state.failed=true;
             appendStep("ERROR",false,e.state.error);
             $("summary").textContent="Coder 执行失败："+e.state.error;
           }
-          void loadProjects();
           void loadHistory();
         }else if(e.type==="error"){
           state.failed=true;
@@ -564,11 +599,16 @@ async function run(){
     state.controller=null;
     clearInterval(state.timer);
     state.timer=null;
+    $("project").disabled=false;
     $("task").disabled=false;
     $("run").textContent="运行 Coder";
     $("run").classList.remove("stop");
-    $("timer").textContent=state.failed?"失败":"完成";
-    await loadFiles();
+    $("timer").textContent=state.cancelRequested&&!state.failed?"已中止":(state.failed?"失败":"完成");
+    await loadProjects();
+    await loadFiles(state.project);
+    state.runProject="";
+    state.cancelling=false;
+    state.cancelRequested=false;
   }
 }
 
@@ -597,7 +637,7 @@ function initCoderUI(attempt=0){
   coderUIInitialized=true;
   try{
     $("project").onchange=async()=>{setProject(selectedProject());await loadFiles()};
-    $("run").onclick=()=>state.running?state.controller?.abort():run();
+    $("run").onclick=()=>state.running?void requestCancel():run();
     $("submitFeedback").onclick=()=>void submitFeedback();
     $("task").onkeydown=e=>{
       if(e.key==="Enter"&&e.shiftKey&&!e.isComposing){
