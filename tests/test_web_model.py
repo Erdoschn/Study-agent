@@ -29,26 +29,58 @@ class FakeLocator:
     def is_visible(self):
         return self.visible
 
-    def fill(self, value):
+    def _value(self):
+        if not self.values:
+            return None
+        index = 0 if self.index is None else self.index
+        return self.values[index]
+
+    def fill(self, value, *, timeout=None):
+        del timeout
+        target = self._value()
+        if hasattr(target, "fill"):
+            target.fill(value)
+            return
         if self.index is None:
             self.values[:] = [value]
         else:
             self.values[self.index] = value
 
-    def press(self, key):
+    def press(self, key, *, timeout=None):
+        del timeout
+        target = self._value()
+        if hasattr(target, "press"):
+            target.press(key)
+            return
         if self.on_press is not None:
             self.on_press(key)
 
     def click(self, timeout=None):
         del timeout
+        target = self._value()
+        if hasattr(target, "click"):
+            target.click()
+            return
         if self.on_press is not None:
             self.on_press("click")
 
+    def is_visible(self):
+        target = self._value()
+        if hasattr(target, "is_visible"):
+            return target.is_visible()
+        return self.visible
+
     def inner_text(self):
-        if not self.values:
-            return ""
-        index = 0 if self.index is None else self.index
-        return str(self.values[index])
+        target = self._value()
+        if hasattr(target, "inner_text"):
+            return target.inner_text()
+        return "" if target is None else str(target)
+
+    def get_attribute(self, name):
+        target = self._value()
+        if hasattr(target, "get_attribute"):
+            return target.get_attribute(name)
+        return ""
 
 
 class FakePage:
@@ -480,7 +512,9 @@ def test_browser_model_accepts_existing_blank_chat_as_fresh():
 
     model._start_fresh_chat(page)
 
-    assert model._find_visible(page, ("textarea", '[contenteditable="true"]')) is page.input
+    visible_input = model._find_visible(page, ("textarea", '[contenteditable="true"]'))
+    assert visible_input is not None
+    assert visible_input.values == page.input.values
 
 
 def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
