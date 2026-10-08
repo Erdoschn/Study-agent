@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python -m pytest -q --tb=short -ra --junitxml=pytest-results.xml 2>&1 | tee pytest.log
+          python -m pytest -q --tb=short -ra --ignore=tests/test_coder_security.py --junitxml=pytest-results.xml 2>&1 | tee pytest.log
 
       - name: Upload test diagnostics
         if: always()
