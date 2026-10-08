@@ -162,7 +162,7 @@ class BrowserModel(ModelClient):
 
     @classmethod
     def _extract_json_object(cls, answer: str) -> str:
-        """Extract the last complete top-level Agent JSON object from a response."""
+        """Extract the last complete Agent JSON object outside quoted text."""
         import json
 
         text = str(answer or "").strip()
@@ -176,46 +176,38 @@ class BrowserModel(ModelClient):
             "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",
         }
 
+        decoder = json.JSONDecoder()
         last = ""
-        start: int | None = None
-        depth = 0
-        in_string = False
+        in_quote = False
         escaped = False
 
         for index, char in enumerate(text):
-            if start is None:
-                if char == "{":
-                    start = index
-                    depth = 1
-                continue
-
-            if in_string:
+            if in_quote:
                 if escaped:
                     escaped = False
                 elif char == "\\":
                     escaped = True
                 elif char == '"':
-                    in_string = False
+                    in_quote = False
                 continue
 
             if char == '"':
-                in_string = True
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[start:index + 1].strip()
-                    try:
-                        data = json.loads(candidate)
-                    except json.JSONDecodeError:
-                        data = None
-                    if (
-                        isinstance(data, dict)
-                        and str(data.get("action", "")).upper() in allowed_actions
-                    ):
-                        last = candidate
-                    start = None
+                in_quote = True
+                continue
+
+            if char != "{":
+                continue
+
+            try:
+                data, end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+
+            if (
+                isinstance(data, dict)
+                and str(data.get("action", "")).upper() in allowed_actions
+            ):
+                last = text[index:index + end].strip()
 
         return last
 
