@@ -232,7 +232,6 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert "document.getElementById" in source
     assert "attempt<100" in source
     assert "setTimeout(()=>initCoderUI(attempt+1),50)" in source
-    assert "正在根据任务让 LLM 自动命名新项目" in source
     assert 'e.type==="named"' in source
 
 
@@ -244,6 +243,7 @@ def test_coder_web_api_exposes_history_memory():
     assert 'if path == "/v1/coder/history":' in api_source
     assert "CoderMemoryStore" in api_source
     assert "knowledge_graph" in api_source
+    assert "正在根据任务让 LLM 自动命名新项目" in api_source
     assert ".coder-knowledge.sqlite3" in Path(__import__("coder.knowledge_graph").knowledge_graph.__file__).read_text(encoding="utf-8")
 
 
