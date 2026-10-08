@@ -674,11 +674,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
         except Exception:
             control.cancel()
-            with RUNS_LOCK:
-                ACTIVE_RUNS.pop(control.run_id, None)
-                control.finished = True
-            RUN_LOCK.release()
-            raise
+            if not worker_started:
+                raise
 
         events: queue.Queue = queue.Queue()
         done = object()
@@ -842,16 +839,13 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             control.cancel()
             print("[CoderWebAPI] SSE client disconnected; cancelling backend task.", flush=True)
+            if not worker_started:
+                raise
         finally:
-            # A disconnected browser must cancel the backend task. The worker
-            # remains the owner of RUN_LOCK once it has started.
+            # A disconnected browser must cancel the backend task. Once the
+            # worker starts, it is the sole owner responsible for RUN_LOCK.
             if not control.finished:
                 control.cancel()
-            if not worker_started and not control.finished:
-                with RUNS_LOCK:
-                    ACTIVE_RUNS.pop(control.run_id, None)
-                control.finished = True
-                RUN_LOCK.release()
 
 
 def build_agent(
