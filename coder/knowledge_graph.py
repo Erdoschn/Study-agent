@@ -150,8 +150,17 @@ class CoderKnowledgeGraph:
             return
         with self._lock, self._connect() as db:
             project_id = self._node(db, project, "project")
-            concept = str(study_payload.get("domain", "") or "").strip()
-            if concept:
+            concepts = []
+            domain = str(study_payload.get("domain", "") or "").strip()
+            if domain:
+                concepts.append(domain)
+            learner_context = study_payload.get("learner_context", {})
+            if isinstance(learner_context, dict):
+                for key in ("weak_concepts", "learning_concepts", "unassessed_concepts"):
+                    items = learner_context.get(key, [])
+                    if isinstance(items, list):
+                        concepts.extend(str(item).strip() for item in items if str(item).strip())
+            for concept in concepts[:12]:
                 concept_id = self._node(db, concept, "study_concept")
                 self._edge(db, project_id, concept_id, "consulted_study_concept", 0.6)
             request_id = self._node(db, question[:300], "study_question")
