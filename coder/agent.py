@@ -39,6 +39,9 @@ class CoderAgent:
         if not request:
             raise ValueError("Coder 请求不能为空。")
         state = CoderState(request=request)
+        preflight = getattr(self.harness.sandbox, "preflight", None)
+        if callable(preflight):
+            preflight()
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
