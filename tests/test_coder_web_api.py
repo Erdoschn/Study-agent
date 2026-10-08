@@ -592,6 +592,18 @@ def test_coder_reasoner_includes_recent_user_feedback():
     assert payload["user_feedback"][0]["feedback"] == "以后修改前先说明计划，尽量保持改动范围小。"
 
 
+def test_coder_web_frontend_preserves_selected_project_across_async_refresh():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+
+    assert "let projectsLoadSeq=0;" in source
+    assert "const requestSeq=++projectsLoadSeq;" in source
+    assert "if(requestSeq!==projectsLoadSeq)return;" in source
+    assert "const current=selectedProject()||state.project;" in source
+    assert "const project=selectedProject();" in source
+    assert 'body:JSON.stringify({request,project:project||null})' in source
+    assert "else setProject("");" not in source
+
+
 def test_coder_web_feedback_endpoint_and_frontend_are_wired():
     import examples.coder_web_api as api
 
