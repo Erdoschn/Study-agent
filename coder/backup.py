@@ -19,13 +19,11 @@ class BackupSnapshot:
 
 
 class CoderBackupStore:
-    """Stores the immutable initial snapshot and the latest known-good snapshot."""
+    """Stores one immutable initial snapshot and one replaceable last-known-good snapshot."""
 
     INITIAL_ARCHIVE_NAME = "initial.zip"
-    INITIAL_MANIFEST_NAME = "initial_manifest.json"
     ARCHIVE_NAME = "latest.zip"
-    MANIFEST_NAME = "manifest.json"
-
+    MANIFEST_NAME = "backup-manifest.json"
     EDITABLE_SUFFIXES = frozenset({".py", ".pyi"})
     SKIP_DIRS = frozenset({
         ".git", ".venv", "__pycache__", ".pytest_cache",
@@ -75,7 +73,7 @@ class CoderBackupStore:
                     continue
                 yield source, relative
 
-    def _build_snapshot_files(self, archive_path: Path, generation: int) -> int:
+    def _build_archive(self, archive_path: Path, generation: int) -> int:
         entries: list[dict[str, object]] = []
         with zipfile.ZipFile(
             archive_path,
@@ -85,167 +83,95 @@ class CoderBackupStore:
         ) as archive:
             for source, relative in self._iter_code_files(self.workspace):
                 arcname = relative.as_posix()
-                archive.write(source, arcname=arcname)
                 data = source.read_bytes()
+                archive.writestr(arcname, data)
                 entries.append({
                     "path": arcname,
                     "sha256": hashlib.sha256(data).hexdigest(),
                     "bytes": len(data),
                 })
 
-        entries.sort(key=lambda item: str(item["path"]))
+            entries.sort(key=lambda item: str(item["path"]))
+            archive.writestr(
+                self.MANIFEST_NAME,
+                json.dumps(
+                    {
+                        "generation": int(generation),
+                        "file_count": len(entries),
+                        "files": entries,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ).encode("utf-8"),
+            )
         return len(entries)
 
-    def _write_manifest(self, path: Path, generation: int, file_count: int) -> None:
-        entries: list[dict[str, object]] = []
-        archive = self.root / (
-            self.INITIAL_ARCHIVE_NAME
-            if path.name == self.INITIAL_MANIFEST_NAME
-            else self.ARCHIVE_NAME
-        )
-        with zipfile.ZipFile(archive, "r") as zf:
-            for name in sorted(zf.namelist()):
-                info = zf.getinfo(name)
-                if name.endswith("/"):
-                    continue
-                data = zf.read(name)
-                entries.append({
-                    "path": name,
-                    "sha256": hashlib.sha256(data).hexdigest(),
-                    "bytes": info.file_size,
-                })
-        path.write_text(
-            json.dumps(
-                {"generation": generation, "file_count": file_count, "files": entries},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-            newline="",
-        )
+    def _read_archive_manifest(self, archive: Path) -> dict:
+        if not archive.is_file():
+            return {}
+        try:
+            with zipfile.ZipFile(archive, "r") as zf:
+                data = json.loads(zf.read(self.MANIFEST_NAME).decode("utf-8"))
+        except (OSError, KeyError, ValueError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+            raise RuntimeError(f"Coder backup archive 损坏：{archive.name}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Coder backup manifest 格式非法：{archive.name}")
+        return data
 
-    def ensure_initial_snapshot(self, generation: int = 0) -> BackupSnapshot:
-        archive = self.root / self.INITIAL_ARCHIVE_NAME
-        manifest = self.root / self.INITIAL_MANIFEST_NAME
-        if archive.exists() or manifest.exists():
-            if not archive.is_file() or not manifest.is_file():
-                raise RuntimeError("Coder initial backup 不完整，已拒绝继续。")
-            data = self._read_manifest(manifest)
+    def _snapshot(self, archive: Path, generation: int, *, immutable: bool) -> BackupSnapshot:
+        generation = int(generation)
+        if generation < 0:
+            raise ValueError("backup generation 不能为负数。")
+        if immutable and archive.exists():
+            data = self._read_archive_manifest(archive)
             return BackupSnapshot(
                 generation=int(data.get("generation", generation)),
                 archive=archive,
                 file_count=int(data.get("file_count", 0)),
             )
 
-        archive_tmp = self.root / f"{self.INITIAL_ARCHIVE_NAME}.{os.getpid()}.tmp"
-        manifest_tmp = self.root / f"{self.INITIAL_MANIFEST_NAME}.{os.getpid()}.tmp"
+        archive_tmp = self.root / f".{archive.name}.{os.getpid()}.tmp"
         try:
-            file_count = self._build_snapshot_files(archive_tmp, generation)
-            entries = []
-            with zipfile.ZipFile(archive_tmp, "r") as zf:
-                for name in sorted(zf.namelist()):
-                    if name.endswith("/"):
-                        continue
-                    info = zf.getinfo(name)
-                    data = zf.read(name)
-                    entries.append({
-                        "path": name,
-                        "sha256": hashlib.sha256(data).hexdigest(),
-                        "bytes": info.file_size,
-                    })
-            manifest_tmp.write_text(
-                json.dumps(
-                    {"generation": generation, "file_count": file_count, "files": entries},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-                newline="",
-            )
+            file_count = self._build_archive(archive_tmp, generation)
+            if immutable and archive.exists():
+                return self._snapshot(archive, generation, immutable=True)
             os.replace(archive_tmp, archive)
-            os.replace(manifest_tmp, manifest)
             return BackupSnapshot(
                 generation=generation,
                 archive=archive,
                 file_count=file_count,
             )
         except Exception:
-            for path in (archive_tmp, manifest_tmp):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
+            try:
+                archive_tmp.unlink()
+            except FileNotFoundError:
+                pass
             raise
+
+    def ensure_initial_snapshot(self, generation: int = 0) -> BackupSnapshot:
+        return self._snapshot(
+            self.root / self.INITIAL_ARCHIVE_NAME,
+            generation,
+            immutable=True,
+        )
 
     def snapshot(self, generation: int) -> BackupSnapshot:
-        generation = int(generation)
-        if generation < 0:
-            raise ValueError("backup generation 不能为负数。")
-
-        archive = self.root / self.ARCHIVE_NAME
-        manifest = self.root / self.MANIFEST_NAME
-        archive_tmp = self.root / f"{self.ARCHIVE_NAME}.{os.getpid()}.tmp"
-        manifest_tmp = self.root / f"{self.MANIFEST_NAME}.{os.getpid()}.tmp"
-        try:
-            file_count = self._build_snapshot_files(archive_tmp, generation)
-            entries = []
-            with zipfile.ZipFile(archive_tmp, "r") as zf:
-                for name in sorted(zf.namelist()):
-                    if name.endswith("/"):
-                        continue
-                    info = zf.getinfo(name)
-                    data = zf.read(name)
-                    entries.append({
-                        "path": name,
-                        "sha256": hashlib.sha256(data).hexdigest(),
-                        "bytes": info.file_size,
-                    })
-            manifest_tmp.write_text(
-                json.dumps(
-                    {"generation": generation, "file_count": file_count, "files": entries},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-                newline="",
-            )
-            os.replace(archive_tmp, archive)
-            os.replace(manifest_tmp, manifest)
-            return BackupSnapshot(
-                generation=generation,
-                archive=archive,
-                file_count=file_count,
-            )
-        except Exception:
-            for path in (archive_tmp, manifest_tmp):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-            raise
-
-    @staticmethod
-    def _read_manifest(path: Path) -> dict:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(f"Coder backup manifest 损坏：{path.name}") from exc
-        if not isinstance(data, dict):
-            raise RuntimeError(f"Coder backup manifest 格式非法：{path.name}")
-        return data
+        return self._snapshot(
+            self.root / self.ARCHIVE_NAME,
+            generation,
+            immutable=False,
+        )
 
     def read_manifest(self, *, initial: bool = False) -> dict:
-        return self._read_manifest(
-            self.root / (
-                self.INITIAL_MANIFEST_NAME if initial else self.MANIFEST_NAME
-            )
-        ) if (
-            self.root / (
-                self.INITIAL_MANIFEST_NAME if initial else self.MANIFEST_NAME
-            )
-        ).is_file() else {}
+        archive = self.root / (
+            self.INITIAL_ARCHIVE_NAME if initial else self.ARCHIVE_NAME
+        )
+        return self._read_archive_manifest(archive)
 
     def contains_text(self, relative_path: str, expected: str, *, initial: bool = False) -> bool:
+        archive = self.root / (
+            self.INITIAL_ARCHIVE_NAME if initial else self.ARCHIVE_NAME
+        )
         manifest = self.read_manifest(initial=initial)
         allowed = {
             str(item.get("path"))
@@ -253,28 +179,19 @@ class CoderBackupStore:
             if isinstance(item, dict)
         }
         normalized = relative_path.replace("\\", "/")
-        if normalized not in allowed:
+        if normalized not in allowed or not archive.is_file():
             return False
-        archive = self.root / (
-            self.INITIAL_ARCHIVE_NAME if initial else self.ARCHIVE_NAME
-        )
-        if not archive.is_file():
-            return False
-        with zipfile.ZipFile(archive, "r") as zf:
-            try:
+        try:
+            with zipfile.ZipFile(archive, "r") as zf:
                 actual = zf.read(normalized).decode("utf-8")
-            except (KeyError, UnicodeDecodeError):
-                return False
+        except (KeyError, UnicodeDecodeError, zipfile.BadZipFile):
+            return False
         return actual == expected
 
     def has_initial_snapshot(self) -> bool:
-        return (
-            (self.root / self.INITIAL_ARCHIVE_NAME).is_file()
-            and (self.root / self.INITIAL_MANIFEST_NAME).is_file()
-        )
+        archive = self.root / self.INITIAL_ARCHIVE_NAME
+        return archive.is_file() and bool(self._read_archive_manifest(archive))
 
     def has_latest_snapshot(self) -> bool:
-        return (
-            (self.root / self.ARCHIVE_NAME).is_file()
-            and (self.root / self.MANIFEST_NAME).is_file()
-        )
+        archive = self.root / self.ARCHIVE_NAME
+        return archive.is_file() and bool(self._read_archive_manifest(archive))
