@@ -80,6 +80,9 @@ def test_harness_never_uses_shell_for_sandbox(tmp_path, monkeypatch):
     assert "--read-only" in command
     assert "--cap-drop" in command
     assert "--pull=never" in command
+    tmpfs_args = [command[i + 1] for i, value in enumerate(command[:-1]) if value == "--tmpfs"]
+    assert any("/sandbox:" in value and "uid=65534" in value and "gid=65534" in value for value in tmpfs_args)
+    assert any("/tmp:" in value and "uid=65534" in value and "gid=65534" in value for value in tmpfs_args)
 
 
 def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
