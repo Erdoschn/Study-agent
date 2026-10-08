@@ -23,6 +23,7 @@ class CoderReasoner:
         reuse_chat: bool = True,
         min_send_interval_seconds: float = 5.0,
         recent_user_feedback: list[dict[str, Any]] | None = None,
+        cancellation_event=None,
     ):
         self.recent_user_feedback = [
             {
@@ -40,6 +41,7 @@ class CoderReasoner:
             reuse_chat=reuse_chat,
             min_send_interval_seconds=min_send_interval_seconds,
             debug_mode=debug_mode,
+            cancellation_event=cancellation_event,
         )
 
     def new_chat(self) -> None:
