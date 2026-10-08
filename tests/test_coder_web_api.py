@@ -164,7 +164,7 @@ def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
 
 def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
     source = _frontend_path("/").read_text(encoding="utf-8")
-    assert "throw new Error("Coder UI DOM 初始化失败")" not in source
+    assert 'throw new Error("Coder UI DOM 初始化失败")' not in source
     assert "void loadProjects();" in source
     assert "void health();" in source
     assert "setInterval(()=>void health(),30000);" in source
