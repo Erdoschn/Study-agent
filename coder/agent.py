@@ -7,7 +7,7 @@ from pathlib import Path
 
 from core.__debug__ import debug
 
-from .cancellation import RunCancelled, raise_if_cancelled
+from core.cancellation import RunCancelled, raise_if_cancelled
 from .filesystem import WorkspaceSecurityError
 from .harness import CoderHarness
 from .reasoner import CoderReasoner
