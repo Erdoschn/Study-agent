@@ -140,6 +140,7 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
 
     class FakeBackup:
         root = tmp_path / "backup"
+        ARCHIVE_NAME = "latest.zip"
 
         def snapshot(self, generation):
             backup_state.generation = generation
