@@ -2,36 +2,16 @@ import json
 
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
+from .prompt_config import get_prompt
 from .knowledge_graph import normalize_difficulty
 
 
 class AssessmentGenerator:
     """为指定知识点生成正式测评题；不会执行文件、shell 或任意代码操作。"""
 
-    SYSTEM_PROMPT = """
-你是 Study Agent 的 Assessment Generator。
-你的任务是为指定知识概念生成一道正式学习测评题。
+    SYSTEM_PROMPT = get_prompt("study_agent.assessment")
 
-要求：
-1. 题目必须能区分学生是否真正理解目标概念，而不是只会背定义。
-2. difficulty 必须与请求一致：basic / undergraduate / graduate / postgraduate / postgraduate_plus。
-3. 如果目标是 postgraduate 或 postgraduate_plus，题目必须要求完整正确的高阶理解，不能只靠简单关键词作答。
-4. 必须提供 expected_answer 和 rubric，rubric 是可独立检查的核心要点。
-5. supporting_concepts 只能帮助理解题目，不得因此把这些概念一起认证为掌握。
-6. 题目、答案和评分标准必须数学/事实严谨。
-7. 不生成任何代码执行、文件操作或系统操作任务；本测试只考察知识与推理。
-8. 只输出 JSON，不输出隐藏思维链。
-
-JSON schema：
-{
-  "primary_concept": "主要考查概念",
-  "supporting_concepts": ["辅助概念"],
-  "question": "题目",
-  "expected_answer": "参考答案",
-  "rubric": ["核心评分点1", "核心评分点2"],
-  "question_type": "open_ended"
-}
-""".strip()
+)
 
     def __init__(self, model_router, model_factory, allow_paid: bool = False):
         self.model_router = model_router
