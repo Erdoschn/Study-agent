@@ -10,6 +10,7 @@ Environment:
     STUDY_AGENT_HOST=127.0.0.1
     STUDY_AGENT_PORT=8000
     STUDY_AGENT_API_KEY=optional-secret
+    STUDY_AGENT_BRIDGE_KEY=optional-secret
     STUDY_AGENT_ALLOW_PAID=0
 """
 from __future__ import annotations
