@@ -99,9 +99,9 @@ class DockerPythonSandbox:
             current_path = Path(current)
             dirs[:] = [
                 name for name in dirs
-                if name not in SKIP_DIRS
-                and name not in BLOCKED_NAMES
-                and not name.startswith(".coder-sandbox-")
+                if name.casefold() not in SKIP_DIRS
+                and name.casefold() not in BLOCKED_NAMES
+                and not name.casefold().startswith(".coder-sandbox-")
                 and not self._is_special(current_path / name)
             ]
             relative_dir = current_path.relative_to(self.workspace)
@@ -111,7 +111,8 @@ class DockerPythonSandbox:
                 source = current_path / name
                 if self._is_special(source):
                     continue
-                if name in BLOCKED_NAMES or name.startswith(".coder-sandbox-"):
+                name_key = name.casefold()
+                if name_key in BLOCKED_NAMES or name_key.startswith(".coder-sandbox-"):
                     continue
                 if source.suffix.casefold() in BLOCKED_SUFFIXES:
                     continue
@@ -147,6 +148,7 @@ class DockerPythonSandbox:
             command = [
                 "docker", "run", "--rm", "--init", "--pull=never",
                 "--name", name,
+                "--user", "65534:65534",
                 "--network", "none",
                 "--read-only",
                 "--cap-drop", "ALL",
