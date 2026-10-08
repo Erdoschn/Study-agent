@@ -825,7 +825,7 @@ def test_browser_model_minimizes_only_new_edge_window_on_windows(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
 
     model = BrowserModel()
-    model._edge_window_handles = {5678}
+    model._created_edge_window_handles = {5678}
     model._minimize_browser_window(object())
 
     assert fake_ctypes.windll.user32.calls == [(5678, 6)]
