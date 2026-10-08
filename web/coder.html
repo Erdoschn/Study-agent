@@ -174,14 +174,15 @@ function renderHistory(runs){
     const title=document.createElement("b");
     title.textContent=item.project||"未命名项目";
     const meta=document.createElement("span");
-    const status=item.verified?"✓ 已验证":(item.error?"✕ 失败":"运行结束");
+    const status=item.cancelled?"⏹ 已中止":(item.verified?"✓ 已验证":(item.error?"✕ 失败":"运行结束"));
     meta.textContent=status+" · "+String(item.request||"").slice(0,48);
     b.append(title,meta);
     b.title=item.request||"";
     b.onclick=async()=>{
+      if(state.running)return;
       try{
         if(item.project)setProject(item.project);
-        await loadFiles();
+        await loadFiles(state.project);
         $("request").textContent=item.request||"";
         $("summary").textContent=item.summary||item.error||"历史任务无总结。";
         $("finished").textContent=String(item.finished);
@@ -295,7 +296,6 @@ async function loadProjects(){
     }
     if(current){
       const exists=projects.some(p=>p.name===current);
-      const option=select.querySelector('option[value="'+CSS.escape(current)+'"]');
       if(!exists){
         const missing=document.createElement("option");
         missing.value=current;
