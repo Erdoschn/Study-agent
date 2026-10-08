@@ -716,6 +716,52 @@ def test_browser_model_waits_for_copy_completion_before_accepting_json(monkeypat
     assert len(copy_calls) >= 3
 
 
+def test_browser_model_dismisses_cookie_banner_before_browser_actions():
+    model = BrowserModel()
+
+    class Button:
+        def __init__(self):
+            self.clicked = False
+
+        def is_visible(self):
+            return True
+
+        def click(self, timeout=None):
+            self.clicked = True
+            assert timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
+
+    class Banner:
+        def __init__(self):
+            self.button = Button()
+
+        def is_visible(self):
+            return True
+
+        def count(self):
+            return 1
+
+        def nth(self, _index):
+            return self
+
+        def get_by_role(self, role, name=None):
+            assert role == "button"
+            assert name is not None
+            return FakeLocator([self.button])
+
+    class Page:
+        def __init__(self):
+            self.banner = Banner()
+
+        def locator(self, selector):
+            assert selector == ".cookie_banner-wrap"
+            return self.banner
+
+    page = Page()
+
+    assert model._dismiss_cookie_banner(page) is True
+    assert page.banner.button.clicked is True
+
+
 def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
     class Page:
         def __init__(self):
