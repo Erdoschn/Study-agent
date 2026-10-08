@@ -56,6 +56,7 @@ UPLOAD_MAX_BYTES = min(
     WorkspaceFS.MAX_FILE_BYTES,
     max(1, int(os.getenv("CODER_UPLOAD_MAX_BYTES", str(WorkspaceFS.MAX_FILE_BYTES)))),
 )
+FEEDBACK_MAX_BYTES = 16 * 1024
 RUN_LOCK = threading.Lock()
 PROJECT_NAME_MAX = 64
 PROJECT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -529,6 +530,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self._upload(), 201)
                 return
 
+            if path == "/v1/coder/feedback":
+                request = self._body_json()
+                run_id = str(request.get("run_id", "")).strip()
+                feedback = str(request.get("feedback", "")).strip()
+                if not run_id:
+                    raise ValueError("缺少 run_id。")
+                if not feedback:
+                    raise ValueError("用户评价不能为空。")
+                if len(feedback.encode("utf-8")) > FEEDBACK_MAX_BYTES:
+                    raise WorkspaceSecurityError("用户评价超过安全长度上限。")
+                memory = CoderMemoryStore(self.server.workspace.root)
+                saved = memory.record_feedback(run_id=run_id, feedback=feedback)
+                if saved is None:
+                    self._json({"error": {"message": "找不到对应的 Coder 运行记录。"}}, 404)
+                    return
+                self._json({"status": "saved", "feedback": saved}, 201)
+                return
+
             if path != "/v1/coder/run":
                 self._json(
                     {"error": {"message": "Not found", "type": "invalid_request_error"}},
@@ -592,12 +611,18 @@ class Handler(BaseHTTPRequestHandler):
                     # Naming may have used a chat; every coding task starts in
                     # its own Coder conversation while reusing the same browser.
                     browser_model.new_chat()
+                memory = CoderMemoryStore(self.server.workspace.root)
+                recent_feedback = memory.recent_feedback()
                 emit({
                     "type": "started",
                     "project": actual_project,
                     "runtime_timeout_seconds": MAX_RUNTIME_SECONDS,
                 })
-                agent = self.server.build_agent(actual_project, browser_model)
+                agent = self.server.build_agent(
+                    actual_project,
+                    browser_model,
+                    recent_user_feedback=recent_feedback,
+                )
                 previous = debug.log
 
                 def debug_hook(module: str, message: str) -> None:
@@ -613,7 +638,6 @@ class Handler(BaseHTTPRequestHandler):
                             emit(event)
 
                     result = agent.run(task, event_hook=agent_event_hook)
-                    memory = CoderMemoryStore(self.server.workspace.root)
                     entry = memory.record_run(project=actual_project, state=result)
                     events.put({"type": "result", "state": result, "memory": entry})
                 finally:
@@ -713,6 +737,8 @@ class Handler(BaseHTTPRequestHandler):
 def build_agent(
     project: str,
     browser_model: CoderBrowserSession | None = None,
+    *,
+    recent_user_feedback: list[dict] | None = None,
 ) -> CoderAgent:
     reasoner = (
         CoderReasoner(
@@ -720,6 +746,7 @@ def build_agent(
             reuse_chat=True,
             min_send_interval_seconds=5.0,
             debug_mode=False,
+            recent_user_feedback=recent_user_feedback,
         )
         if browser_model is not None
         else None
