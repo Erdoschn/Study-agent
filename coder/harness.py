@@ -66,7 +66,6 @@ class CoderHarness:
         if not query:
             raise ValueError("SEARCH 需要 query。")
         if len(query) > 240 or "\n" in query:
-" in query:
             raise PermissionError("SEARCH query 过长或包含换行；禁止把代码/文件内容外发到搜索源。")
         lowered = query.casefold()
         if any(token in lowered for token in ("password=", "api_key=", "secret=", "private key", "begin rsa")):
