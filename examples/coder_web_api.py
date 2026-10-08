@@ -42,7 +42,7 @@ from coder.reasoner import CoderReasoner
 from coder.memory import CoderMemoryStore
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
-from core.cancellation import raise_if_cancelled
+from core.cancellation import RunCancelled, raise_if_cancelled
 from core.web_model import BrowserModel
 
 
