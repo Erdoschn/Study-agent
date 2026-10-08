@@ -498,6 +498,43 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"CLIPBOARD READ SKIP → {exc}")
             return ""
 
+    def _clear_browser_clipboard(self, page) -> None:
+        """Clear the OS/browser clipboard through normal page keyboard input."""
+        probe_id = "__study_agent_clipboard_clear_probe"
+        try:
+            page.evaluate(
+                """id => {
+                    const old = document.getElementById(id);
+                    if (old) old.remove();
+
+                    const el = document.createElement("textarea");
+                    el.id = id;
+                    el.setAttribute("aria-hidden", "true");
+                    el.value = "";
+                    el.style.position = "fixed";
+                    el.style.left = "-10000px";
+                    el.style.top = "0";
+                    el.style.width = "1px";
+                    el.style.height = "1px";
+                    el.style.opacity = "0";
+                    document.body.appendChild(el);
+                    el.focus();
+                    el.select();
+                }""",
+                probe_id,
+            )
+            page.keyboard.press("Control+C")
+        except Exception as exc:
+            debug.log("BrowserModel", f"CLIPBOARD CLEAR SKIP → {exc}")
+        finally:
+            try:
+                page.evaluate(
+                    "id => document.getElementById(id)?.remove()",
+                    probe_id,
+                )
+            except Exception:
+                pass
+
     def _copy_latest_response_markdown(self, page) -> str:
         """Click DeepSeek's native Copy button and capture its Markdown payload."""
         deadline = time.monotonic() + min(3.0, float(self.timeout))
@@ -505,6 +542,7 @@ class BrowserModel(ModelClient):
         while time.monotonic() < deadline:
             button = self._find_copy_button(page)
             if button is not None:
+                self._clear_browser_clipboard(page)
                 try:
                     button.click()
                 except Exception as exc:
