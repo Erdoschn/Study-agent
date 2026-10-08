@@ -126,8 +126,10 @@ def test_reasoner_separates_untrusted_tool_output_from_policy():
     reasoner.decide(state, [])
     payload = json.loads(model.user)
     untrusted = payload["last_observation_untrusted"]
-    assert state.last_observation["content"] in untrusted
     assert "<UNTRUSTED_TOOL_OUTPUT>" in untrusted
+    rendered = untrusted.removeprefix("<UNTRUSTED_TOOL_OUTPUT>\n").removesuffix("\n</UNTRUSTED_TOOL_OUTPUT>")
+    rendered_payload = json.loads(rendered)
+    assert rendered_payload["content"] == state.last_observation["content"]
     assert "<REDACTED_HOST_PATH>" in model.user
     assert "<REDACTED_HOST_PATH>" in model.user.split('"content":', 1)[0]
 
