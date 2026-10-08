@@ -625,6 +625,7 @@ class BrowserModel(ModelClient):
                 sys.stdin.readline()
                 return
 
+    @staticmethod
     def _session_id_from_url(url: str) -> str | None:
         match = re.search(r"/a/chat/s/([^/?#]+)", str(url or ""))
         return match.group(1) if match else None
