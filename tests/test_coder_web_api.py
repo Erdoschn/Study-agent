@@ -86,7 +86,49 @@ def test_coder_web_state_payload_exposes_completion_summary():
 def test_coder_project_name_is_safe_and_derived_from_request():
     assert _project_name("创建一个 Python 成绩分析器") == "Python"
     assert "/" not in _project_name("my/project")
-    assert _project_name("").startswith("project-")
+    assert _project_name("") == "coder-project"
+
+
+def test_coder_project_slug_from_llm_prefers_specific_last_candidate():
+    import examples.coder_web_api as api
+
+    assert api._project_slug_from_llm(
+        "Project name: simple-calculator"
+    ) == "simple-calculator"
+    assert api._project_slug_from_llm(
+        "Here is the project name: score_analyzer"
+    ) == "score-analyzer"
+    assert api._project_slug_from_llm("Project") == ""
+
+
+def test_coder_project_name_uses_llm_and_closes_browser(monkeypatch):
+    import examples.coder_web_api as api
+
+    class FakeModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+
+        def generate(self, system_prompt, user_prompt, json_mode=False):
+            assert system_prompt == api.PROJECT_NAME_PROMPT
+            assert "build a tiny calculator" in user_prompt
+            assert json_mode is False
+            return "simple-calculator"
+
+        def close(self):
+            self.closed = True
+
+    holder = {}
+
+    def factory(**kwargs):
+        model = FakeModel(**kwargs)
+        holder["model"] = model
+        return model
+
+    monkeypatch.setattr(api, "BrowserModel", factory)
+
+    assert api._llm_project_name("build a tiny calculator") == "simple-calculator"
+    assert holder["model"].closed is True
 
 
 def test_coder_new_project_auto_names_when_name_is_none(tmp_path, monkeypatch):
@@ -144,6 +186,9 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert "document.getElementById" in source
     assert "attempt<100" in source
     assert "setTimeout(()=>initCoderUI(attempt+1),50)" in source
+    assert "正在根据任务让 LLM 自动命名新项目" in source
+    assert 'e.type==="named"' in source
+    assert "unique_if_requested=True" in source
 
 
 def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
@@ -184,4 +229,6 @@ def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
     assert 'throw new Error("Coder UI DOM 初始化失败")' not in source
     assert "void loadProjects();" in source
     assert "void health();" in source
+    assert "requested_project = request.get("project")" in source
+    assert "self._stream_run(task, requested_project)" in source
     assert "setInterval(()=>void health(),30000);" in source
