@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+from threading import Event
 from typing import Any, Callable
 
 from core.web_model import BrowserModel
@@ -21,6 +22,7 @@ class CoderBrowserSession:
         self._ready = threading.Event()
         self._closed = False
         self._init_error: BaseException | None = None
+        self._cancellation_event = Event()
         self.model = "deepseek-web"
         self.user_data_dir = str(model_kwargs.get("user_data_dir", ".coder-browser"))
         self.reuse_chat = bool(model_kwargs.get("reuse_chat", True))
@@ -51,6 +53,7 @@ class CoderBrowserSession:
                 reuse_chat=self.reuse_chat,
                 min_send_interval_seconds=self.min_send_interval_seconds,
                 debug_mode=False,
+                cancellation_event=self._cancellation_event,
             )
             self._browser = browser
             browser.prepare_browser()
@@ -83,6 +86,18 @@ class CoderBrowserSession:
         if ok:
             return value
         raise value
+
+    @property
+    def cancellation_event(self) -> Event:
+        return self._cancellation_event
+
+    def begin_run(self) -> None:
+        if self._closed:
+            raise RuntimeError("Coder 浏览器会话已经关闭。")
+        self._cancellation_event.clear()
+
+    def cancel(self) -> None:
+        self._cancellation_event.set()
 
     def generate(
         self,
