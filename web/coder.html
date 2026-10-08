@@ -179,7 +179,7 @@ function renderHistory(runs){
     box.append(b);
   }
 }
-function renderMemory(knowledge){
+function renderMemory(knowledge,graph){
   const box=$("memory");
   const groups=[
     ["技术",knowledge?.technologies||[],x=>x.name+" ×"+x.count],
@@ -201,7 +201,20 @@ function renderMemory(knowledge){
       box.append(line);
     });
   }
-  if(empty)box.textContent="暂无策略、经验或技术记录。";
+  const nodes=Array.isArray(graph?.nodes)?graph.nodes:[];
+  if(nodes.length){
+    empty=false;
+    const title=document.createElement("b");
+    title.textContent="图谱：";
+    box.append(title);
+    nodes.slice(0,8).forEach(item=>{
+      const line=document.createElement("div");
+      line.className="memory-line";
+      line.textContent=String(item.type||"node")+" · "+String(item.name||"")+" ×"+String(item.count||1);
+      box.append(line);
+    });
+  }
+  if(empty)box.textContent="暂无策略、经验、技术或图谱记录。";
 }
 async function loadHistory(){
   try{
@@ -209,7 +222,7 @@ async function loadHistory(){
     if(!r.ok)throw Error(await r.text());
     const d=await r.json();
     renderHistory(d.runs||[]);
-    renderMemory(d.knowledge||{});
+    renderMemory(d.knowledge||{},d.knowledge_graph||{});
   }catch(e){
     console.error("Coder history load failed",e);
   }
