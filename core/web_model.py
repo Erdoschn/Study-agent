@@ -42,7 +42,7 @@ class BrowserModel(ModelClient):
     DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
     DEFAULT_STOP_LABELS = (
-        "Stop generating", "Stop generation", "Stop", "停止生成", "停止", "中止生成",
+        "Stop generating", "Stop generation", "停止生成", "中止生成",
     )
     DEFAULT_COOKIE_ACCEPT_LABELS = (
         "Accept", "Accept all", "Agree", "I agree",
@@ -120,13 +120,18 @@ class BrowserModel(ModelClient):
         """Signal the current browser operation to stop as soon as possible."""
         if self.cancellation_event is not None:
             self.cancellation_event.set()
+        self._chat_initialized = False
 
     def reset_cancellation(self) -> None:
         if self.cancellation_event is not None:
             self.cancellation_event.clear()
 
     def _check_cancelled(self) -> None:
-        raise_if_cancelled(self.cancellation_event)
+        try:
+            raise_if_cancelled(self.cancellation_event)
+        except RunCancelled:
+            self._chat_initialized = False
+            raise
 
     def _sleep(self, seconds: float) -> None:
         seconds = max(0.0, float(seconds))
