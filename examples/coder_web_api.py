@@ -40,6 +40,7 @@ from coder import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
 from coder.reasoner import CoderReasoner
 from coder.memory import CoderMemoryStore
+from coder.state import CoderState
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
 from core.cancellation import RunCancelled, raise_if_cancelled
@@ -692,6 +693,9 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             actual_project = str(project).strip() if project is not None else ""
+            result_state = None
+            result_emitted = False
+            memory = CoderMemoryStore(self.server.workspace.root)
             try:
                 browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
@@ -714,7 +718,6 @@ class Handler(BaseHTTPRequestHandler):
                     # Naming may have used a chat; every coding task starts in
                     # its own Coder conversation while reusing the same browser.
                     browser_model.new_chat()
-                memory = CoderMemoryStore(self.server.workspace.root)
                 recent_feedback = memory.recent_feedback()
                 emit({
                     "type": "started",
@@ -736,19 +739,51 @@ class Handler(BaseHTTPRequestHandler):
                         if event.get("type") != "started":
                             emit(event)
 
-                    result = agent.run(task, event_hook=agent_event_hook)
-                    entry = memory.record_run(project=actual_project, state=result)
-                    events.put({"type": "result", "state": result, "memory": entry})
+                    result_state = agent.run(task, event_hook=agent_event_hook)
+                    entry = memory.record_run(project=actual_project, state=result_state)
+                    events.put({"type": "result", "state": result_state, "memory": entry})
+                    result_emitted = True
                 finally:
                     debug.clear_thread_binding()
             except RunCancelled:
+                result_state = CoderState(
+                    request=task,
+                    project=actual_project,
+                    finished=True,
+                    cancelled=True,
+                    summary="任务已被用户中止。",
+                )
+                result_state.metrics["cancelled"] = True
+                entry = memory.record_run(project=actual_project, state=result_state)
                 events.put({
                     "type": "cancelled",
                     "project": actual_project,
-                    "state": None,
+                    "state": _state_payload(result_state),
                 })
+                events.put({
+                    "type": "result",
+                    "state": result_state,
+                    "memory": entry,
+                })
+                result_emitted = True
             except Exception as exc:
-                events.put({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+                result_state = CoderState(
+                    request=task,
+                    project=actual_project,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                entry = memory.record_run(project=actual_project, state=result_state)
+                events.put({
+                    "type": "error",
+                    "error": result_state.error,
+                    "state": _state_payload(result_state),
+                })
+                events.put({
+                    "type": "result",
+                    "state": result_state,
+                    "memory": entry,
+                })
+                result_emitted = True
             finally:
                 events.put({"type": "done"})
                 with RUNS_LOCK:
@@ -837,6 +872,7 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "error",
                         "error": event["error"],
+                        "state": event.get("state"),
                     }))
                     self.wfile.flush()
                 elif kind == "done":
