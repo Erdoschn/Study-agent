@@ -267,10 +267,10 @@ function importProjectBase(files){
   const raw=String(first?.webkitRelativePath||first?.name||"").replace(/\\/g,"/");
   const parts=raw.split("/").filter(Boolean);
   let candidate=parts.length>1?parts[0]:parts[parts.length-1]||"imported-project";
-  candidate=candidate.replace(/\\.[^.]+$/,"");
+  candidate=candidate.replace(/\.[^.]+$/,"");
   if(/^(src|lib|app|bin|tests?|docs?)$/i.test(candidate)&&parts.length>1){
     candidate=parts[parts.length-1]||candidate;
-    candidate=candidate.replace(/\\.[^.]+$/,"");
+    candidate=candidate.replace(/\.[^.]+$/,"");
   }
   candidate=candidate.replace(/[^A-Za-z0-9._-]+/g,"-").replace(/^[-.]+|[-.]+$/g,"").slice(0,64);
   return candidate||"imported-project";
