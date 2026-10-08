@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any
 
 from .backup import CoderBackupStore
@@ -260,8 +261,6 @@ class CoderHarness:
                 state.backup_generation = snapshot.generation
                 state.backup_path = str(snapshot.archive)
                 state.last_test_result["backup_ok"] = True
-                state.last_test_result["backup_path"] = str(snapshot.archive)
-                state.last_test_result["backup_file_count"] = snapshot.file_count
             except Exception as exc:
                 state.last_test_result["backup_error"] = (
                     f"{type(exc).__name__}: {exc}"
@@ -303,11 +302,11 @@ class CoderHarness:
         })
         backup_present = bool(
             state.backup_path
-            and self.backup.root.resolve().relative_to(self.backup.root.resolve()) is not None
+            and Path(state.backup_path).resolve() == (
+                self.backup.root / self.backup.ARCHIVE_NAME
+            ).resolve()
+            and Path(state.backup_path).is_file()
         )
-        if state.backup_path:
-            backup_present = self.backup.root / self.backup.ARCHIVE_NAME == __import__("pathlib").Path(state.backup_path)
-            backup_present = backup_present and __import__("pathlib").Path(state.backup_path).is_file()
         checks.append({
             "check": "last_known_good_backup",
             "ok": bool(
