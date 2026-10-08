@@ -11,6 +11,7 @@ class DebugTracer:
         self.enabled = enabled
         self.depth = 0
         self._local = local()
+        self._local.depth = 0
 
     def log(self, module: str, message: str) -> None:
         sink = getattr(self._local, "sink", None)
@@ -25,7 +26,7 @@ class DebugTracer:
             "%H:%M:%S.%f"
         )[:-3]
 
-        indent = "  " * self.depth
+        indent = "  " * getattr(self._local, "depth", 0)
 
         print(
             f"{indent}[DEBUG {timestamp}] "
@@ -43,7 +44,8 @@ class DebugTracer:
             f"ENTER → {message}",
         )
 
-        self.depth += 1
+        depth = getattr(self._local, "depth", 0)
+        self._local.depth = depth + 1
 
         try:
             yield
@@ -55,9 +57,9 @@ class DebugTracer:
             )
             raise
         finally:
-            self.depth = max(
+            self._local.depth = max(
                 0,
-                self.depth - 1,
+                depth,
             )
 
             self.log(
