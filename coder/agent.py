@@ -112,6 +112,13 @@ class CoderAgent:
             emit({"type": "cancelled", "state": state})
             return state
         except Exception as exc:
+            if self.cancellation_event is not None and self.cancellation_event.is_set():
+                state.finished = True
+                state.cancelled = True
+                state.summary = "任务已被用户中止。"
+                state.metrics["cancelled"] = True
+                emit({"type": "cancelled", "state": state})
+                return state
             state.error = f"Coder 启动安全检查失败：{type(exc).__name__}: {exc}"
             debug.log("CoderAgent", state.error)
             emit({"type": "error", "state": state})
@@ -192,6 +199,8 @@ class CoderAgent:
                 except RunCancelled:
                     raise
                 except Exception as exc:
+                    if self.cancellation_event is not None and self.cancellation_event.is_set():
+                        raise RunCancelled("Coder 任务已被用户中止。") from exc
                     observation = {"error": f"{type(exc).__name__}: {exc}"}
                     state.add_step(CoderStep(
                         state.step_count + 1, action, arguments, observation,
@@ -216,6 +225,15 @@ class CoderAgent:
             emit({"type": "cancelled", "state": state})
             return state
         except Exception as exc:
+            if self.cancellation_event is not None and self.cancellation_event.is_set():
+                state.finished = True
+                state.goal_verified = False
+                state.cancelled = True
+                state.error = None
+                state.metrics["cancelled"] = True
+                state.summary = "任务已被用户中止。"
+                emit({"type": "cancelled", "state": state})
+                return state
             state.error = f"Coder 执行失败：{type(exc).__name__}: {exc}"
             debug.log("CoderAgent", state.error)
             emit({"type": "error", "state": state})
