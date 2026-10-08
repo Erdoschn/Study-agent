@@ -1,7 +1,9 @@
+import pytest
+
 from coder import agent as agent_module
 
 
-def test_coder_agent_initializes_debug_mode_before_reasoner(monkeypatch):
+def test_coder_agent_initializes_debug_mode_before_reasoner(tmp_path, monkeypatch):
     seen = []
 
     class FakeReasoner:
@@ -17,7 +19,7 @@ def test_coder_agent_initializes_debug_mode_before_reasoner(monkeypatch):
     monkeypatch.setattr(agent_module, "CoderReasoner", FakeReasoner)
 
     agent_module.CoderAgent(
-        workspace=".",
+        workspace=tmp_path,
         search_router=object(),
         harness=object(),
         debug_mode=True,
@@ -26,7 +28,7 @@ def test_coder_agent_initializes_debug_mode_before_reasoner(monkeypatch):
     assert seen == [(True, True, 5.0)]
 
 
-def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
+def test_coder_agent_defaults_debug_mode_to_false(tmp_path, monkeypatch):
     seen = []
 
     class FakeReasoner:
@@ -42,7 +44,7 @@ def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
     monkeypatch.setattr(agent_module, "CoderReasoner", FakeReasoner)
 
     agent_module.CoderAgent(
-        workspace=".",
+        workspace=tmp_path,
         search_router=object(),
         harness=object(),
     )
@@ -50,7 +52,7 @@ def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
     assert seen == [(False, True, 5.0)]
 
 
-def test_coder_agent_handles_model_selected_new_chat():
+def test_coder_agent_handles_model_selected_new_chat(tmp_path):
     actions = iter([
         {"action": "NEW_CHAT", "arguments": {}},
         {"action": "FINISH", "arguments": {}},
@@ -76,7 +78,7 @@ def test_coder_agent_handles_model_selected_new_chat():
             return {"verified": True}
 
     agent = agent_module.CoderAgent(
-        workspace=".",
+        workspace=tmp_path,
         reasoner=FakeReasoner(),
         harness=FakeHarness(),
         max_runtime_seconds=30,
