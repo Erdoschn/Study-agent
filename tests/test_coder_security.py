@@ -134,6 +134,19 @@ import socket
 
 assert os.geteuid() != 0
 
+status = Path("/proc/self/status").read_text(encoding="utf-8")
+cap_eff = next(line for line in status.splitlines() if line.startswith("CapEff:"))
+no_new_privs = next(line for line in status.splitlines() if line.startswith("NoNewPrivs:"))
+assert int(cap_eff.split()[1], 16) == 0
+assert no_new_privs.split()[1] == "1"
+
+try:
+    Path("/etc/coder_root_write_probe").write_text("x")
+except OSError:
+    pass
+else:
+    raise AssertionError("root filesystem is unexpectedly writable")
+
 try:
     socket.create_connection(("1.1.1.1", 80), timeout=1)
 except OSError:
