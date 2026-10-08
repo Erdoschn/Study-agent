@@ -24,7 +24,7 @@ class CoderHarness:
     ARGUMENT_KEYS = {
         "SEARCH": frozenset({"query"}),
         "LIST_FILES": frozenset(),
-        "READ_FILE": frozenset({"path"}),
+        "READ_FILE": frozenset({"path", "start_line", "end_line"}),
         "WRITE_FILE": frozenset({"path", "content"}),
         "WRITE_NOTEBOOK": frozenset({"path", "content"}),
         "PATCH_FILE": frozenset({"path", "old_text", "new_text"}),
@@ -53,6 +53,9 @@ class CoderHarness:
     MIN_SHRINK_BASELINE_LINES = 20
     MAX_REWRITE_LINE_RATIO = 0.70
     MIN_REMOVED_LINES = 10
+    # A single model observation is intentionally bounded, but the file itself
+    # is not. READ_FILE walks through large files by line ranges.
+    READ_CHUNK_LINES = 400
 
     def __init__(
         self,
@@ -85,7 +88,7 @@ class CoderHarness:
         return [
             {"name": "SEARCH", "description": "Search configured sources.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
             {"name": "LIST_FILES", "description": "List readable files under the workspace.", "parameters": {"type": "object", "properties": {}}},
-            {"name": "READ_FILE", "description": "Read one allowed text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+            {"name": "READ_FILE", "description": "Read a complete file when it fits; for larger files, read it in consecutive line ranges. The response includes total_lines and next_start_line so the model can scroll through the entire file. Do not assume an omitted range means only the beginning is available.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}}, "required": ["path"]}},
             {"name": "WRITE_FILE", "description": "Create a new allowed source/text file or replace a whole file when a complete rewrite is genuinely required. For existing files, prefer READ_FILE + PATCH_FILE to preserve unrelated code.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb). For existing notebooks, preserve the existing cell structure; prefer PATCH_NOTEBOOK for changing one cell.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "PATCH_FILE", "description": "Replace exactly one matching Python fragment.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
@@ -242,17 +245,65 @@ class CoderHarness:
         except FileNotFoundError:
             self._baseline[path] = None
 
-    def _read_file(self, args, _state):
+        self._read_coverage: dict[str, list[tuple[int, int]]] = {}
+
+    def _read_file(self, args, state):
         path = str(args.get("path", "")).strip()
-        value = self.fs.read_text(path)
         self._remember_baseline(path)
-        return {"path": path, "content": value}
+        start_raw = args.get("start_line")
+        end_raw = args.get("end_line")
+        if start_raw is None and end_raw is None:
+            value = self.fs.read_text(path)
+            total_lines = value.count("\n") + (1 if value and not value.endswith("\n") else 0)
+            if len(value) > 48_000 and total_lines > self.READ_CHUNK_LINES:
+                result = self.fs.read_text_range(path, 1, self.READ_CHUNK_LINES)
+                result["complete"] = False
+                result["next_start_line"] = self.READ_CHUNK_LINES + 1
+                result["message"] = "文件较大：当前仅返回第一段。请继续 READ_FILE(start_line=next_start_line, end_line=...) 直到覆盖 total_lines。"
+            else:
+                result = {"path": path, "content": value, "start_line": 1, "end_line": total_lines, "total_lines": total_lines, "complete": True}
+        else:
+            if start_raw is None or end_raw is None:
+                raise WorkspaceSecurityError("READ_FILE 的 start_line 与 end_line 必须同时提供。")
+            start, end = int(start_raw), int(end_raw)
+            if end - start + 1 > self.READ_CHUNK_LINES:
+                raise WorkspaceSecurityError(f"READ_FILE 单次最多读取 {self.READ_CHUNK_LINES} 行；请分段继续读取。")
+            result = self.fs.read_text_range(path, start, end)
+            result["next_start_line"] = result["end_line"] + 1 if result["end_line"] < result["total_lines"] else None
+            result["message"] = "仍有后续内容，请使用 next_start_line 继续。" if result["next_start_line"] else "已到文件末尾。"
+        if result.get("end_line", 0) >= result.get("start_line", 1):
+            self._read_coverage.setdefault(path, []).append((int(result["start_line"]), int(result["end_line"])))
+        result["read_coverage"] = self._merge_read_coverage(path)
+        result["full_file_read"] = self._coverage_is_complete(path, int(result["total_lines"]))
+        return result
+
+    def _merge_read_coverage(self, path: str) -> list[list[int]]:
+        ranges = sorted(self._read_coverage.get(path, []))
+        merged: list[list[int]] = []
+        for start, end in ranges:
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        return merged
+
+    def _coverage_is_complete(self, path: str, total_lines: int) -> bool:
+        coverage = self._merge_read_coverage(path)
+        return bool(coverage and coverage[0][0] == 1 and coverage[-1][1] >= total_lines)
 
     def _validate_write_safety(self, path: str, content: str) -> None:
         """Reject suspicious full-file shrinkage of an existing framework file."""
         baseline = self._baseline.get(path)
         if baseline is None:
             return
+        current = self.fs.read_text(path)
+        total_lines = current.count("\n") + (1 if current and not current.endswith("\n") else 0)
+        if not self._coverage_is_complete(path, total_lines):
+            raise WorkspaceSecurityError(
+                f"拒绝整体覆盖已有文件 {path}：Coder 尚未完整读取当前文件 "
+                f"({total_lines} 行)。请继续 READ_FILE 分段读取到文件末尾，"
+                "或使用 PATCH_FILE 做局部修改。"
+            )
         old_lines = baseline.splitlines()
         new_lines = str(content).splitlines()
         if len(old_lines) < self.MIN_SHRINK_BASELINE_LINES:
@@ -275,6 +326,13 @@ class CoderHarness:
         baseline = self._baseline.get(path)
         if baseline is None:
             return
+        current = self.fs.read_text(path)
+        total_lines = current.count("\n") + (1 if current and not current.endswith("\n") else 0)
+        if not self._coverage_is_complete(path, total_lines):
+            raise WorkspaceSecurityError(
+                f"拒绝整体覆盖已有 Notebook {path}：Coder 尚未完整读取当前 Notebook。"
+                "请继续 READ_FILE 分段读取到文件末尾，或使用 PATCH_NOTEBOOK。"
+            )
         old_value = self.fs.validate_notebook(baseline)
         new_value = self.fs.validate_notebook(content)
         old_cells = old_value["cells"]
