@@ -114,6 +114,25 @@ def test_coder_web_frontend_supports_importing_files_into_a_new_project():
     assert "文件框架已导入" in source
 
 
+def test_coder_web_frontend_uses_step_summaries_instead_of_raw_observation():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'appendStep(s.action,s.success,s.summary||s.error||"已完成",s.step_id)' in source
+
+    from types import SimpleNamespace
+    from examples.coder_web_api import _step_payload
+
+    payload = _step_payload(SimpleNamespace(
+        step_id=3,
+        action="READ_FILE",
+        arguments={"path": "framework.py"},
+        observation={"path": "framework.py", "content": "a" * 5000},
+        success=True,
+        error="",
+    ))
+    assert payload["summary"] == "读取 framework.py"
+    assert "content" in payload["observation"]
+
+
 def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert 'e.type==="error"' in source
