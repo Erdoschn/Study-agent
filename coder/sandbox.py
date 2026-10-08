@@ -15,7 +15,7 @@ from typing import Iterable
 
 READABLE_EXTENSIONS = {
     ".py", ".pyi", ".txt", ".md", ".rst", ".json", ".toml",
-    ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml",
+    ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml", ".ipynb",
 }
 BLOCKED_NAMES = {
     ".env", ".env.local", ".env.production", ".git-credentials",
