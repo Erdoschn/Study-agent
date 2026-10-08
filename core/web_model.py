@@ -75,6 +75,7 @@ class BrowserModel(ModelClient):
         self._playwright = None
         self._context = None
         self._page = None
+        self._pending_prompt: str | None = None
 
     def generate(
         self,
@@ -97,6 +98,7 @@ class BrowserModel(ModelClient):
         completed = False
         try:
             before_snapshot = self._response_snapshot(page)
+            self._pending_prompt = prompt
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
 
@@ -113,6 +115,7 @@ class BrowserModel(ModelClient):
             )
             return answer
         finally:
+            self._pending_prompt = None
             if completed and self.cleanup_after_generate:
                 self._cleanup_current_chat(page)
 
