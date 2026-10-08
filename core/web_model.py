@@ -38,6 +38,7 @@ class BrowserModel(ModelClient):
     DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
+    COPY_CLICK_TIMEOUT_MS = 1200
 
     def __init__(
         self,
@@ -778,10 +779,27 @@ class BrowserModel(ModelClient):
             if button is not None:
                 stale_marker = self._clear_browser_clipboard(page)
                 try:
-                    button.click()
+                    # Keep the pointer click bounded. Playwright's default
+                    # actionability timeout can otherwise outlive this method's
+                    # own copy deadline and make the Agent appear frozen.
+                    button.click(timeout=self.COPY_CLICK_TIMEOUT_MS)
                 except Exception as exc:
-                    debug.log("BrowserModel", f"COPY BUTTON SKIP → {exc}")
-                    return ""
+                    debug.log(
+                        "BrowserModel",
+                        f"COPY BUTTON CLICK SKIP → {type(exc).__name__}: {exc}",
+                    )
+                    try:
+                        # A DOM click bypasses transient pointer hit-testing
+                        # races while still invoking the page's real handler.
+                        button.evaluate("(element) => element.click()")
+                        debug.log("BrowserModel", "COPY BUTTON → DOM click fallback")
+                    except Exception as fallback_exc:
+                        debug.log(
+                            "BrowserModel",
+                            "COPY BUTTON FALLBACK SKIP → "
+                            f"{type(fallback_exc).__name__}: {fallback_exc}",
+                        )
+                        return ""
 
                 read_deadline = time.monotonic() + min(2.0, float(self.timeout))
                 while time.monotonic() < read_deadline:
