@@ -16,7 +16,8 @@ def _ignore(directory: str, names: list[str]) -> set[str]:
     ignored = set()
     for name in names:
         p = Path(directory) / name
-        if name in SKIP_DIRS or name in BLOCKED_NAMES or p.suffix.casefold() in BLOCKED_SUFFIXES:
+        name_key = name.casefold()
+        if name_key in SKIP_DIRS or name_key in BLOCKED_NAMES or p.suffix.casefold() in BLOCKED_SUFFIXES:
             ignored.add(name)
     return ignored
 
