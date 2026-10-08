@@ -5,6 +5,7 @@ import threading
 from threading import Event
 from typing import Any, Callable
 
+from core.__debug__ import debug
 from core.web_model import BrowserModel
 
 
@@ -23,6 +24,7 @@ class CoderBrowserSession:
         self._closed = False
         self._init_error: BaseException | None = None
         self._cancellation_event = Event()
+        self._debug_sink = model_kwargs.get("debug_sink")
         self.model = "deepseek-web"
         self.user_data_dir = str(model_kwargs.get("user_data_dir", ".coder-browser"))
         self.reuse_chat = bool(model_kwargs.get("reuse_chat", True))
@@ -44,6 +46,8 @@ class CoderBrowserSession:
 
     def _run_browser_thread(self) -> None:
         browser: BrowserModel | None = None
+        if self._debug_sink is not None:
+            debug.bind_thread(self._debug_sink)
         try:
             browser = BrowserModel(
                 model="deepseek-web",
@@ -60,6 +64,8 @@ class CoderBrowserSession:
         except BaseException as exc:
             self._init_error = exc
             self._ready.set()
+            if self._debug_sink is not None:
+                debug.clear_thread_binding()
             return
 
         self._ready.set()
@@ -70,6 +76,8 @@ class CoderBrowserSession:
                     browser.close()
                 except Exception:
                     pass
+                if self._debug_sink is not None:
+                    debug.clear_thread_binding()
                 response_queue.put((True, None))
                 return
             try:
