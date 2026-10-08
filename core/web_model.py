@@ -10,7 +10,6 @@ from .__debug__ import debug
 from .reasoner import ModelClient
 from .prompt_config import get_prompt
 from .cancellation import RunCancelled, raise_if_cancelled
-from coder.cancellation import RunCancelled, raise_if_cancelled
 
 
 class BrowserModel(ModelClient):
