@@ -10,6 +10,7 @@ from .backup import CoderBackupStore
 from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
 from .study_bridge import StudyAgentBridge
+from .knowledge_graph import CoderKnowledgeGraph
 
 
 class CoderHarness:
@@ -53,6 +54,7 @@ class CoderHarness:
         self.backup = backup or CoderBackupStore(self.fs.root)
         self.study_bridge = study_bridge or StudyAgentBridge()
         self._study_agent_calls = 0
+        self.knowledge_graph = CoderKnowledgeGraph(self.fs.root.parent)
         self._baseline: dict[str, str | None] = {}
         self._write_count = 0
         self._test_count = 0
@@ -271,6 +273,11 @@ class CoderHarness:
             raise
 
         state.metrics["study_agent_calls"] = self._study_agent_calls
+        self.knowledge_graph.record_study_consultation(
+            project=state.project or self.fs.root.name,
+            question=question,
+            study_payload=result,
+        )
         return {
             "status": "STUDY_AGENT_ASSISTED",
             "question": question,
