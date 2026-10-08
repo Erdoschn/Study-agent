@@ -101,7 +101,10 @@ class CoderAgent:
             raise_if_cancelled(self.cancellation_event)
             preflight = getattr(self.harness.sandbox, "preflight", None)
             if callable(preflight):
-                preflight()
+                if self.cancellation_event is None:
+                    preflight()
+                else:
+                    preflight(cancellation_event=self.cancellation_event)
             initial = getattr(self.harness.backup, "ensure_initial_snapshot", None)
             if callable(initial):
                 snapshot = initial(0)
