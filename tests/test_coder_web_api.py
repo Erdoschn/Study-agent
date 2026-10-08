@@ -600,11 +600,12 @@ def test_coder_web_frontend_preserves_selected_project_across_async_refresh():
 
     assert "let projectsLoadSeq=0;" in source
     assert "const requestSeq=++projectsLoadSeq;" in source
-    assert "if(requestSeq!==projectsLoadSeq)return;" in source
-    assert "const current=selectedProject()||state.project;" in source
-    assert "const project=selectedProject();" in source
+    assert "if(requestSeq!==projectsLoadSeq||state.running)return;" in source
+    assert "const current=state.project;" in source
+    assert "function readSelectedProject()" in source
+    assert "setProject(readSelectedProject())" in source
     assert 'body:JSON.stringify({request,project:project||null})' in source
-    assert "else setProject("");" not in source
+    assert "setProject(selectedProject())" not in source
 
 
 def test_coder_web_feedback_endpoint_and_frontend_are_wired():
