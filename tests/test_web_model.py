@@ -26,9 +26,6 @@ class FakeLocator:
             index=index,
         )
 
-    def is_visible(self):
-        return self.visible
-
     def _value(self):
         if not self.values:
             return None
@@ -39,7 +36,7 @@ class FakeLocator:
         del timeout
         target = self._value()
         if hasattr(target, "fill"):
-            target.fill(value)
+            target.fill(value, timeout=timeout)
             return
         if self.index is None:
             self.values[:] = [value]
@@ -50,16 +47,15 @@ class FakeLocator:
         del timeout
         target = self._value()
         if hasattr(target, "press"):
-            target.press(key)
+            target.press(key, timeout=timeout)
             return
         if self.on_press is not None:
             self.on_press(key)
 
     def click(self, timeout=None):
-        del timeout
         target = self._value()
         if hasattr(target, "click"):
-            target.click()
+            target.click(timeout=timeout)
             return
         if self.on_press is not None:
             self.on_press("click")
