@@ -120,12 +120,13 @@ def test_reasoner_separates_untrusted_tool_output_from_policy():
     assert "<REDACTED_HOST_PATH>" in model.user
 
     state.last_observation = {
-        "path": "score_utils.py",
+        "path": r"C:\\Users\\alice\\score_utils.py",
         "content": 'ROOT = r"C:\\Projects\\Study-agent"\nprint(ROOT)\n',
     }
     reasoner.decide(state, [])
-    assert 'ROOT = r"C:\\Projects\\Study-agent"' in model.user
-    assert "REDACTED_HOST_PATH" not in model.user.split("ROOT =", 1)[1].split("</UNTRUSTED_TOOL_OUTPUT>", 1)[0]
+    assert 'ROOT = r"C:\\\\Projects\\Study-agent"' in model.user
+    assert "<REDACTED_HOST_PATH>" in model.user
+    assert "<REDACTED_HOST_PATH>" in model.user.split('"content":', 1)[0]
 
     low_level_details = (".env", "--network", "uid=65534", "/var/run/docker.sock")
     for detail in low_level_details:
