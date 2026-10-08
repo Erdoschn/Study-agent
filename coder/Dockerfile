@@ -1,8 +1,8 @@
 FROM python:3.13-slim
 
 RUN pip install --no-cache-dir "pytest>=8,<9" \
-    && mkdir -p /sandbox /tmp/home \
-    && chown -R 65534:65534 /sandbox /tmp/home
+    && mkdir -p /sandbox \
+    && chown -R 65534:65534 /sandbox
 
 COPY sandbox_runner.py /opt/coder_runner.py
 
