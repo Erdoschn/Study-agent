@@ -64,6 +64,22 @@
 </aside>
 </div>
 <script>
+window.addEventListener("error", function(e) {
+  var health = document.getElementById("health");
+  if (health) health.textContent = "前端脚本错误";
+  var dot = document.getElementById("dot");
+  if (dot) dot.className = "dot dot bad";
+  console.error("Coder UI error:", e.error || e.message);
+});
+window.addEventListener("unhandledrejection", function(e) {
+  var health = document.getElementById("health");
+  if (health) health.textContent = "前端请求异常";
+  var dot = document.getElementById("dot");
+  if (dot) dot.className = "dot dot bad";
+  console.error("Coder UI rejection:", e.reason);
+});
+</script>
+<script>
 const $=s=>document.querySelector(s);
 const state={running:false,controller:null,startedAt:0,timer:null,project:""};
 function selectedProject(){return $("project").value.trim()}
