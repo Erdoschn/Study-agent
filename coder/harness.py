@@ -299,8 +299,23 @@ class CoderHarness:
                 and state.last_test_result.get("kind") == "pytest"
                 and state.last_test_result.get("passed")
                 and state.test_generation == state.modification_generation
+            ) if goal.must_pass_tests else True,
+        })
+        backup_present = bool(
+            state.backup_path
+            and self.backup.root.resolve().relative_to(self.backup.root.resolve()) is not None
+        )
+        if state.backup_path:
+            backup_present = self.backup.root / self.backup.ARCHIVE_NAME == __import__("pathlib").Path(state.backup_path)
+            backup_present = backup_present and __import__("pathlib").Path(state.backup_path).is_file()
+        checks.append({
+            "check": "last_known_good_backup",
+            "ok": bool(
+                goal.must_pass_tests
                 and state.backup_generation == state.modification_generation
+                and state.last_test_result
                 and state.last_test_result.get("backup_ok") is True
+                and backup_present
             ) if goal.must_pass_tests else True,
         })
         verified = all(item["ok"] for item in checks)
