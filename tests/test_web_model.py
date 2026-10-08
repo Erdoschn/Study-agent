@@ -91,6 +91,62 @@ def test_browser_model_default_chat_policy_is_fresh():
     assert model.reuse_chat is False
 
 
+def test_browser_model_send_actions_use_bounded_timeouts(monkeypatch):
+    model = BrowserModel(timeout=1)
+    calls = []
+
+    class Textbox:
+        def fill(self, value, *, timeout):
+            calls.append(("fill", value, timeout))
+
+        def press(self, key, *, timeout):
+            calls.append(("press", key, timeout))
+
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+
+    model._send_prompt(object(), "hello")
+
+    assert calls == [
+        ("fill", "hello", BrowserModel.SEND_ACTION_TIMEOUT_MS),
+        ("press", "Enter", BrowserModel.SEND_ACTION_TIMEOUT_MS),
+    ]
+
+
+def test_browser_model_wraps_send_fill_timeout_as_runtime_error(monkeypatch):
+    model = BrowserModel(timeout=1)
+
+    class Textbox:
+        def fill(self, value, *, timeout):
+            raise TimeoutError("fill blocked")
+
+        def press(self, key, *, timeout):
+            raise AssertionError("press should not run")
+
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+
+    with pytest.raises(RuntimeError, match="输入框填充超时或不可操作"):
+        model._send_prompt(object(), "hello")
+
+
+def test_browser_model_wraps_send_enter_timeout_as_runtime_error(monkeypatch):
+    model = BrowserModel(timeout=1)
+
+    class Textbox:
+        def fill(self, value, *, timeout):
+            return None
+
+        def press(self, key, *, timeout):
+            raise TimeoutError("enter blocked")
+
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+
+    with pytest.raises(RuntimeError, match="输入框发送超时或不可操作"):
+        model._send_prompt(object(), "hello")
+
+
 def test_browser_model_send_interval_is_configurable():
     model = BrowserModel(min_send_interval_seconds=7.5)
     assert model.min_send_interval_seconds == 7.5
