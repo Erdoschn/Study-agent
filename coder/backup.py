@@ -134,6 +134,10 @@ class CoderBackupStore:
         try:
             file_count = self._build_archive(archive_tmp, generation)
             if immutable and archive.exists():
+                try:
+                    archive_tmp.unlink()
+                except FileNotFoundError:
+                    pass
                 return self._snapshot(archive, generation, immutable=True)
             os.replace(archive_tmp, archive)
             return BackupSnapshot(
