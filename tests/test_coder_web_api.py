@@ -114,6 +114,15 @@ def test_coder_web_frontend_supports_importing_files_into_a_new_project():
     assert "文件框架已导入" in source
 
 
+def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'e.type==="error"' in source
+    assert 'state.failed=true' in source
+    assert 'Coder SSE 连接在收到完成信号前就结束了。' in source
+    assert 'e.key==="Enter"&&e.shiftKey' in source
+    assert 'void run();' in source
+
+
 def test_coder_web_frontend_has_drag_drop_and_timeouts():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "拖到这里" in source
