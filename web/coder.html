@@ -83,8 +83,19 @@ window.addEventListener("unhandledrejection", function(e) {
 });
 </script>
 <script>
-const $=s=>document.querySelector(s);
+const UI_IDS=[
+  "workspace","project","projectHint","drop","fileInput","files",
+  "dot","health","task","timer","run","timeline","request",
+  "modified","tests","finished","verified","steps","summary"
+];
+let ui=Object.create(null);
 const state={running:false,controller:null,startedAt:0,timer:null,project:""};
+function $(selector){
+  const id=selector.startsWith("#")?selector.slice(1):selector;
+  const node=ui[id];
+  if(!node)throw new Error("Coder UI 元素不可用："+selector);
+  return node;
+}
 function selectedProject(){return $("project").value.trim()}
 function setProject(name){
   state.project=name||"";
@@ -95,7 +106,26 @@ function setProject(name){
 
 const API="/v1/coder";
 function headers(json=true){const h={};if(json)h["Content-Type"]="application/json";return h}
-async function fetchTimeout(resource,options={},ms=10000){const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),ms);try{return await fetch(resource,{...options,signal:options.signal||ctrl.signal})}finally{clearTimeout(timer)}}
+async async function fetchTimeout(resource,options={},ms=10000){
+  const timeoutCtrl=new AbortController();
+  const timer=setTimeout(()=>timeoutCtrl.abort(),ms);
+  let signal=timeoutCtrl.signal;
+  let abortListener=null;
+  if(options.signal){
+    const combinedCtrl=new AbortController();
+    abortListener=()=>combinedCtrl.abort(options.signal.reason);
+    if(options.signal.aborted)abortListener();
+    else options.signal.addEventListener("abort",abortListener,{once:true});
+    if(!combinedCtrl.signal.aborted)timeoutCtrl.signal.addEventListener("abort",()=>combinedCtrl.abort(),{once:true});
+    signal=combinedCtrl.signal;
+  }
+  try{
+    return await fetch(resource,{...options,signal});
+  }finally{
+    clearTimeout(timer);
+    if(options.signal&&abortListener)options.signal.removeEventListener("abort",abortListener);
+  }
+}
 function setHealth(ok,text){$("dot").className="dot dot "+(ok?"ok":"bad");$("health").textContent=text}
 async function health(){
   try{
@@ -159,26 +189,16 @@ let coderUIInitialized=false;
 let coderUIInitTimer=null;
 function initCoderUI(attempt=0){
   if(coderUIInitialized)return true;
-  const project=document.getElementById("project");
-  const runButton=document.getElementById("run");
-  const drop=document.getElementById("drop");
-  const fileInput=document.getElementById("fileInput");
-  const missing=[];
-  if(!project)missing.push("#project");
-  if(!runButton)missing.push("#run");
-  if(!drop)missing.push("#drop");
-  if(!fileInput)missing.push("#fileInput");
+  const missing=UI_IDS.filter(id=>!document.getElementById(id));
   if(missing.length){
     if(attempt<100){
-      if(attempt===0){
-        const health=document.getElementById("health");
-        if(health)health.textContent="页面元素加载中…";
-      }
+      const health=document.getElementById("health");
+      if(health)health.textContent="页面元素加载中…";
       clearTimeout(coderUIInitTimer);
       coderUIInitTimer=setTimeout(()=>initCoderUI(attempt+1),50);
       return false;
     }
-    const message="Coder UI DOM 初始化失败，缺少："+missing.join(", ");
+    const message="Coder UI DOM 初始化失败，缺少："+missing.map(id=>"#"+id).join(", ");
     const health=document.getElementById("health");
     if(health)health.textContent="前端错误："+message;
     const dot=document.getElementById("dot");
@@ -186,18 +206,28 @@ function initCoderUI(attempt=0){
     console.error(message);
     return false;
   }
+  ui=Object.fromEntries(UI_IDS.map(id=>[id,document.getElementById(id)]));
   coderUIInitialized=true;
-  project.onchange=async()=>{setProject(selectedProject());await loadFiles()};
-  runButton.onclick=()=>state.running?state.controller?.abort():run();
-  drop.ondragover=e=>{e.preventDefault();drop.classList.add("hot")};
-  drop.ondragleave=()=>drop.classList.remove("hot");
-  drop.ondrop=e=>{e.preventDefault();drop.classList.remove("hot");uploadMany([...e.dataTransfer.files])};
-  fileInput.onchange=e=>uploadMany([...e.target.files]);
-  window.onbeforeunload=()=>state.running?"Coder 仍在后台执行，确定离开？":undefined;
-  loadProjects();
-  health();
-  setInterval(health,30000);
-  return true;
+  try{
+    $("project").onchange=async()=>{setProject(selectedProject());await loadFiles()};
+    $("run").onclick=()=>state.running?state.controller?.abort():run();
+    $("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("hot")};
+    $("drop").ondragleave=()=>$("drop").classList.remove("hot");
+    $("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("hot");uploadMany([...e.dataTransfer.files])};
+    $("fileInput").onchange=e=>uploadMany([...e.target.files]);
+    window.onbeforeunload=()=>state.running?"Coder 仍在后台执行，确定离开？":undefined;
+    void loadProjects();
+    void health();
+    setInterval(()=>void health(),30000);
+    return true;
+  }catch(e){
+    coderUIInitialized=false;
+    const message=e&&e.message?e.message:String(e);
+    const health=document.getElementById("health");
+    if(health)health.textContent="前端错误："+message;
+    console.error("Coder UI initialization failed:",e);
+    return false;
+  }
 }
 if(document.readyState==="loading"){
   document.addEventListener("DOMContentLoaded",()=>initCoderUI(),{once:true});
