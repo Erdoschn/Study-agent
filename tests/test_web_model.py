@@ -1088,7 +1088,10 @@ def test_browser_model_raises_if_login_was_not_completed(monkeypatch):
     model = BrowserModel(timeout=1)
     page = FakePage(logged_in=False)
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
-    monkeypatch.setattr("builtins.input", lambda: None)
+
+    # Windows production code polls msvcrt, so patch the model-level wait hook
+    # instead of builtins.input to keep this unit test non-blocking.
+    monkeypatch.setattr(model, "_wait_for_terminal_enter", lambda: None)
 
     with pytest.raises(RuntimeError, match="登录后仍未找到 DeepSeek Web 输入框"):
         model.generate("", "hello")
