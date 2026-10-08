@@ -53,6 +53,7 @@ class BrowserModel(ModelClient):
         cleanup_pause_seconds: float = 3.0,
         post_cleanup_pause_seconds: float = 1.5,
         cleanup_after_generate: bool = True,
+        reuse_chat: bool = False,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         debug_mode: bool = False,
@@ -74,6 +75,7 @@ class BrowserModel(ModelClient):
         self.session_pause_seconds = max(0.0, float(session_pause_seconds))
         self.cleanup_pause_seconds = max(0.0, float(cleanup_pause_seconds))
         self.post_cleanup_pause_seconds = max(0.0, float(post_cleanup_pause_seconds))
+        self.reuse_chat = bool(reuse_chat)
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
@@ -85,6 +87,8 @@ class BrowserModel(ModelClient):
         self._context = None
         self._page = None
         self._pending_prompt: str | None = None
+        self._chat_initialized = False
+        self._chat_reset_count = 0
 
     def generate(
         self,
@@ -105,7 +109,9 @@ class BrowserModel(ModelClient):
         self._ensure_logged_in(page)
         self._json_mode_active = bool(json_mode)
         self._minimize_browser_window(page)
-        self._start_fresh_chat(page)
+        if not self.reuse_chat or not self._chat_initialized:
+            self._start_fresh_chat(page)
+            self._chat_initialized = True
         completed = False
         try:
             before_snapshot = self._response_snapshot(page)
@@ -141,6 +147,7 @@ class BrowserModel(ModelClient):
             self._json_mode_active = False
             if completed and self.cleanup_after_generate:
                 self._cleanup_current_chat(page)
+                self._chat_initialized = False
 
     @staticmethod
     def _is_json_object(answer: str) -> bool:
@@ -378,6 +385,17 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", f"WINDOW → minimized hwnd={target}")
         except Exception as exc:
             debug.log("BrowserModel", f"WINDOW MINIMIZE SKIP → {type(exc).__name__}: {exc}")
+    def new_chat(self) -> None:
+        """Start a fresh browser conversation for the next generation."""
+        page = self._ensure_page()
+        self._ensure_logged_in(page)
+        self._json_mode_active = False
+        self._minimize_browser_window(page)
+        self._start_fresh_chat(page)
+        self._chat_initialized = True
+        self._chat_reset_count += 1
+        debug.log("BrowserModel", f"NEW CHAT → reset_count={self._chat_reset_count}")
+
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
 
