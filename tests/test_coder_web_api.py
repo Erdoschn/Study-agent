@@ -124,3 +124,5 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert "/projects" in source
     assert 'window.addEventListener("error"' in source
     assert 'window.addEventListener("unhandledrejection"' in source
+    assert "DOMContentLoaded" in source
+    assert "Coder UI DOM 初始化失败" in source
