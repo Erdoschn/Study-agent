@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from typing import Any
 
@@ -82,6 +83,21 @@ RUN_PYTHON, RUN_PYTEST, READ_DIFF, VERIFY_GOAL, FINISH
         scrubbed = "".join(
             ch for ch in text
             if ch in "\n\t" or unicodedata.category(ch) not in {"Cc", "Cf"}
+        )
+        scrubbed = re.sub(
+            r"(?i)(?:[A-Z]:[\\/]|\\\\)[^\s\"'<>]+",
+            "<REDACTED_HOST_PATH>",
+            scrubbed,
+        )
+        scrubbed = re.sub(
+            r"(?i)(?:\.coder-backup[\\/])[^\s\"'<>]+",
+            "<REDACTED_BACKUP_PATH>",
+            scrubbed,
+        )
+        scrubbed = re.sub(
+            r"(?<![A-Za-z0-9_])/(?:workspace|host_mnt|run/desktop/mnt/host)(?:/[^\s\"'<>]*)?",
+            "<REDACTED_SANDBOX_PATH>",
+            scrubbed,
         )
         return (
             "<UNTRUSTED_TOOL_OUTPUT>\n"
