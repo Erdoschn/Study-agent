@@ -107,7 +107,7 @@ let ui=Object.create(null);
 let projectsLoadSeq=0;
 let filesLoadSeq=0;
 const state={
-  running:false,controller:null,startedAt:0,timer:null,project:"",runProject:"",
+  running:false,startedAt:0,timer:null,project:"",runProject:"",
   failed:false,cancelling:false,cancelRequested:false,lastRunId:""
 };
 function $(selector){
@@ -472,7 +472,8 @@ async function requestCancel(){
 
 async function run(){
   const request=$("task").value.trim();
-  const project=selectedProject();
+  const project=readSelectedProject();
+  if(project!==state.project)setProject(project);
   if(!request||state.running)return;
 
   resetFeedback();
@@ -483,6 +484,9 @@ async function run(){
   state.runProject=project;
   state.lastRunId="";
   state.startedAt=Date.now();
+  if(!state.runProject && state.project){
+    state.runProject=state.project;
+  }
   $("run").textContent="中止";
   $("run").classList.add("stop");
   $("project").disabled=true;
@@ -493,15 +497,12 @@ async function run(){
   state.timer=setInterval(()=>{
     $("timer").textContent=Math.floor((Date.now()-state.startedAt)/1000)+"s";
   },250);
-  state.controller=new AbortController();
-
   let doneReceived=false;
   try{
     const r=await fetch("/v1/coder/run",{
       method:"POST",
       headers:headers(),
       body:JSON.stringify({request,project:project||null}),
-      signal:state.controller.signal
     });
     if(!r.ok)throw Error((await r.text()).slice(0,800));
     if(!r.body)throw Error("浏览器不支持 SSE");
@@ -615,7 +616,6 @@ async function run(){
     }
   }finally{
     state.running=false;
-    state.controller=null;
     clearInterval(state.timer);
     state.timer=null;
     $("project").disabled=false;
