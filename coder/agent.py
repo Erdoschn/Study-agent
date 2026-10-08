@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import time
+from threading import Event
 from pathlib import Path
 
 from core.__debug__ import debug
 
+from .cancellation import RunCancelled, raise_if_cancelled
 from .filesystem import WorkspaceSecurityError
 from .harness import CoderHarness
 from .reasoner import CoderReasoner
@@ -32,18 +34,30 @@ class CoderAgent:
         reuse_chat: bool = True,
         min_send_interval_seconds: float = 5.0,
         close_model_on_run: bool = True,
+        cancellation_event: Event | None = None,
     ):
         self.workspace = Path(workspace).expanduser().resolve()
         self._validate_workspace_boundary()
         self.debug_mode = bool(debug_mode)
         self.close_model_on_run = bool(close_model_on_run)
+        self.cancellation_event = cancellation_event
         if search_router is None:
             from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
             search_router = SearchRouter()
             search_router.register(ArxivSearchProvider())
             search_router.register(WikipediaSearchProvider())
         self.reasoner = reasoner
-        self.harness = harness or CoderHarness(str(self.workspace), search_router=search_router, sandbox=sandbox)
+        self.harness = harness or CoderHarness(
+            str(self.workspace),
+            search_router=search_router,
+            sandbox=sandbox,
+            cancellation_event=cancellation_event,
+        )
+        if cancellation_event is not None:
+            try:
+                self.harness.cancellation_event = cancellation_event
+            except Exception:
+                pass
         if self.reasoner is None:
             self.reasoner = CoderReasoner(
                 debug_mode=self.debug_mode,
@@ -81,6 +95,7 @@ class CoderAgent:
 
         emit({"type": "started", "request": request})
         try:
+            raise_if_cancelled(self.cancellation_event)
             preflight = getattr(self.harness.sandbox, "preflight", None)
             if callable(preflight):
                 preflight()
@@ -103,10 +118,12 @@ class CoderAgent:
         started = time.monotonic()
         try:
             while not state.goal_verified:
+                raise_if_cancelled(self.cancellation_event)
                 if time.monotonic() - started >= self.max_runtime_seconds:
                     raise TimeoutError("Coder 安全运行时间上限已到，已拒绝继续执行。")
 
                 decision = self.reasoner.decide(state, self.harness.tool_specs())
+                raise_if_cancelled(self.cancellation_event)
                 action = decision["action"]
                 arguments = decision["arguments"]
 
@@ -158,6 +175,7 @@ class CoderAgent:
                     continue
 
                 try:
+                    raise_if_cancelled(self.cancellation_event)
                     observation = self.harness.execute(action, arguments, state)
                     state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
                     emit({"type": "step", "step": state.steps[-1]})
@@ -175,6 +193,14 @@ class CoderAgent:
                 1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
             )
             emit({"type": "finished", "state": state})
+            return state
+        except RunCancelled as exc:
+            state.finished = True
+            state.goal_verified = False
+            state.error = None
+            state.metrics["cancelled"] = True
+            state.summary = "任务已被用户中止。"
+            emit({"type": "cancelled", "state": state})
             return state
         except Exception as exc:
             state.error = f"Coder 执行失败：{type(exc).__name__}: {exc}"
