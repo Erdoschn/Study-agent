@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import shutil
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -14,34 +15,35 @@ from .filesystem import WorkspaceFS, WorkspaceSecurityError
 @dataclass(frozen=True)
 class BackupSnapshot:
     generation: int
-    root: Path
+    archive: Path
     file_count: int
 
 
 class CoderBackupStore:
-    """Stores the last known-good Python generation outside the model workspace."""
+    """Keeps one last-known-good Python snapshot outside the model workspace."""
 
-    SNAPSHOT_DIR = "snapshot"
+    ARCHIVE_NAME = "latest.zip"
     MANIFEST_NAME = "manifest.json"
     EDITABLE_SUFFIXES = frozenset({".py", ".pyi"})
+    SKIP_DIRS = frozenset({
+        ".git", ".venv", "__pycache__", ".pytest_cache",
+        ".mypy_cache", ".ruff_cache", ".idea",
+    })
 
     def __init__(self, workspace: str | Path):
         self.workspace = Path(workspace).resolve()
-        self.root = self.workspace.parent / f"{self.workspace.name}.coder-backup"
-        self.root = self.root.resolve()
+        self.root = (self.workspace.parent / f"{self.workspace.name}.coder-backup").resolve()
         try:
             self.root.relative_to(self.workspace)
         except ValueError:
             pass
         else:
             raise WorkspaceSecurityError("Coder backup 必须位于 workspace 同级或其外部。")
+        if self.root == self.workspace.parent.parent:
+            raise WorkspaceSecurityError("Coder backup 路径非法。")
         self.root.mkdir(parents=True, exist_ok=True)
-        self._ensure_no_reparse(self.root)
-
-    @staticmethod
-    def _ensure_no_reparse(path: Path) -> None:
-        if path.is_symlink():
-            raise WorkspaceSecurityError(f"备份路径禁止使用符号链接：{path}")
+        if self.root.is_symlink():
+            raise WorkspaceSecurityError("备份目录禁止使用符号链接。")
 
     @classmethod
     def _iter_code_files(cls, workspace: Path) -> Iterable[tuple[Path, Path]]:
@@ -49,10 +51,8 @@ class CoderBackupStore:
             current_path = Path(current)
             dirs[:] = [
                 name for name in dirs
-                if name.casefold() not in {
-                    ".git", ".venv", "__pycache__", ".pytest_cache",
-                    ".mypy_cache", ".ruff_cache", ".idea",
-                }
+                if name.casefold() not in cls.SKIP_DIRS
+                and not name.casefold().startswith(".coder-")
             ]
             for name in files:
                 source = current_path / name
@@ -73,59 +73,61 @@ class CoderBackupStore:
         if generation < 0:
             raise ValueError("backup generation 不能为负数。")
 
-        stage = Path(tempfile.mkdtemp(prefix=".coder-backup-stage-", dir=str(self.root.parent)))
+        stage_dir = Path(
+            tempfile.mkdtemp(prefix=".coder-backup-", dir=str(self.root.parent))
+        )
+        archive_tmp = self.root / f"{self.ARCHIVE_NAME}.{os.getpid()}.tmp"
+        manifest_tmp = self.root / f"{self.MANIFEST_NAME}.{os.getpid()}.tmp"
         try:
-            stage_snapshot = stage / self.SNAPSHOT_DIR
-            stage_snapshot.mkdir(parents=True, exist_ok=True)
-            entries = []
-            for source, relative in self._iter_code_files(self.workspace):
-                destination = stage_snapshot / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
-                entries.append(relative.as_posix())
+            entries: list[dict[str, object]] = []
+            with zipfile.ZipFile(
+                archive_tmp,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=6,
+            ) as archive:
+                for source, relative in self._iter_code_files(self.workspace):
+                    arcname = relative.as_posix()
+                    archive.write(source, arcname=arcname)
+                    data = source.read_bytes()
+                    entries.append({
+                        "path": arcname,
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                        "bytes": len(data),
+                    })
 
-            entries.sort()
+            entries.sort(key=lambda item: str(item["path"]))
             manifest = {
                 "generation": generation,
                 "file_count": len(entries),
                 "files": entries,
             }
-            (stage / self.MANIFEST_NAME).write_text(
+            manifest_tmp.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2),
                 encoding="utf-8",
                 newline="",
             )
 
-            published = self.root / self.SNAPSHOT_DIR
-            old = self.root / f"{self.SNAPSHOT_DIR}.old"
-            old_manifest = self.root / f"{self.MANIFEST_NAME}.old"
-            if old.exists():
-                shutil.rmtree(old, ignore_errors=True)
-            if old_manifest.exists():
-                old_manifest.unlink()
-
-            if published.exists():
-                os.replace(published, old)
-
-            staged_manifest = stage / self.MANIFEST_NAME
-            final_manifest = self.root / self.MANIFEST_NAME
-            if final_manifest.exists():
-                os.replace(final_manifest, old_manifest)
-
-            os.replace(stage_snapshot, published)
-            os.replace(staged_manifest, final_manifest)
-
-            shutil.rmtree(old, ignore_errors=True)
-            if old_manifest.exists():
-                old_manifest.unlink()
+            os.replace(archive_tmp, self.root / self.ARCHIVE_NAME)
+            os.replace(manifest_tmp, self.root / self.MANIFEST_NAME)
 
             return BackupSnapshot(
                 generation=generation,
-                root=published,
+                archive=self.root / self.ARCHIVE_NAME,
                 file_count=len(entries),
             )
+        except Exception:
+            for path in (archive_tmp, manifest_tmp):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            raise
         finally:
-            shutil.rmtree(stage, ignore_errors=True)
+            try:
+                stage_dir.rmdir()
+            except OSError:
+                pass
 
     def read_manifest(self) -> dict:
         path = self.root / self.MANIFEST_NAME
@@ -138,3 +140,22 @@ class CoderBackupStore:
         if not isinstance(data, dict):
             raise RuntimeError("Coder backup manifest 格式非法。")
         return data
+
+    def contains_text(self, relative_path: str, expected: str) -> bool:
+        manifest = self.read_manifest()
+        allowed = {
+            str(item.get("path"))
+            for item in manifest.get("files", [])
+            if isinstance(item, dict)
+        }
+        if relative_path.replace("\\", "/") not in allowed:
+            return False
+        archive = self.root / self.ARCHIVE_NAME
+        if not archive.is_file():
+            return False
+        with zipfile.ZipFile(archive, "r") as zf:
+            try:
+                actual = zf.read(relative_path.replace("\\", "/")).decode("utf-8")
+            except (KeyError, UnicodeDecodeError):
+                return False
+        return actual == expected
