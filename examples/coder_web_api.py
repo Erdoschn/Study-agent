@@ -696,12 +696,13 @@ class Handler(BaseHTTPRequestHandler):
                     recent_user_feedback=recent_feedback,
                     cancellation_event=control.cancel_event,
                 )
-                previous = debug.log
-
                 def debug_hook(module: str, message: str) -> None:
                     print(f"[{module}] {message}", flush=True)
 
-                debug.log = debug_hook
+                debug.bind_thread(debug_hook)
+                browser_debug_sink = debug_hook
+                if isinstance(browser_model, CoderBrowserSession):
+                    browser_model._debug_sink = browser_debug_sink
                 try:
                     def agent_event_hook(event: dict) -> None:
                         # The Web API already emits its own STARTED event carrying
@@ -714,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
                     entry = memory.record_run(project=actual_project, state=result)
                     events.put({"type": "result", "state": result, "memory": entry})
                 finally:
-                    debug.log = previous
+                    debug.clear_thread_binding()
             except RunCancelled:
                 events.put({
                     "type": "cancelled",
