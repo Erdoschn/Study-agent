@@ -105,14 +105,18 @@ const UI_IDS=[
 ];
 let ui=Object.create(null);
 let projectsLoadSeq=0;
-const state={running:false,controller:null,startedAt:0,timer:null,project:"",failed:false,lastRunId:""};
+let filesLoadSeq=0;
+const state={
+  running:false,controller:null,startedAt:0,timer:null,project:"",runProject:"",
+  failed:false,cancelling:false,cancelRequested:false,lastRunId:""
+};
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
   const node=ui[id];
   if(!node)throw new Error("Coder UI 元素不可用："+selector);
   return node;
 }
-function selectedProject(){return $("project").value.trim()}
+function selectedProject(){return String(state.project||"").trim()}
 function setProject(name){
   state.project=name||"";
   $("project").value=state.project;
@@ -267,16 +271,15 @@ async function loadHistory(){
   }
 }
 async function loadProjects(){
+  if(state.running)return;
   const requestSeq=++projectsLoadSeq;
+  const current=state.project;
   try{
     const r=await fetchTimeout(API+"/projects",{cache:"no-store"},3000);
     if(!r.ok)throw Error(await r.text());
     const d=await r.json();
-    if(requestSeq!==projectsLoadSeq)return;
+    if(requestSeq!==projectsLoadSeq||state.running)return;
     $("workspace").textContent=d.workspace||"已连接";
-    // Read the selection only after the response returns. Capturing it before
-    // the async request could overwrite a project the user selected meanwhile.
-    const current=selectedProject()||state.project;
     const projects=Array.isArray(d.projects)?d.projects:[];
     const select=$("project");
     select.innerHTML="";
@@ -290,38 +293,42 @@ async function loadProjects(){
       option.textContent=p.name+" ("+(p.file_count||0)+" 个文件)";
       select.append(option);
     }
-    if(current && projects.some(p=>p.name===current)){
-      setProject(current);
-    }else if(!current){
-      setProject("");
-    }else{
-      // Keep the logical selection instead of silently converting a selected
-      // project into "new project" due to a transient/stale project-list response.
-      state.project=current;
-      const option=document.createElement("option");
-      option.value=current;
-      option.textContent=current+" (当前选择)";
-      select.append(option);
+    if(current){
+      const exists=projects.some(p=>p.name===current);
+      const option=select.querySelector('option[value="'+CSS.escape(current)+'"]');
+      if(!exists){
+        const missing=document.createElement("option");
+        missing.value=current;
+        missing.textContent=current+" (当前选择，不在列表)";
+        select.append(missing);
+      }
       select.value=current;
-      $("projectHint").textContent="当前项目："+current+"；文件和 Agent 操作都限制在该目录。";
+      state.project=current;
+      $("projectHint").textContent=exists
+        ? "当前项目："+current+"；文件和 Agent 操作都限制在该目录。"
+        : "当前项目："+current+"；项目列表暂未返回它，运行时会再次校验。";
+    }else{
+      select.value="";
+      state.project="";
+      $("projectHint").textContent="没有项目也可以直接输入要求，Coder 会自动创建独立目录。";
     }
   }catch(e){
-    if(requestSeq===projectsLoadSeq){
-      $("workspace").textContent="项目列表加载失败（可重试）";
-    }
+    if(requestSeq===projectsLoadSeq)$("workspace").textContent="项目列表加载失败（可重试）";
   }
 }
-async function loadFiles(){
-  const project=selectedProject();
+async function loadFiles(project=selectedProject()){
+  project=String(project||"").trim();
+  const requestSeq=++filesLoadSeq;
   if(!project){renderFiles([]);return}
   try{
     const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{cache:"no-store"},3000);
     if(!r.ok)throw Error(await r.text());
     const d=await r.json();
+    if(requestSeq!==filesLoadSeq||state.project!==project)return;
     renderFiles(d.files||[]);
   }catch(e){renderFiles([])}
 }
-async function openFile(path){try{const project=selectedProject();if(!project){$("request").textContent="请先选择项目。";return}const r=await fetchTimeout(API+"/file?project="+encodeURIComponent(project)+"&path="+encodeURIComponent(path),{},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000)}catch(e){$("request").textContent="读取失败："+e.message;console.error("Coder file read failed",e)}}
+async function openFile(path){try{const project=selectedProject();if(!project){$("request").textContent="请先选择项目。";return}const r=await fetchTimeout(API+"/file?project="+encodeURIComponent(project)+"&path="+encodeURIComponent(path),{},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();if(state.project!==project)return;$("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000)}catch(e){$("request").textContent="读取失败："+e.message;console.error("Coder file read failed",e)}}
 function importProjectBase(files){
   const first=files[0];
   const raw=String(first?.webkitRelativePath||first?.name||"").replace(/\\/g,"/");
