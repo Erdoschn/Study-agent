@@ -14,12 +14,13 @@ Environment:
 
 from __future__ import annotations
 
-import cgi
 import json
 import mimetypes
 import os
 import queue
 import threading
+from email import policy
+from email.parser import BytesParser
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -125,25 +126,24 @@ def _frontend_path(request_path: str) -> Path | None:
 def parse_multipart_upload(content_type: str, body: bytes) -> tuple[str, bytes]:
     if not content_type.lower().startswith("multipart/form-data"):
         raise ValueError("上传必须使用 multipart/form-data。")
-    message = cgi.parse_header(content_type)
-    boundary = message[1].get("boundary")
-    if not boundary:
-        raise ValueError("multipart/form-data 缺少 boundary。")
-
-    # email-style parsing is intentionally avoided here: cgi.parse_multipart
-    # correctly handles repeated fields and keeps this endpoint dependency-free.
-    parsed = cgi.parse_multipart(
-        __import__("io").BytesIO(body),
-        {"boundary": boundary.encode("utf-8")},
-    )
-    files = parsed.get("file", [])
-    if not files:
-        raise ValueError("请求中没有 file 字段。")
-    payload = files[0]
-    filename = parsed.get("filename", [""])[0] if parsed.get("filename") else ""
-    if isinstance(payload, str):
-        payload = payload.encode("utf-8")
-    return str(filename), bytes(payload)
+    raw = (
+        "Content-Type: " + content_type + "\r\n"
+        "MIME-Version: 1.0\r\n\r\n"
+    ).encode("utf-8") + body
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    if not message.is_multipart():
+        raise ValueError("multipart/form-data 解析失败。")
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+        if part.get_param("name", header="content-disposition") != "file":
+            continue
+        filename = part.get_filename()
+        payload = part.get_payload(decode=True) or b""
+        if not filename:
+            raise ValueError("上传文件缺少文件名。")
+        return str(filename), bytes(payload)
+    raise ValueError("请求中没有 file 字段。")
 
 
 class CoderServer(ThreadingHTTPServer):
@@ -193,8 +193,6 @@ class Handler(BaseHTTPRequestHandler):
             self.headers.get("Content-Type", ""),
             body,
         )
-        form = cgi.parse_header(self.headers.get("Content-Type", ""))[1]
-        del form  # boundary already consumed by parse_multipart_upload
         if len(data) > UPLOAD_MAX_BYTES:
             raise WorkspaceSecurityError("上传文件超过安全大小上限。")
         filename = Path(filename.replace("\\", "/")).name
@@ -398,7 +396,9 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             print("[CoderWebAPI] SSE client disconnected.", flush=True)
         finally:
-            RUN_LOCK.release() if RUN_LOCK.locked() else None
+            # The worker owns RUN_LOCK for the full Agent lifetime. A disconnected
+            # browser must not release a lock that a newer request may already own.
+            pass
 
 
 def build_agent() -> CoderAgent:
