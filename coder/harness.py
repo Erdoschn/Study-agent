@@ -13,7 +13,7 @@ from .state import CoderGoal, CoderState
 
 class CoderHarness:
     ALLOWED_ACTIONS = frozenset({
-        "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "PATCH_FILE",
+        "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK", "PATCH_FILE",
         "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "READ_DIFF", "VERIFY_GOAL",
     })
     ARGUMENT_KEYS = {
@@ -21,6 +21,7 @@ class CoderHarness:
         "LIST_FILES": frozenset(),
         "READ_FILE": frozenset({"path"}),
         "WRITE_FILE": frozenset({"path", "content"}),
+        "WRITE_NOTEBOOK": frozenset({"path", "content"}),
         "PATCH_FILE": frozenset({"path", "old_text", "new_text"}),
         "CREATE_TEST": frozenset({"path", "content"}),
         "RUN_PYTHON": frozenset({"script_path"}),
@@ -59,7 +60,8 @@ class CoderHarness:
             {"name": "SEARCH", "description": "Search configured sources.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
             {"name": "LIST_FILES", "description": "List readable files under the workspace.", "parameters": {"type": "object", "properties": {}}},
             {"name": "READ_FILE", "description": "Read one allowed text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-            {"name": "WRITE_FILE", "description": "Create or replace one Python file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "WRITE_FILE", "description": "Create or replace one allowed source/text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "PATCH_FILE", "description": "Replace exactly one matching Python fragment.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
             {"name": "CREATE_TEST", "description": "Create one pytest file under workspace/tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "RUN_PYTHON", "description": "Run one Python script inside the isolated sandbox.", "parameters": {"type": "object", "properties": {"script_path": {"type": "string"}}, "required": ["script_path"]}},
@@ -81,6 +83,7 @@ class CoderHarness:
             "LIST_FILES": self._list_files,
             "READ_FILE": self._read_file,
             "WRITE_FILE": self._write_file,
+            "WRITE_NOTEBOOK": self._write_notebook,
             "PATCH_FILE": self._patch_file,
             "CREATE_TEST": self._create_test,
             "RUN_PYTHON": self._run_python,
@@ -203,6 +206,14 @@ class CoderHarness:
         self.fs.write_text(path, str(args.get("content", "")))
         self._record_write(path, state)
         return {"status": "written", "path": path}
+
+    def _write_notebook(self, args, state):
+        path = str(args.get("path", "")).strip()
+        content = str(args.get("content", ""))
+        self._remember_baseline(path)
+        self.fs.write_notebook(path, content)
+        self._record_write(path, state)
+        return {"status": "notebook_written", "path": path}
 
     def _patch_file(self, args, state):
         path = str(args.get("path", "")).strip()
