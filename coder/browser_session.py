@@ -132,6 +132,7 @@ class CoderBrowserSession:
     def close(self) -> None:
         if self._closed:
             return
+        self._cancellation_event.set()
         self._closed = True
         response_queue: queue.Queue = queue.Queue(maxsize=1)
         self._tasks.put((None, response_queue))
