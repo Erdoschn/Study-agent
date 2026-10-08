@@ -312,15 +312,12 @@ async function loadProjects(){
         missing.textContent=current+" (当前选择，不在列表)";
         select.append(missing);
       }
-      select.value=current;
-      state.project=current;
+      setProject(current);
       $("projectHint").textContent=exists
         ? "当前项目："+current+"；文件和 Agent 操作都限制在该目录。"
         : "当前项目："+current+"；项目列表暂未返回它，运行时会再次校验。";
     }else{
-      select.value="";
-      state.project="";
-      $("projectHint").textContent="没有项目也可以直接输入要求，Coder 会自动创建独立目录。";
+      setProject("");
     }
   }catch(e){
     if(requestSeq===projectsLoadSeq)$("workspace").textContent="项目列表加载失败（可重试）";
@@ -481,8 +478,15 @@ async function run(){
   if(state.running)return;
   const request=$("task").value.trim();
   if(!request)return;
-  const project=readSelectedProject();
-  if(project!==state.project)setProject(project);
+
+  // The canonical selection is state.project. Recover from the DOM only if
+  // state has not been initialized yet; do not let a transient DOM rebuild
+  // erase an explicit user selection.
+  if(!state.project){
+    const domProject=readSelectedProject();
+    if(domProject)setProject(domProject);
+  }
+  const project=selectedProject();
 
   resetFeedback();
   state.running=true;
