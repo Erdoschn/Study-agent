@@ -157,15 +157,7 @@ class BrowserModel(ModelClient):
                 self._cleanup_current_chat(page)
                 self._chat_initialized = False
 
-    @staticmethod
-    def _is_json_object(answer: str) -> bool:
-        try:
-            import json
-            data = json.loads(str(answer or "").strip())
-        except (TypeError, ValueError):
-            return False
-        return isinstance(data, dict)
-
+    @staticmethod,    def _extract_json_object(answer: str) -> str:,        """Extract a valid Agent JSON object from mixed browser response text.""",        import json,,        text = str(answer or "").strip(),        if not text:,            return "",,        decoder = json.JSONDecoder(),        allowed_actions = {,            "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",,            "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",,            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",,            "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",,        },        for match in re.finditer(r"\\{", text):,            try:,                data, end = decoder.raw_decode(text[match.start():]),            except json.JSONDecodeError:,                continue,            if not isinstance(data, dict):,                continue,            if str(data.get("action", "")).upper() in allowed_actions:,                return text[match.start():match.start() + end].strip(),        return "",,    @classmethod,    def _is_json_object(cls, answer: str) -> bool:,        text = str(answer or "").strip(),        try:,            import json,            data = json.loads(text),        except (TypeError, ValueError):,            data = None,        return isinstance(data, dict) or bool(cls._extract_json_object(text)),
     @staticmethod
     def _needs_json_recovery(answer: str) -> bool:
         """Return whether a browser response is unusable for structured JSON mode."""
@@ -1050,7 +1042,7 @@ class BrowserModel(ModelClient):
                 if not candidate_seen:
                     candidate_seen = True
                     json_mode = bool(getattr(self, "_json_mode_active", False))
-                    json_ready = not json_mode or self._is_json_object(candidate)
+                    json_ready = not json_mode or bool(self._extract_json_object(candidate))
                     preview = " ".join(candidate[:120].split())
                     debug.log(
                         "BrowserModel",
@@ -1067,7 +1059,8 @@ class BrowserModel(ModelClient):
                     stable_since = time.monotonic()
 
                 json_mode = bool(getattr(self, "_json_mode_active", False))
-                json_ready = not json_mode or self._is_json_object(candidate)
+                json_candidate = self._extract_json_object(candidate) if json_mode else ""
+                json_ready = not json_mode or bool(json_candidate)
                 stable = (
                     stable_since is not None
                     and time.monotonic() - stable_since >= self.stable_seconds
@@ -1081,9 +1074,9 @@ class BrowserModel(ModelClient):
                 if json_mode and json_ready:
                     debug.log(
                         "BrowserModel",
-                        f"WAIT RESPONSE → valid JSON ready chars={len(latest)}, loading={loading}",
+                        f"WAIT RESPONSE → valid JSON extracted chars={len(json_candidate or latest)}, loading={loading}",
                     )
-                    return latest
+                    return json_candidate or latest
 
                 ready = stable and json_ready and (json_mode or not loading)
                 if ready:
