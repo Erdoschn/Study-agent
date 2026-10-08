@@ -108,7 +108,7 @@ let projectsLoadSeq=0;
 let filesLoadSeq=0;
 const state={
   running:false,startedAt:0,timer:null,project:"",runProject:"",
-  failed:false,cancelling:false,cancelRequested:false,lastRunId:""
+  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:""
 };
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
@@ -416,7 +416,8 @@ async function uploadMany(files){
 }
 function appendStep(action,ok,observation,stepNo){const box=$("timeline");if(box.querySelector(".empty"))box.textContent="";const el=document.createElement("div");el.className="step";const head=document.createElement("div");head.className="step-head";const n=document.createElement("span");n.className="num";n.textContent=stepNo?("#"+stepNo):"";const a=document.createElement("span");a.className="action";a.textContent=action;const s=document.createElement("span");s.className=ok?"ok":"bad";s.textContent=ok?"✓":"✕";head.append(n,a,s);el.append(head);if(observation){const meta=document.createElement("div");meta.className="meta";meta.textContent=typeof observation==="string"?observation:JSON.stringify(observation,null,2);el.append(meta)}box.append(el)}
 function resetFeedback(){
-  state.lastRunId="";
+  state.activeRunId="";
+  state.memoryRunId="";
   $("feedback").value="";
   $("feedbackStatus").textContent="";
   $("submitFeedback").disabled=false;
@@ -424,7 +425,7 @@ function resetFeedback(){
   $("feedbackPanel").classList.add("hidden");
 }
 async function submitFeedback(){
-  const runId=state.lastRunId;
+  const runId=state.activeRunId;
   const feedback=$("feedback").value.trim();
   if(!runId||!feedback||state.running)return;
   $("submitFeedback").disabled=true;
@@ -540,8 +541,8 @@ async function run(){
         }
 
         const e=JSON.parse(data);
-        if(e.id&&!state.lastRunId)state.lastRunId=String(e.id).trim();
-        if(state.cancelRequested&&state.lastRunId&&!state.cancelling)void requestCancel();
+        if(e.id&&!state.activeRunId)state.activeRunId=String(e.id).trim();
+        if(state.cancelRequested&&state.activeRunId&&!state.cancelling)void requestCancel();
         if(e.type==="preparing"){
           appendStep("PREPARING",true,e.message||"正在准备…");
         }else if(e.type==="named"){
@@ -586,8 +587,8 @@ async function run(){
           updateSummary(e.state);
         }else if(e.type==="result"){
           updateSummary(e.state);
-          state.lastRunId=String(e.memory?.id||"").trim();
-          if(state.lastRunId){
+          state.memoryRunId=String(e.memory?.id||"").trim();
+          if(state.memoryRunId){
             $("feedbackPanel").classList.remove("hidden");
             $("feedbackStatus").textContent="";
             $("feedback").value="";
@@ -640,6 +641,7 @@ async function run(){
     state.runProject="";
     state.cancelling=false;
     state.cancelRequested=false;
+    state.activeRunId="";
   }
 }
 
