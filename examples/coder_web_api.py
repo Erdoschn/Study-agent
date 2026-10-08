@@ -226,7 +226,7 @@ def _step_summary(step) -> str:
         "SEARCH": "搜索资料",
         "LIST_FILES": "查看工作区文件",
         "READ_FILE": f"读取 {path}" if path else "读取文件",
-        "WRITE_FILE": f"写入 {path}" if path else "写入文件",
+        "WRITE_FILE": f"整体写入 {path}" if path else "整体写入文件",
         "WRITE_NOTEBOOK": f"更新 Notebook {path}" if path else "更新 Notebook",
         "PATCH_FILE": f"局部修改 {path}" if path else "局部修改文件",
         "CREATE_TEST": f"新增测试 {path}" if path else "新增测试",
