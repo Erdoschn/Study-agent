@@ -92,6 +92,49 @@ def test_workspace_allows_only_python_writes(tmp_path):
     assert fs.read_text("src/a.py") == "print(1)"
 
 
+def test_harness_rejects_destructive_existing_file_rewrite(tmp_path):
+    from types import SimpleNamespace
+
+    fs = WorkspaceFS(tmp_path)
+    original = "".join(f"def function_{i}():\n    return {i}\n" for i in range(30))
+    fs.write_text("framework.py", original)
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("complete framework")
+    harness.execute(
+        "READ_FILE",
+        {"path": "framework.py"},
+        state,
+    )
+
+    shortened = "".join(f"def function_{i}():\n    return {i}\n" for i in range(12))
+    with pytest.raises(WorkspaceSecurityError, match="明显缩水"):
+        harness.execute(
+            "WRITE_FILE",
+            {"path": "framework.py", "content": shortened},
+            state,
+        )
+
+    assert fs.read_text("framework.py") == original
+
+
+def test_harness_allows_normal_existing_file_rewrite(tmp_path):
+    from types import SimpleNamespace
+
+    fs = WorkspaceFS(tmp_path)
+    original = "".join(f"line_{i}\n" for i in range(30))
+    fs.write_text("framework.py", original)
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("update framework")
+    harness.execute("READ_FILE", {"path": "framework.py"}, state)
+
+    revised = "".join(f"line_{i}\n" for i in range(24))
+    harness.execute("WRITE_FILE", {"path": "framework.py", "content": revised}, state)
+
+    assert fs.read_text("framework.py") == revised
+
+
 def test_workspace_patch_requires_exactly_one_match(tmp_path):
     fs = WorkspaceFS(tmp_path)
     fs.write_text("a.py", "x=1\nx=1\n")
