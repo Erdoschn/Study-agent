@@ -692,6 +692,14 @@ def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refre
     assert 'console.error("Coder final refresh failed",e);' in source
 
 
+def test_coder_web_frontend_shows_and_follows_step_scrollbar():
+    source = _web_source()
+    assert ".timeline{max-width:920px;width:100%;flex:1;min-height:0;height:0;overflow-y:scroll;overflow-x:hidden;" in source
+    assert ".timeline::-webkit-scrollbar{width:10px}" in source
+    assert "const follow=box.scrollHeight-box.scrollTop-box.clientHeight<80" in source
+    assert "if(follow)box.scrollTop=box.scrollHeight" in source
+
+
 def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "activeRunId" in source
