@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -26,8 +25,13 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
     assert snapshot.generation == 3
     assert snapshot.file_count == 3
     assert snapshot.archive == tmp_path.parent / f"{tmp_path.name}.coder-backup" / "latest.zip"
+    initial = backup.ensure_initial_snapshot(0)
+    assert initial.file_count == 3
+    assert initial.archive == tmp_path.parent / f"{tmp_path.name}.coder-backup" / "initial.zip"
     manifest = backup.read_manifest()
     assert manifest["generation"] == 3
+    initial_manifest = backup.read_manifest(initial=True)
+    assert initial_manifest["generation"] == 0
     assert {item["path"] for item in manifest["files"]} == {
         "main.py",
         "helper.pyi",
@@ -101,6 +105,35 @@ def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
     assert backup_text(harness, "main.py") == "VERSION = 2\n"
 
 
+
+def test_initial_backup_is_created_before_agent_modifications_and_never_overwritten(tmp_path):
+    (tmp_path / "main.py").write_text("VERSION = 0\n", encoding="utf-8")
+    backup = CoderBackupStore(tmp_path)
+
+    first = backup.ensure_initial_snapshot(0)
+    (tmp_path / "main.py").write_text("VERSION = 1\n", encoding="utf-8")
+    backup.snapshot(1)
+    again = backup.ensure_initial_snapshot(0)
+
+    assert first.archive == again.archive
+    assert again.generation == 0
+    assert backup.contains_text("main.py", "VERSION = 0\n", initial=True)
+    assert not backup.contains_text("main.py", "VERSION = 1\n", initial=True)
+    assert backup.contains_text("main.py", "VERSION = 1\n")
+
+
+def test_backup_archives_are_separate_initial_and_latest(tmp_path):
+    (tmp_path / "main.py").write_text("initial\n", encoding="utf-8")
+    backup = CoderBackupStore(tmp_path)
+    backup.ensure_initial_snapshot(0)
+
+    (tmp_path / "main.py").write_text("latest\n", encoding="utf-8")
+    backup.snapshot(1)
+
+    assert backup.root / backup.INITIAL_ARCHIVE_NAME != backup.root / backup.ARCHIVE_NAME
+    assert backup.contains_text("main.py", "initial\n", initial=True)
+    assert backup.contains_text("main.py", "latest\n", initial=False)
+
 def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
     backup_state = SimpleNamespace(generation=-1)
 
@@ -137,12 +170,13 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
     result = harness.execute("RUN_PYTEST", {"paths": []}, state)
     assert result["backup_ok"] is True
     assert state.backup_generation == state.modification_generation
+    harness.backup.ensure_initial_snapshot(0)
 
     state.created_tests.add("tests/test_a.py")
     verified = harness.execute("VERIFY_GOAL", {}, state)
     assert verified["verified"] is True
 
-    os.remove(state.backup_path)
+    os.remove(harness.backup.root / harness.backup.ARCHIVE_NAME)
     state.goal_verified = False
     hidden = harness.execute("VERIFY_GOAL", {}, state)
     assert hidden["verified"] is False
