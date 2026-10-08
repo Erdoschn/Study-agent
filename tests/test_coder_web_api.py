@@ -5,6 +5,9 @@ from examples.coder_web_api import (
     UPLOAD_MAX_BYTES,
     _frontend_path,
     parse_multipart_upload,
+    _project_name,
+    _ensure_project,
+    _list_projects,
 )
 from coder.filesystem import WorkspaceFS
 
@@ -78,3 +81,42 @@ def test_coder_web_state_payload_exposes_completion_summary():
     payload = _state_payload(state)
     assert payload["summary"] == state.summary
     assert payload["finished"] is True
+
+
+def test_coder_project_name_is_safe_and_derived_from_request():
+    assert _project_name("创建一个 Python 成绩分析器") == "Python"
+    assert "/" not in _project_name("my/project")
+    assert _project_name("").startswith("project-")
+
+
+def test_coder_project_creation_keeps_projects_separate(tmp_path, monkeypatch):
+    import examples.coder_web_api as api
+
+    monkeypatch.setattr(api, "WORKSPACE", str(tmp_path))
+    first = _ensure_project("alpha")
+    second = _ensure_project("beta")
+    assert first == "alpha"
+    assert second == "beta"
+    assert (tmp_path / "alpha").is_dir()
+    assert (tmp_path / "beta").is_dir()
+    assert set(p["name"] for p in _list_projects()) == {"alpha", "beta"}
+
+
+def test_coder_project_files_are_not_listed_from_workspace_root(tmp_path):
+    from coder.filesystem import WorkspaceFS
+
+    (tmp_path / "legacy.py").write_text("print(1)", encoding="utf-8")
+    (tmp_path / "project-a").mkdir()
+    (tmp_path / "project-a" / "main.py").write_text("print(2)", encoding="utf-8")
+    root_files = WorkspaceFS(tmp_path).list_files()
+    project_files = WorkspaceFS(tmp_path / "project-a").list_files()
+    assert root_files == ["legacy.py"]
+    assert project_files == ["main.py"]
+
+
+def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "新建项目（直接描述要求）" in source
+    assert "可以直接创建新项目" in source
+    assert 'JSON.stringify({request,project:selectedProject()||null})' in source
+    assert "/projects" in source
