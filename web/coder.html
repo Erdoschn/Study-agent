@@ -425,7 +425,7 @@ function resetFeedback(){
   $("feedbackPanel").classList.add("hidden");
 }
 async function submitFeedback(){
-  const runId=state.activeRunId;
+  const runId=state.memoryRunId;
   const feedback=$("feedback").value.trim();
   if(!runId||!feedback||state.running)return;
   $("submitFeedback").disabled=true;
