@@ -461,7 +461,7 @@ class BrowserModel(ModelClient):
                 for index in range(locator.count() - 1, -1, -1):
                     candidate = locator.nth(index)
                     if candidate.is_visible():
-                        candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        candidate.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                         return True
             except Exception:
                 continue
@@ -477,7 +477,7 @@ class BrowserModel(ModelClient):
                     button.get_attribute("title"),
                 )).strip()
                 if any(pattern.search(text) for pattern in patterns):
-                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    button.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     return True
         except Exception:
             pass
