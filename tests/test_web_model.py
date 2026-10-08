@@ -897,3 +897,81 @@ def test_browser_model_marks_recovery_failure_as_request_failure(monkeypatch):
         model.generate("", "choose an action", json_mode=True)
 
     assert events == ["cleanup"]
+
+
+def test_browser_model_accepts_coder_agent_actions_in_json_mode():
+    response = '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect workspace"}'
+
+    assert BrowserModel._is_json_object(response)
+    assert BrowserModel._needs_json_recovery(response) is False
+
+
+def test_browser_model_json_wait_does_not_accept_incomplete_stream():
+    class Page:
+        def __init__(self):
+            self.response = (
+                '{"action":"LIST_FILES","arguments":{},'
+                '"reasoning_summary":"inspect'
+            )
+
+        def locator(self, selector):
+            if selector == ".ds-markdown":
+                return FakeLocator([self.response])
+            return FakeLocator([])
+
+    model = BrowserModel(
+        response_selectors=(".ds-markdown",),
+        loading_selectors=(),
+        timeout=2,
+        poll_interval=0.05,
+        stable_seconds=0.1,
+    )
+    page = Page()
+
+    def finish():
+        time.sleep(0.25)
+        page.response = (
+            '{"action":"LIST_FILES","arguments":{},'
+            '"reasoning_summary":"inspect workspace"}'
+        )
+
+    import threading
+    threading.Thread(target=finish, daemon=True).start()
+
+    model._json_mode_active = True
+    answer = model._wait_for_response(page, [(0, "")])
+
+    assert answer.endswith('"reasoning_summary":"inspect workspace"}')
+
+
+def test_browser_model_does_not_replace_complete_json_with_partial_clipboard(monkeypatch):
+    model = BrowserModel(
+        response_selectors=('[data-message-author-role="assistant"]',),
+        timeout=1,
+        poll_interval=0.05,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+        stable_seconds=0.1,
+    )
+    page = FakePage()
+    complete = '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect workspace"}'
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: None)
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, _prompt: None)
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: complete)
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect',
+    )
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: None)
+
+    answer = model.generate(
+        '{"action":"PLAN|LIST_FILES|FINISH","arguments":{}}',
+        "inspect workspace",
+        json_mode=True,
+    )
+
+    assert answer == complete
