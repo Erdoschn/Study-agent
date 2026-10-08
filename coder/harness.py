@@ -5,6 +5,7 @@ import re
 import unicodedata
 from typing import Any
 
+from .backup import CoderBackupStore
 from .filesystem import WorkspaceFS
 from .state import CoderGoal, CoderState
 
@@ -38,13 +39,14 @@ class CoderHarness:
     )
     MAX_SEARCH_QUERY_BYTES = 240
 
-    def __init__(self, workspace: str, *, search_router=None, sandbox=None):
+    def __init__(self, workspace: str, *, search_router=None, sandbox=None, backup=None):
         self.fs = WorkspaceFS(workspace)
         self.search_router = search_router
         self.sandbox = sandbox
         if self.sandbox is None:
             from .sandbox import DockerPythonSandbox
             self.sandbox = DockerPythonSandbox(self.fs.root)
+        self.backup = backup or CoderBackupStore(self.fs.root)
         self._baseline: dict[str, str | None] = {}
         self._write_count = 0
         self._test_count = 0
@@ -249,8 +251,21 @@ class CoderHarness:
             "kind": "pytest", "paths": paths, "passed": result.passed,
             "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
             "timed_out": result.timed_out, "output_limited": result.output_limited,
+            "backup_ok": False,
         }
         state.test_generation = state.modification_generation
+        if result.passed:
+            try:
+                snapshot = self.backup.snapshot(state.modification_generation)
+                state.backup_generation = snapshot.generation
+                state.backup_path = str(snapshot.archive)
+                state.last_test_result["backup_ok"] = True
+                state.last_test_result["backup_path"] = str(snapshot.archive)
+                state.last_test_result["backup_file_count"] = snapshot.file_count
+            except Exception as exc:
+                state.last_test_result["backup_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
         return state.last_test_result
 
     def _read_diff(self, _args, _state):
@@ -284,6 +299,8 @@ class CoderHarness:
                 and state.last_test_result.get("kind") == "pytest"
                 and state.last_test_result.get("passed")
                 and state.test_generation == state.modification_generation
+                and state.backup_generation == state.modification_generation
+                and state.last_test_result.get("backup_ok") is True
             ) if goal.must_pass_tests else True,
         })
         verified = all(item["ok"] for item in checks)
