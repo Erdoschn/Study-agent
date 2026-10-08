@@ -572,11 +572,71 @@ class BrowserModel(ModelClient):
                 continue
         return False
 
+    @staticmethod
+    def _compact_text(value: str) -> str:
+        return " ".join(str(value or "").split())
+
+    def _current_user_message_index(self, page) -> int | None:
+        prompt = self._compact_text(self._pending_prompt or "")
+        if not prompt:
+            return None
+
+        head = prompt[:120]
+        tail = prompt[-120:] if len(prompt) > 240 else ""
+        try:
+            messages = page.locator(".ds-message")
+            for index in range(messages.count() - 1, -1, -1):
+                message = messages.nth(index)
+                if not message.is_visible():
+                    continue
+                text = self._compact_text(message.inner_text())
+                if head in text and (not tail or tail in text):
+                    return index
+        except Exception:
+            return None
+        return None
+
+    def _latest_response_message(self, page):
+        user_index = self._current_user_message_index(page)
+        if user_index is None:
+            return None
+
+        try:
+            messages = page.locator(".ds-message")
+            for index in range(messages.count() - 1, user_index, -1):
+                message = messages.nth(index)
+                if not message.is_visible():
+                    continue
+                for response_selector in self.response_selectors:
+                    try:
+                        if message.locator(response_selector).count() > 0:
+                            return message
+                    except Exception:
+                        continue
+        except Exception:
+            return None
+        return None
+
     def _latest_response(
         self,
         page,
         before_snapshot: list[tuple[int, str]],
     ) -> str:
+        current_message = self._latest_response_message(page)
+        if current_message is not None:
+            for selector in self.response_selectors:
+                try:
+                    locator = current_message.locator(selector)
+                    count = locator.count()
+                    if count <= 0:
+                        continue
+                    candidate = locator.nth(count - 1).inner_text().strip()
+                    if candidate:
+                        return candidate
+                except Exception:
+                    continue
+            return ""
+
         for index, selector in enumerate(self.response_selectors):
             try:
                 locator = page.locator(selector)
@@ -592,11 +652,6 @@ class BrowserModel(ModelClient):
                     if index < len(before_snapshot)
                     else (0, "")
                 )
-
-                # A response is considered new only when the DOM gained an
-                # assistant element or the latest element's text changed.
-                # This prevents a later model call from immediately reusing the
-                # previous turn's final answer.
                 if count > before_count or candidate != before_text:
                     return candidate
             except Exception:
