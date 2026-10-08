@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import os
+import time
+from pathlib import Path
+
+from core.__debug__ import debug
+
+from .harness import CoderHarness
+from .reasoner import CoderReasoner
+from .state import CoderGoal, CoderState, CoderStep
+
+
+DEFAULT_WORKSPACE = os.getenv("CODER_WORKSPACE", r"D:\Coder_workspace")
+
+
+class CoderAgent:
+    """Autonomous Python coding agent with a fail-closed Harness."""
+
+    def __init__(
+        self,
+        workspace: str | Path = DEFAULT_WORKSPACE,
+        *,
+        reasoner=None,
+        harness=None,
+        search_router=None,
+        sandbox=None,
+        max_runtime_seconds: float = 1800,
+    ):
+        self.workspace = Path(workspace)
+        self.reasoner = reasoner
+        self.harness = harness or CoderHarness(str(self.workspace), search_router=search_router, sandbox=sandbox)
+        if self.reasoner is None:
+            self.reasoner = CoderReasoner()
+        self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
+
+    def run(self, request: str) -> CoderState:
+        request = str(request or "").strip()
+        if not request:
+            raise ValueError("Coder 请求不能为空。")
+        state = CoderState(request=request)
+        state.goal = CoderGoal(
+            description=request,
+            must_modify=True,
+            must_create_tests=True,
+            must_pass_tests=True,
+        )
+        started = time.monotonic()
+        try:
+            while not state.goal_verified:
+                if time.monotonic() - started >= self.max_runtime_seconds:
+                    raise TimeoutError("Coder 安全运行时间上限已到，已拒绝继续执行。")
+
+                decision = self.reasoner.decide(state, self.harness.tool_specs())
+                action = decision["action"]
+                arguments = decision["arguments"]
+
+                if action == "PLAN":
+                    self._apply_plan(state, decision.get("goal", {}))
+                    observation = {"status": "PLAN_SET", "goal": state.goal.__dict__}
+                    state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
+                    continue
+
+                if action == "FINISH":
+                    observation = self.harness.execute("VERIFY_GOAL", {}, state)
+                    ok = bool(observation.get("verified"))
+                    state.add_step(CoderStep(
+                        state.step_count + 1, action, arguments, observation, success=ok,
+                        error="" if ok else "Goal 未满足，继续 Agent Loop。",
+                    ))
+                    if ok:
+                        state.finished = True
+                        break
+                    continue
+
+                try:
+                    observation = self.harness.execute(action, arguments, state)
+                    state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
+                except Exception as exc:
+                    observation = {"error": f"{type(exc).__name__}: {exc}"}
+                    state.add_step(CoderStep(
+                        state.step_count + 1, action, arguments, observation,
+                        success=False, error=str(exc),
+                    ))
+            state.metrics["steps"] = state.step_count
+            state.metrics["modified_files"] = len(state.modified_files)
+            state.metrics["test_runs"] = sum(
+                1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
+            )
+            return state
+        except Exception as exc:
+            state.error = f"Coder 执行失败：{type(exc).__name__}: {exc}"
+            debug.log("CoderAgent", state.error)
+            return state
+        finally:
+            model = getattr(self.reasoner, "model", None)
+            close = getattr(model, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _apply_plan(state: CoderState, raw: dict) -> None:
+        goal = state.goal or CoderGoal(state.request)
+        files = raw.get("required_files", [])
+        tests = raw.get("required_tests", [])
+        if isinstance(files, list):
+            goal.required_files = [str(x).strip() for x in files if str(x).strip()][:20]
+        if isinstance(tests, list):
+            goal.required_tests = [str(x).strip() for x in tests if str(x).strip()][:20]
+        goal.description = str(raw.get("description", goal.description)).strip() or goal.description
+        # Security policy: a model cannot weaken mandatory coding verification.
+        goal.must_modify = True
+        goal.must_create_tests = True
+        goal.must_pass_tests = True
+        state.goal = goal
