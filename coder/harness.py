@@ -43,6 +43,12 @@ class CoderHarness:
         re.compile(r"(?<!\w)(?:\.{1,2}[\\/])"),
     )
     MAX_SEARCH_QUERY_BYTES = 240
+    # Existing framework files should not be silently replaced by a much shorter
+    # model-generated rewrite. Small files and normal refactors remain allowed;
+    # large unexpected shrinkage is rejected so the model must PATCH_FILE instead.
+    MIN_SHRINK_BASELINE_LINES = 20
+    MAX_REWRITE_LINE_RATIO = 0.70
+    MIN_REMOVED_LINES = 10
 
     def __init__(self, workspace: str, *, search_router=None, sandbox=None, backup=None, study_bridge=None):
         self.fs = WorkspaceFS(workspace)
@@ -198,6 +204,28 @@ class CoderHarness:
         self._remember_baseline(path)
         return {"path": path, "content": value}
 
+    def _validate_write_safety(self, path: str, content: str) -> None:
+        """Reject suspicious full-file shrinkage of an existing framework file."""
+        baseline = self._baseline.get(path)
+        if baseline is None:
+            return
+        old_lines = baseline.splitlines()
+        new_lines = str(content).splitlines()
+        if len(old_lines) < self.MIN_SHRINK_BASELINE_LINES:
+            return
+
+        removed_lines = len(old_lines) - len(new_lines)
+        if (
+            removed_lines >= self.MIN_REMOVED_LINES
+            and len(new_lines) < len(old_lines) * self.MAX_REWRITE_LINE_RATIO
+        ):
+            raise WorkspaceSecurityError(
+                f"拒绝覆盖已有文件 {path}：新内容明显缩水 "
+                f"({len(old_lines)} 行 → {len(new_lines)} 行)。"
+                " 为保护现有框架，请先 READ_FILE，再使用 PATCH_FILE 做局部修改；"
+                "如确需整体重写，也必须保留原文件的完整功能。"
+            )
+
     def _record_write(self, path: str, state: CoderState, *, created_test: bool = False) -> None:
         self._write_count += 1
         if self._write_count > self.MAX_WRITES:
@@ -212,6 +240,7 @@ class CoderHarness:
         path = str(args.get("path", "")).strip()
         content = str(args.get("content", ""))
         self._remember_baseline(path)
+        self._validate_write_safety(path, content)
         if path.casefold().endswith(".ipynb"):
             self.fs.write_notebook(path, content)
         else:
