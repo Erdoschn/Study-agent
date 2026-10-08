@@ -346,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         )
         if len(data) > UPLOAD_MAX_BYTES:
             raise WorkspaceSecurityError("上传文件超过安全大小上限。")
-        filename = Path(filename.replace("\\", "/")).name
+        filename = filename.replace("\\", "/").strip("/")
         if not filename:
             raise ValueError("上传文件缺少文件名。")
 
@@ -473,7 +473,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": {"message": "Coder 正在运行，暂时不能创建项目。"}}, 409)
                     return
                 request = self._body_json()
-                name = _ensure_project(request.get("name"))
+                unique = bool(request.get("unique", False))
+                name = _ensure_project(
+                    request.get("name"),
+                    unique_if_requested=unique,
+                )
                 self._json({"status": "created", "project": name}, 201)
                 return
 
