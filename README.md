@@ -1427,7 +1427,12 @@ Pedagogical structure
 
 > **证明这些机制是否真的让学习 Agent 更有效、更高效、更个性化。**
 
-### Last-known-good backup
+### Coder backup generations
 
-Coder maintains one host-side backup of the latest generation whose pytest run actually passed. The backup is stored outside the model workspace and is overwritten only after a passing pytest run. A failing generation never replaces the previous known-good backup. The backup directory is not exposed as a Coder action, is not included in sandbox mounts, and its host path is not sent to the reasoner.
+Coder keeps two host-side snapshots outside the model workspace:
+
+- **Initial baseline**: captured once, immediately before the Coder Agent begins its first run on that workspace. It is never overwritten by later generations.
+- **Latest known-good**: replaced after a generation's pytest run passes. A failing generation never replaces it.
+
+Neither snapshot is exposed as a Coder action, neither is mounted into the execution sandbox, and their host paths are not sent to the reasoner. Backups contain only Python source/interface files (.py / .pyi) within the workspace.
 
