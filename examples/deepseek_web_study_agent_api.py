@@ -232,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
-        if path == "/health":
+        if path in {"/health", "/v1/health"}:
             self._json({"status": "ok", "model": MODEL_ID, "backend": "browser", "agent": "StudyAgent"})
             return
         if path == "/v1/models":
