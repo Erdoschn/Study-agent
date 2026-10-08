@@ -27,6 +27,17 @@ def test_agent_rejects_workspace_nested_under_runtime_source_tree():
             harness=SimpleNamespace(),
         )
 
+def test_agent_rejects_workspace_that_contains_runtime_source_tree():
+    from coder.agent import RUNTIME_ROOT
+
+    with pytest.raises(WorkspaceSecurityError, match="覆盖 Study-agent"):
+        CoderAgent(
+            RUNTIME_ROOT.parent,
+            reasoner=SimpleNamespace(),
+            harness=SimpleNamespace(),
+        )
+
+
 def test_workspace_rejects_escape_and_absolute_paths(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError):
