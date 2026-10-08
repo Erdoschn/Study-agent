@@ -35,8 +35,8 @@
     <div class="history-list" id="history"><div class="empty">暂无历史记录</div></div>
   </div>
   <div class="drop" id="drop">
-    <strong>把文件拖到这里</strong>
-    自动复制到当前项目
+    <strong>把已有工程文件拖到这里</strong>
+    没选项目时会自动创建一个新项目，并保留拖入的目录结构
     <label>选择文件<input id="fileInput" type="file" multiple></label>
   </div>
   <div class="files" id="files"></div>
@@ -50,7 +50,7 @@
   <section class="body">
     <div class="hero">
       <h1>直接告诉 Coder 你要做什么</h1>
-      <p>可以直接创建新项目，也可以选择已有项目继续修改。拖入文件只是可选输入。</p>
+      <p>可以直接描述需求创建空项目，也可以先把已有工程框架拖进来，再让 Coder 在原框架上补全代码。</p>
       <div class="task">
         <textarea id="task" maxlength="100000" placeholder="例如：检查 score_utils.py 的平均分计算问题，修复它，并补充 pytest 回归测试。"></textarea>
         <div class="taskbar"><span id="timer">未运行</span><button class="run" id="run">运行 Coder</button></div>
@@ -262,12 +262,69 @@ async function loadFiles(){
   }catch(e){renderFiles([])}
 }
 async function openFile(path){try{const project=selectedProject();if(!project){$("request").textContent="请先选择项目。";return}const r=await fetchTimeout(API+"/file?project="+encodeURIComponent(project)+"&path="+encodeURIComponent(path),{},5000);if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("request").textContent=path+"\n\n"+String(d.content||"").slice(0,12000)}catch(e){$("request").textContent="读取失败："+e.message;console.error("Coder file read failed",e)}}
+function importProjectBase(files){
+  const first=files[0];
+  const raw=String(first?.webkitRelativePath||first?.name||"").replace(/\\/g,"/");
+  const parts=raw.split("/").filter(Boolean);
+  let candidate=parts.length>1?parts[0]:parts[parts.length-1]||"imported-project";
+  candidate=candidate.replace(/\\.[^.]+$/,"");
+  if(/^(src|lib|app|bin|tests?|docs?)$/i.test(candidate)&&parts.length>1){
+    candidate=parts[parts.length-1]||candidate;
+    candidate=candidate.replace(/\\.[^.]+$/,"");
+  }
+  candidate=candidate.replace(/[^A-Za-z0-9._-]+/g,"-").replace(/^[-.]+|[-.]+$/g,"").slice(0,64);
+  return candidate||"imported-project";
+}
+async function createProjectForImport(files){
+  const base=importProjectBase(files);
+  const r=await fetchTimeout(API+"/projects",{
+    method:"POST",headers:headers(),body:JSON.stringify({name:base,unique:true})
+  },5000);
+  if(!r.ok)throw Error((await r.text()).slice(0,500));
+  const d=await r.json();
+  setProject(d.project||base);
+  await loadProjects();
+  setProject(d.project||base);
+  appendStep("PROJECT",true,"已创建导入项目："+(d.project||base));
+  return d.project||base;
+}
 async function upload(file){
   const project=selectedProject();
-  if(!project)return {ok:false,file,error:new Error("请先选择项目；新项目请先运行一次自然语言要求。")};
-  const fd=new FormData();fd.append("file",file,file.name);
-  try{const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{method:"POST",body:fd},15000);if(!r.ok)throw Error((await r.text()).slice(0,500));await loadFiles();return {ok:true,file}}catch(e){return {ok:false,file,error:e}}}
-async function uploadMany(files){for(const file of files){const result=await upload(file);if(!result.ok)appendStep("UPLOAD",false,result.file.name+": "+result.error.message)}}
+  if(!project)return {ok:false,file,error:new Error("尚未创建导入项目。")};
+  const fd=new FormData();
+  const relative=String(file.webkitRelativePath||file.name||"").replace(/\\/g,"/");
+  fd.append("file",file,relative||file.name);
+  try{
+    const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{method:"POST",body:fd},15000);
+    if(!r.ok)throw Error((await r.text()).slice(0,500));
+    return {ok:true,file}
+  }catch(e){return {ok:false,file,error:e}}
+}
+async function uploadMany(files){
+  const chosen=files.filter(Boolean);
+  if(!chosen.length)return;
+  let project=selectedProject();
+  try{
+    if(!project){
+      project=await createProjectForImport(chosen);
+    }
+    let imported=0;
+    for(const file of chosen){
+      const result=await upload(file);
+      if(!result.ok)appendStep("UPLOAD",false,result.file.name+": "+result.error.message);
+      else imported++;
+    }
+    await loadFiles();
+    if(imported){
+      $("task").focus();
+      $("task").placeholder="文件框架已导入。现在描述你希望 Coder 在这个项目上补全/修改什么，例如：补完 main.py 中缺失函数并补充 pytest。";
+      $("request").textContent="已导入 "+imported+" 个文件到 "+project+"。请在上方描述下一步要完成的工作。";
+      appendStep("IMPORT",true,"已导入 "+imported+" 个文件；现在可以让 Coder 基于现有框架继续开发。");
+    }
+  }catch(e){
+    appendStep("PROJECT",false,"创建导入项目失败："+(e.message||String(e)));
+  }
+}
 function appendStep(action,ok,observation,stepNo){const box=$("timeline");if(box.querySelector(".empty"))box.textContent="";const el=document.createElement("div");el.className="step";const head=document.createElement("div");head.className="step-head";const n=document.createElement("span");n.className="num";n.textContent=stepNo?("#"+stepNo):"";const a=document.createElement("span");a.className="action";a.textContent=action;const s=document.createElement("span");s.className=ok?"ok":"bad";s.textContent=ok?"✓":"✕";head.append(n,a,s);el.append(head);if(observation){const meta=document.createElement("div");meta.className="meta";meta.textContent=typeof observation==="string"?observation:JSON.stringify(observation,null,2);el.append(meta)}box.append(el);el.scrollIntoView({block:"end",behavior:"smooth"})}
 function updateSummary(st){$("request").textContent=st.request||"";$("finished").textContent=String(st.finished);$("verified").textContent=String(st.goal_verified);$("steps").textContent=String(st.step_count);$("summary").textContent=st.summary||"任务尚未结束。";const mod=$("modified");mod.textContent="";(st.modified_files||[]).forEach(x=>{const c=document.createElement("span");c.className="chip";c.textContent=x;mod.append(c)});if(!(st.modified_files||[]).length)mod.textContent="暂无";const tests=$("tests");tests.textContent="";const t=st.last_test_result;if(t){tests.textContent=(t.kind||"test")+" · "+(t.passed?"通过":"失败")+"\n"+String(t.stdout||t.stderr||"").slice(-5000)}else tests.textContent="暂无"}
 async function run(){const request=$("task").value.trim();if(!request||state.running)return;state.running=true;state.startedAt=Date.now();$("run").textContent="停止等待";$("run").classList.add("stop");$("task").disabled=true;$("timeline").innerHTML="";$("request").textContent=request;$("timer").textContent="运行中";state.timer=setInterval(()=>{$("timer").textContent=Math.floor((Date.now()-state.startedAt)/1000)+"s"},250);state.controller=new AbortController();try{const r=await fetch("/v1/coder/run",{method:"POST",headers:headers(),body:JSON.stringify({request,project:selectedProject()||null}),signal:state.controller.signal});if(!r.ok)throw Error((await r.text()).slice(0,800));if(!r.body)throw Error("浏览器不支持 SSE");const reader=r.body.getReader(),decoder=new TextDecoder();let buf="";for(;;){const q=await reader.read();buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});const parts=buf.split("\n\n");buf=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(!line)continue;const data=line.slice(6);if(data==="[DONE]"){break}const e=JSON.parse(data);if(e.type==="preparing"){appendStep("PREPARING",true,e.message||"正在准备…")}else if(e.type==="named"){if(e.project)setProject(e.project);appendStep("PROJECT",true,"自动命名："+(e.project||"未知"))}else if(e.type==="started"){if(e.project)setProject(e.project);appendStep("START",true,"项目："+(e.project||"新建")+" · 运行上限 "+e.runtime_timeout_seconds+"s")}else if(e.type==="step"){const s=e.step;appendStep(s.action,s.success,s.error||s.observation,s.step_id);if(["WRITE_FILE","WRITE_NOTEBOOK","PATCH_FILE","CREATE_TEST","RUN_PYTHON","RUN_PYTEST"].includes(s.action)){void loadFiles();void loadProjects()}}else if(e.type==="finished"){appendStep("FINISHED",true,e.state?.summary||"任务已完成并通过验证。");updateSummary(e.state)}else if(e.type==="result"){updateSummary(e.state);void loadProjects();void loadHistory();}if(q.done)break}}catch(e){if(e.name!=="AbortError"){appendStep("ERROR",false,e.message||String(e));console.error("Coder run failed",e)}}finally{state.running=false;state.controller=null;clearInterval(state.timer);state.timer=null;$("task").disabled=false;$("run").textContent="运行 Coder";$("run").classList.remove("stop");$("timer").textContent="完成";await loadFiles()}}
