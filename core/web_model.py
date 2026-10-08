@@ -98,6 +98,7 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
+        self._minimize_browser_window(page)
         self._start_fresh_chat(page)
         completed = False
         try:
@@ -197,6 +198,23 @@ class BrowserModel(ModelClient):
         if os.name == "nt":
             launch_kwargs["ignore_default_args"] = ["--no-sandbox"]
         return launch_kwargs
+
+    def _minimize_browser_window(self, page) -> None:
+        """Minimize the native browser window after login when possible."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if hwnd:
+                # SW_MINIMIZE = 6. The browser is foreground immediately after
+                # the Playwright launch/navigation, while the first-run login
+                # remains visible because this runs only after login detection.
+                ctypes.windll.user32.ShowWindow(hwnd, 6)
+                debug.log("BrowserModel", "WINDOW → minimized")
+        except Exception as exc:
+            debug.log("BrowserModel", f"WINDOW MINIMIZE SKIP → {type(exc).__name__}: {exc}")
 
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
