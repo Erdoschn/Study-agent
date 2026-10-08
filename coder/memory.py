@@ -191,6 +191,7 @@ class CoderMemoryStore:
             "request": str(getattr(state, "request", ""))[:2000],
             "finished": bool(getattr(state, "finished", False)),
             "verified": bool(getattr(state, "goal_verified", False)),
+            "cancelled": bool(getattr(state, "cancelled", False)),
             "error": str(getattr(state, "error", "") or "")[:1000],
             "summary": str(getattr(state, "summary", "") or "")[:4000],
             "step_count": int(getattr(state, "step_count", 0)),
