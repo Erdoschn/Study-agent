@@ -144,6 +144,17 @@ class BrowserModel(ModelClient):
             "ASSESS",
             "ANSWER",
             "STOP",
+            "PLAN",
+            "LIST_FILES",
+            "READ_FILE",
+            "WRITE_FILE",
+            "PATCH_FILE",
+            "CREATE_TEST",
+            "RUN_PYTHON",
+            "RUN_PYTEST",
+            "READ_DIFF",
+            "VERIFY_GOAL",
+            "FINISH",
         }
 
     def _recover_json_response(self, page, previous_answer: str) -> str:
