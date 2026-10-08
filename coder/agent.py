@@ -134,6 +134,7 @@ class CoderAgent:
                     if ok:
                         state.goal_verified = True
                         state.finished = True
+                        state.summary = self._build_completion_summary(state)
                         break
                     continue
 
@@ -169,6 +170,49 @@ class CoderAgent:
                     close()
                 except Exception:
                     pass
+
+    @staticmethod
+    def _build_completion_summary(state: CoderState) -> str:
+        """Build a deterministic user-facing summary without another model call."""
+        change_lines: list[str] = []
+        seen_changes: set[tuple[str, str]] = set()
+        action_labels = {
+            "PATCH_FILE": "修改",
+            "WRITE_FILE": "写入/更新",
+            "WRITE_NOTEBOOK": "写入/更新 Notebook",
+            "CREATE_TEST": "新增测试",
+        }
+        for step in state.steps:
+            label = action_labels.get(step.action)
+            if not label or not isinstance(step.arguments, dict):
+                continue
+            path = str(step.arguments.get("path", "")).strip()
+            if not path:
+                continue
+            key = (label, path)
+            if key in seen_changes:
+                continue
+            seen_changes.add(key)
+            change_lines.append(f"{label} {path}")
+
+        lines = ["任务已完成，并通过 Goal 验证。"]
+        if change_lines:
+            lines.append("本次修改：")
+            lines.extend(f"  - {item}" for item in change_lines)
+        elif state.modified_files:
+            lines.append("本次修改文件：" + ", ".join(sorted(state.modified_files)))
+
+        test = state.last_test_result
+        if isinstance(test, dict):
+            kind = str(test.get("kind", "test"))
+            if test.get("passed") is True:
+                lines.append(f"验证：{kind} 测试通过。")
+            elif test.get("passed") is False:
+                lines.append(f"验证：{kind} 测试未通过。")
+
+        if state.chat_resets:
+            lines.append(f"会话重置：{state.chat_resets} 次。")
+        return "\n".join(lines)
 
     @staticmethod
     def _apply_plan(state: CoderState, raw: dict) -> None:
