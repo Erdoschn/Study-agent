@@ -182,7 +182,7 @@ class BrowserModel(ModelClient):
         allowed_actions = {
             "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
             "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",
-            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
+            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT",
             "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",
         }
 
