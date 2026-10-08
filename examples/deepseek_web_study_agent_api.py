@@ -74,13 +74,15 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
     factory = ModelClientFactory(isolated)
     reasoner = AgentReasoner(router, factory, allow_paid=False)
     teacher = Teacher(router, factory, allow_paid=False)
-    return StudyAgent(
+    agent = StudyAgent(
         reasoner=reasoner,
         teacher=teacher,
         tool_executor=ToolExecutor(search_router=build_search_router()),
         max_steps=None,
         knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
     )
+    agent._web_model_factory = factory
+    return agent
 
 
 def sse(data: dict[str, Any]) -> bytes:
@@ -291,6 +293,9 @@ class Handler(BaseHTTPRequestHandler):
                 return result
             finally:
                 debug.log = old
+                factory = getattr(self.server.agent, "_web_model_factory", None)
+                if factory is not None:
+                    factory.close()
 
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
