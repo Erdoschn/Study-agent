@@ -10,6 +10,7 @@ from examples.coder_web_api import (
     _list_projects,
 )
 from coder.filesystem import WorkspaceFS
+from coder.memory import CoderMemoryStore
 
 
 def test_coder_web_frontend_exists():
@@ -146,6 +147,50 @@ def test_coder_new_project_auto_names_when_name_is_none(tmp_path, monkeypatch):
     assert (tmp_path / second).is_dir()
 
 
+def test_coder_memory_store_persists_history_and_knowledge(tmp_path):
+    from types import SimpleNamespace
+
+    state = SimpleNamespace(
+        request="build a calculator",
+        steps=[
+            SimpleNamespace(action="READ_FILE", arguments={"path": "calculator.py"}, error=""),
+            SimpleNamespace(
+                action="PATCH_FILE",
+                arguments={"path": "calculator.py"},
+                error="pytest failed: division by zero",
+            ),
+            SimpleNamespace(action="CREATE_TEST", arguments={"path": "tests/test_calculator.py"}, error=""),
+            SimpleNamespace(action="RUN_PYTEST", arguments={"paths": ["tests/test_calculator.py"]}, error=""),
+        ],
+        finished=True,
+        goal_verified=True,
+        error=None,
+        summary="done",
+        step_count=4,
+        modified_files={"calculator.py", "tests/test_calculator.py"},
+        created_tests={"tests/test_calculator.py"},
+        chat_resets=0,
+    )
+
+    first = CoderMemoryStore(tmp_path)
+    entry = first.record_run(project="calculator", state=state)
+    second = CoderMemoryStore(tmp_path)
+    data = second.load()
+
+    assert entry["project"] == "calculator"
+    assert data["runs"][-1]["request"] == "build a calculator"
+    assert data["runs"][-1]["strategy"] == "READ_FILE → PATCH_FILE → CREATE_TEST → RUN_PYTEST"
+    assert any(item["name"] == "Python" for item in data["technologies"])
+    assert any(item["name"] == "pytest" for item in data["technologies"])
+    assert data["experiences"][0]["text"].startswith("PATCH_FILE: pytest failed")
+
+
+def test_coder_memory_is_stored_at_workspace_root_not_project(tmp_path):
+    store = CoderMemoryStore(tmp_path)
+    assert store.path == tmp_path / ".coder-memory.json"
+    assert not (tmp_path / ".coder-memory.json").is_dir()
+
+
 def test_coder_project_creation_keeps_projects_separate(tmp_path, monkeypatch):
     import examples.coder_web_api as api
 
@@ -190,6 +235,15 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert 'e.type==="named"' in source
 
 
+def test_coder_web_api_exposes_history_memory():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "/v1/coder/history" in source or "history?limit" in source
+    import examples.coder_web_api as api
+    api_source = Path(api.__file__).read_text(encoding="utf-8")
+    assert 'if path == "/v1/coder/history":' in api_source
+    assert "CoderMemoryStore" in api_source
+
+
 def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
     import re
 
@@ -208,9 +262,9 @@ def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
     parser.feed(source)
 
     expected = {
-        "workspace", "project", "projectHint", "drop", "fileInput", "files",
+        "workspace", "project", "projectHint", "drop", "fileInput", "files", "history",
         "dot", "health", "task", "timer", "run", "timeline", "request",
-        "modified", "tests", "finished", "verified", "steps", "summary",
+        "modified", "tests", "finished", "verified", "steps", "summary", "memory",
     }
     assert expected <= parser.ids
 
@@ -221,6 +275,8 @@ def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
     assert "Coder UI 元素不可用" in source
     assert "async async function" not in source
     assert "async function fetchTimeout" in source
+    assert "loadHistory" in source
+    assert "setInterval(()=>{void loadProjects();void loadHistory();if(state.project)void loadFiles()},5000);" in source
 
 
 def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
