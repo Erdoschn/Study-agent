@@ -337,6 +337,46 @@ def test_browser_model_binds_response_to_current_user_turn():
     assert button.values == page.messages.values[-1].item.copy_button.values
 
 
+def test_browser_model_click_helpers_use_bounded_timeout():
+    model = BrowserModel()
+
+    class Button:
+        def __init__(self):
+            self.timeout = None
+            self.clicked = False
+
+        def is_visible(self):
+            return True
+
+        def click(self, *, timeout):
+            self.timeout = timeout
+            self.clicked = True
+
+        def inner_text(self):
+            return "New chat"
+
+        def get_attribute(self, name):
+            return ""
+
+    button = Button()
+
+    class Page:
+        def get_by_role(self, role, name=None):
+            assert role == "button"
+            return FakeLocator([], visible=False)
+
+        def get_by_text(self, pattern):
+            return FakeLocator([], visible=False)
+
+        def locator(self, selector):
+            assert selector == "button, [role='button']"
+            return FakeLocator([button])
+
+    assert model._click_first_visible(Page(), ("New chat",), role=None) is True
+    assert button.clicked is True
+    assert button.timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
+
+
 def test_browser_model_finds_copy_button_inside_latest_message_item():
     class Button:
         def __init__(self, name):
@@ -427,7 +467,7 @@ def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
                 def is_visible(inner_self):
                     return True
 
-                def click(inner_self):
+                def click(inner_self, timeout=None):
                     page.messages_present = False
 
             page = self
@@ -929,7 +969,7 @@ def test_browser_model_uses_current_deepseek_history_action_xpath():
         def is_visible(self):
             return True
 
-        def click(self):
+        def click(self, timeout=None):
             self.clicked = True
 
     class Row:
