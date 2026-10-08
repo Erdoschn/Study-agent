@@ -34,6 +34,7 @@ class CoderState:
     goal_verified: bool = False
     finished: bool = False
     error: str | None = None
+    summary: str = ""
     modification_generation: int = 0
     test_generation: int = -1
     chat_resets: int = 0
