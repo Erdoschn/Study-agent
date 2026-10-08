@@ -124,7 +124,11 @@ def test_reasoner_separates_untrusted_tool_output_from_policy():
         "content": 'ROOT = r"C:\\Projects\\Study-agent"\nprint(ROOT)\n',
     }
     reasoner.decide(state, [])
-    assert 'ROOT = r"C:\\\\Projects\\Study-agent"' in model.user
+    expected_content = json.dumps(
+        state.last_observation["content"],
+        ensure_ascii=False,
+    )
+    assert expected_content in model.user
     assert "<REDACTED_HOST_PATH>" in model.user
     assert "<REDACTED_HOST_PATH>" in model.user.split('"content":', 1)[0]
 
