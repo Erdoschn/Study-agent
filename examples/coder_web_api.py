@@ -517,7 +517,14 @@ class Handler(BaseHTTPRequestHandler):
 
                 debug.log = debug_hook
                 try:
-                    result = agent.run(task, event_hook=emit)
+                    def agent_event_hook(event: dict) -> None:
+                        # The Web API already emits its own STARTED event carrying
+                        # project/runtime metadata. CoderAgent's lifecycle STARTED
+                        # event has a different schema, so do not forward it.
+                        if event.get("type") != "started":
+                            emit(event)
+
+                    result = agent.run(task, event_hook=agent_event_hook)
                     memory = CoderMemoryStore(self.server.workspace.root)
                     entry = memory.record_run(project=actual_project, state=result)
                     events.put({"type": "result", "state": result, "memory": entry})
