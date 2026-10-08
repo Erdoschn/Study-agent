@@ -33,7 +33,6 @@ class FakeLocator:
         return self.values[index]
 
     def fill(self, value, *, timeout=None):
-        del timeout
         target = self._value()
         if hasattr(target, "fill"):
             target.fill(value, timeout=timeout)
@@ -44,7 +43,6 @@ class FakeLocator:
             self.values[self.index] = value
 
     def press(self, key, *, timeout=None):
-        del timeout
         target = self._value()
         if hasattr(target, "press"):
             target.press(key, timeout=timeout)
@@ -368,10 +366,17 @@ def test_browser_model_binds_response_to_current_user_turn():
 def test_browser_model_click_helpers_use_bounded_timeout():
     model = BrowserModel()
 
-    class Button:
+    class ButtonLocator:
         def __init__(self):
             self.timeout = None
             self.clicked = False
+
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
 
         def is_visible(self):
             return True
@@ -386,7 +391,7 @@ def test_browser_model_click_helpers_use_bounded_timeout():
         def get_attribute(self, name):
             return ""
 
-    button = Button()
+    button = ButtonLocator()
 
     class Page:
         def get_by_role(self, role, name=None):
@@ -398,12 +403,11 @@ def test_browser_model_click_helpers_use_bounded_timeout():
 
         def locator(self, selector):
             assert selector == "button, [role='button']"
-            return FakeLocator([button])
+            return button
 
     assert model._click_first_visible(Page(), ("New chat",), role=None) is True
     assert button.clicked is True
     assert button.timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
-
 
 def test_browser_model_finds_copy_button_inside_latest_message_item():
     class Button:
@@ -514,27 +518,40 @@ def test_browser_model_accepts_existing_blank_chat_as_fresh():
 
 
 def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
+    class NewChatLocator:
+        def __init__(self, page):
+            self.page = page
+
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def click(self, *, timeout):
+            assert timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
+            self.page.messages_present = False
+
+        def inner_text(self):
+            return "new chat"
+
+        def get_attribute(self, name):
+            return ""
+
     class Page:
         def __init__(self):
             self.messages_present = True
             self.input = FakeLocator([""])
-
-            class NewChatButton:
-                def is_visible(inner_self):
-                    return True
-
-                def click(inner_self, timeout=None):
-                    page.messages_present = False
-
-            page = self
-            self.new_chat = NewChatButton()
+            self.new_chat = NewChatLocator(self)
 
         def get_by_role(self, role, name=None):
             if role == "button" and name is not None:
-                return FakeLocator(
-                    ["new chat"],
-                    on_press=lambda key: self.new_chat.click() if key == "click" else None,
-                )
+                return self.new_chat
+            return FakeLocator([])
 
         def get_by_text(self, pattern):
             return FakeLocator([])
@@ -556,7 +573,6 @@ def test_browser_model_start_fresh_chat_waits_for_previous_messages_to_clear():
     model._start_fresh_chat(page)
 
     assert page.messages_present is False
-
 
 def test_browser_model_does_not_accept_stale_clipboard(monkeypatch):
     model = BrowserModel(timeout=1, poll_interval=0.01)
