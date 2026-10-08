@@ -44,6 +44,24 @@ class BrowserModel(ModelClient):
     DEFAULT_STOP_LABELS = (
         "Stop generating", "Stop generation", "停止生成", "中止生成",
     )
+    DEFAULT_CONTINUE_LABELS = (
+        "Continue generating", "Continue", "继续生成", "继续",
+    )
+    DEFAULT_RATE_LIMIT_LABELS = (
+        "消息发送过于频繁",
+        "发送过于频繁",
+        "Too many requests",
+        "Too many messages",
+        "Please wait",
+    )
+    DEFAULT_RESEND_LABELS = (
+        "重新发送",
+        "Resend",
+        "Retry",
+        "重试",
+    )
+    MAX_CONTINUE_GENERATIONS = 3
+    MAX_RATE_LIMIT_RETRIES = 3
     DEFAULT_COOKIE_ACCEPT_LABELS = (
         "Accept", "Accept all", "Agree", "I agree",
         "同意", "接受", "全部接受", "同意全部",
@@ -193,6 +211,19 @@ class BrowserModel(ModelClient):
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
             self._check_cancelled()
+
+            # Continue when DeepSeek explicitly stops a long answer.
+            for continuation in range(self.MAX_CONTINUE_GENERATIONS):
+                if not self._continue_generation_if_available(page):
+                    break
+                debug.log(
+                    "BrowserModel",
+                    f"CONTINUE GENERATION → round={continuation + 1}/"
+                    f"{self.MAX_CONTINUE_GENERATIONS}",
+                )
+                before_snapshot = self._response_snapshot(page)
+                answer = self._wait_for_response(page, before_snapshot)
+                self._check_cancelled()
 
             self._dismiss_cookie_banner(page)
             markdown = self._copy_latest_response_markdown(page)
@@ -1090,6 +1121,37 @@ class BrowserModel(ModelClient):
         self._check_cancelled()
         debug.log("BrowserModel", "SEND SUCCESS → prompt submitted")
 
+    def _rate_limit_visible(self, page) -> bool:
+        try:
+            body = page.locator("body")
+            if body.count() <= 0:
+                return False
+            text = self._compact_text(body.inner_text())
+            return any(label.casefold() in text.casefold() for label in self.DEFAULT_RATE_LIMIT_LABELS)
+        except Exception:
+            return False
+
+    def _retry_rate_limited_prompt(self, page) -> bool:
+        if not self._rate_limit_visible(page):
+            return False
+        self._wait_for_send_slot()
+        if not self._click_first_visible(page, self.DEFAULT_RESEND_LABELS, role="button"):
+            if not self._click_first_visible(page, self.DEFAULT_RESEND_LABELS):
+                debug.log("BrowserModel", "RATE LIMIT → retry button not found")
+                return False
+        debug.log("BrowserModel", "RATE LIMIT → resend requested")
+        return True
+
+    def _continue_generation_if_available(self, page) -> bool:
+        try:
+            return (
+                self._click_first_visible(page, self.DEFAULT_CONTINUE_LABELS, role="button")
+                or self._click_first_visible(page, self.DEFAULT_CONTINUE_LABELS)
+            )
+        except Exception as exc:
+            debug.log("BrowserModel", f"CONTINUE LOOKUP SKIP → {type(exc).__name__}: {exc}")
+            return False
+
     def _response_counts(self, page) -> list[int]:
         return [
             page.locator(selector).count()
@@ -1240,8 +1302,23 @@ class BrowserModel(ModelClient):
         loading_block_logged = False
         json_wait_logged = False
         invalid_json_since: float | None = None
+        rate_limit_retries = 0
 
         while time.monotonic() < deadline:
+            if (
+                rate_limit_retries < self.MAX_RATE_LIMIT_RETRIES
+                and self._rate_limit_visible(page)
+            ):
+                if self._retry_rate_limited_prompt(page):
+                    rate_limit_retries += 1
+                    deadline = time.monotonic() + self.timeout
+                    saw_new_response = False
+                    latest = ""
+                    stable_since = None
+                    previous = ""
+                    invalid_json_since = None
+                    continue
+                rate_limit_retries = self.MAX_RATE_LIMIT_RETRIES
             if self.cancellation_event is not None and self.cancellation_event.is_set():
                 self._stop_current_generation(page)
                 raise RunCancelled("Coder 任务已被用户中止。")
