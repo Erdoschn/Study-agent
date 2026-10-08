@@ -129,3 +129,42 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     assert "document.getElementById" in source
     assert "attempt<100" in source
     assert "setTimeout(()=>initCoderUI(attempt+1),50)" in source
+
+
+def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
+    import re
+
+    from html.parser import HTMLParser
+
+    class IdCollector(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.ids = set()
+
+        def handle_starttag(self, tag, attrs):
+            self.ids.update(value for key, value in attrs if key == "id")
+
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    parser = IdCollector()
+    parser.feed(source)
+
+    expected = {
+        "workspace", "project", "projectHint", "drop", "fileInput", "files",
+        "dot", "health", "task", "timer", "run", "timeline", "request",
+        "modified", "tests", "finished", "verified", "steps", "summary",
+    }
+    assert expected <= parser.ids
+
+    js_refs = set(re.findall(r'\$\("([^"]+)"\)', source))
+    assert js_refs <= parser.ids
+    assert "UI_IDS" in source
+    assert 'const missing=UI_IDS.filter(id=>!document.getElementById(id));' in source
+    assert "Coder UI 元素不可用" in source
+
+
+def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "throw new Error("Coder UI DOM 初始化失败")" not in source
+    assert "void loadProjects();" in source
+    assert "void health();" in source
+    assert "setInterval(()=>void health(),30000);" in source
