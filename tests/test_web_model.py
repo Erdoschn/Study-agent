@@ -1049,3 +1049,71 @@ def test_browser_model_does_not_replace_complete_json_with_partial_clipboard(mon
     )
 
     assert answer == complete
+
+
+def test_browser_model_reuses_chat_when_enabled(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        reuse_chat=True,
+        cleanup_after_generate=False,
+        response_selectors=('[data-message-author-role="assistant"]',),
+        poll_interval=0.01,
+        session_pause_seconds=0,
+        stable_seconds=0.1,
+    )
+    page = FakePage()
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page: events.append("new_chat"),
+    )
+    monkeypatch.setattr(
+        model,
+        "_send_prompt",
+        lambda _page, _prompt: events.append("send"),
+    )
+    monkeypatch.setattr(
+        model,
+        "_wait_for_response",
+        lambda _page, _snapshot: "answer",
+    )
+    monkeypatch.setattr(
+        model,
+        "_copy_latest_response_markdown",
+        lambda _page: "",
+    )
+    monkeypatch.setattr(model, "_minimize_browser_window", lambda _page: None)
+
+    assert model.generate("", "first") == "answer"
+    assert model.generate("", "second") == "answer"
+    assert events == ["new_chat", "send", "send"]
+    assert model._chat_initialized is True
+
+
+def test_browser_model_new_chat_explicitly_resets_reused_conversation(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        reuse_chat=True,
+        cleanup_after_generate=False,
+        session_pause_seconds=0,
+    )
+    page = FakePage()
+    starts = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page: starts.append("new_chat"),
+    )
+    monkeypatch.setattr(model, "_minimize_browser_window", lambda _page: None)
+
+    model._chat_initialized = True
+    model.new_chat()
+
+    assert starts == ["new_chat"]
+    assert model._chat_initialized is True
+    assert model._chat_reset_count == 1
