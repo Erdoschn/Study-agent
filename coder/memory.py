@@ -184,6 +184,15 @@ class CoderMemoryStore:
         if getattr(state, "goal_verified", False) and failures:
             experience.append("最终通过验证：先失败后修正并完成 Goal。")
 
+        last_test = getattr(state, "last_test_result", None)
+        if isinstance(last_test, dict):
+            last_test = dict(last_test)
+            for key in ("stdout", "stderr"):
+                if key in last_test:
+                    last_test[key] = str(last_test[key] or "")[-5000:]
+        else:
+            last_test = None
+
         return {
             "id": "run-" + uuid.uuid4().hex,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -199,6 +208,7 @@ class CoderMemoryStore:
             "created_tests": sorted(getattr(state, "created_tests", set()) or set()),
             "chat_resets": int(getattr(state, "chat_resets", 0)),
             "study_agent_calls": int(getattr(state, "metrics", {}).get("study_agent_calls", 0)),
+            "last_test_result": last_test,
             "strategy": strategy,
             "experience": experience,
             "technologies": technologies,
