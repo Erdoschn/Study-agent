@@ -7,6 +7,49 @@ from types import SimpleNamespace
 from examples.study_agent_api import Handler, MODEL_ID, AgentHTTPServer, chunk, sse_event
 
 
+def test_study_api_prewarms_enabled_browser_model():
+    from examples.study_agent_api import _prewarm_browser_model
+
+    class BrowserModel:
+        user_data_dir = ".study-agent-browser"
+
+        def __init__(self):
+            self.prepared = False
+
+        def prepare_browser(self):
+            self.prepared = True
+
+    class Factory:
+        def __init__(self):
+            self.created = []
+
+        def create(self, model):
+            client = BrowserModel()
+            self.created.append((model, client))
+            return client
+
+    model = SimpleNamespace(name="deepseek-web", provider="deepseek_web")
+    registry = SimpleNamespace(available=lambda allow_paid=False: [model])
+    factory = Factory()
+
+    selected = _prewarm_browser_model(
+        {
+            "providers": {
+                "deepseek_web": {
+                    "type": "browser",
+                    "enabled": True,
+                },
+            },
+        },
+        factory,
+        registry,
+    )
+
+    assert selected == "deepseek-web"
+    assert len(factory.created) == 1
+    assert factory.created[0][1].prepared is True
+
+
 def test_api_model_id_is_stable():
     assert MODEL_ID == "study-agent"
 
