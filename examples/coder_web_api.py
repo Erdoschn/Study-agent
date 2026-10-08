@@ -653,6 +653,7 @@ class Handler(BaseHTTPRequestHandler):
         project: str | None,
         control: CoderRunControl,
     ) -> None:
+        worker_started = False
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -729,7 +730,6 @@ class Handler(BaseHTTPRequestHandler):
                     control.finished = True
                 RUN_LOCK.release()
 
-        worker_started = False
         try:
             # Send the first SSE frame before starting browser/model work. This
             # makes the UI visibly enter RUNNING even if Playwright startup or
