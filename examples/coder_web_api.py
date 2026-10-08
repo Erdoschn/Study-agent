@@ -39,6 +39,7 @@ if str(ROOT) not in sys.path:
 from coder import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
 from coder.reasoner import CoderReasoner
+from coder.memory import CoderMemoryStore
 from core.__debug__ import debug
 from core.web_model import BrowserModel
 
