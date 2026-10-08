@@ -19,7 +19,7 @@ from .knowledge_graph import CoderKnowledgeGraph
 class CoderHarness:
     ALLOWED_ACTIONS = frozenset({
         "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK", "PATCH_FILE",
-        "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT", "READ_DIFF", "VERIFY_GOAL",
+        "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT", "READ_DIFF", "VERIFY_GOAL",
     })
     ARGUMENT_KEYS = {
         "SEARCH": frozenset({"query"}),
@@ -28,6 +28,7 @@ class CoderHarness:
         "WRITE_FILE": frozenset({"path", "content"}),
         "WRITE_NOTEBOOK": frozenset({"path", "content"}),
         "PATCH_FILE": frozenset({"path", "old_text", "new_text"}),
+        "PATCH_NOTEBOOK": frozenset({"path", "cell_index", "old_source", "new_source"}),
         "CREATE_TEST": frozenset({"path", "content"}),
         "ASK_STUDY_AGENT": frozenset({"question"}),
         "RUN_PYTHON": frozenset({"script_path"}),
@@ -86,8 +87,9 @@ class CoderHarness:
             {"name": "LIST_FILES", "description": "List readable files under the workspace.", "parameters": {"type": "object", "properties": {}}},
             {"name": "READ_FILE", "description": "Read one allowed text file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
             {"name": "WRITE_FILE", "description": "Create a new allowed source/text file or replace a whole file when a complete rewrite is genuinely required. For existing files, prefer READ_FILE + PATCH_FILE to preserve unrelated code.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-            {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb).", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb). For existing notebooks, preserve the existing cell structure; prefer PATCH_NOTEBOOK for changing one cell.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "PATCH_FILE", "description": "Replace exactly one matching Python fragment.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+            {"name": "PATCH_NOTEBOOK", "description": "Replace the source of exactly one existing notebook cell while preserving other cells, outputs, metadata, and execution state.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "cell_index": {"type": "integer", "minimum": 0}, "old_source": {"type": "string"}, "new_source": {"type": "string"}}, "required": ["path", "cell_index", "old_source", "new_source"]}},
             {"name": "CREATE_TEST", "description": "Create one pytest file under workspace/tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "ASK_STUDY_AGENT", "description": "Ask the independently running Study Agent for conceptual or learning guidance. Use this when reasoning is blocked by a knowledge question, not for ordinary file operations.", "parameters": {"type": "object", "properties": {"question": {"type": "string", "maxLength": 8000}}, "required": ["question"]}},
             {"name": "RUN_PYTHON", "description": "Run one Python script inside the isolated sandbox.", "parameters": {"type": "object", "properties": {"script_path": {"type": "string"}}, "required": ["script_path"]}},
@@ -112,6 +114,7 @@ class CoderHarness:
             "WRITE_FILE": self._write_file,
             "WRITE_NOTEBOOK": self._write_notebook,
             "PATCH_FILE": self._patch_file,
+            "PATCH_NOTEBOOK": self._patch_notebook,
             "CREATE_TEST": self._create_test,
             "ASK_STUDY_AGENT": self._ask_study_agent,
             "RUN_PYTHON": self._run_python,
@@ -267,6 +270,38 @@ class CoderHarness:
                 "如确需整体重写，也必须保留原文件的完整功能。"
             )
 
+    def _validate_notebook_write_safety(self, path: str, content: str) -> None:
+        """Preserve existing notebook cells during whole-notebook replacement."""
+        baseline = self._baseline.get(path)
+        if baseline is None:
+            return
+        old_value = self.fs.validate_notebook(baseline)
+        new_value = self.fs.validate_notebook(content)
+        old_cells = old_value["cells"]
+        new_cells = new_value["cells"]
+        if len(new_cells) < len(old_cells):
+            raise WorkspaceSecurityError(
+                f"拒绝覆盖已有 Notebook {path}：cell 数量减少 "
+                f"({len(old_cells)} → {len(new_cells)})。"
+                " 如只需修改部分内容，请使用 PATCH_NOTEBOOK。"
+            )
+        old_ids = {
+            str(cell.get("id"))
+            for cell in old_cells
+            if isinstance(cell, dict) and str(cell.get("id", "")).strip()
+        }
+        new_ids = {
+            str(cell.get("id"))
+            for cell in new_cells
+            if isinstance(cell, dict) and str(cell.get("id", "")).strip()
+        }
+        if old_ids and not old_ids <= new_ids:
+            missing = sorted(old_ids - new_ids)
+            raise WorkspaceSecurityError(
+                f"拒绝覆盖已有 Notebook {path}：已有 cell id 被删除：{missing[:12]}。"
+                " 如只需修改部分内容，请使用 PATCH_NOTEBOOK。"
+            )
+
     def _record_write(self, path: str, state: CoderState, *, created_test: bool = False) -> None:
         self._write_count += 1
         if self._write_count > self.MAX_WRITES:
@@ -281,10 +316,11 @@ class CoderHarness:
         path = str(args.get("path", "")).strip()
         content = str(args.get("content", ""))
         self._remember_baseline(path)
-        self._validate_write_safety(path, content)
         if path.casefold().endswith(".ipynb"):
+            self._validate_notebook_write_safety(path, content)
             self.fs.write_notebook(path, content)
         else:
+            self._validate_write_safety(path, content)
             self.fs.write_text(path, content)
         self._record_write(path, state)
         return {"status": "written", "path": path}
@@ -293,6 +329,7 @@ class CoderHarness:
         path = str(args.get("path", "")).strip()
         content = str(args.get("content", ""))
         self._remember_baseline(path)
+        self._validate_notebook_write_safety(path, content)
         self.fs.write_notebook(path, content)
         self._record_write(path, state)
         return {"status": "notebook_written", "path": path}
@@ -307,6 +344,22 @@ class CoderHarness:
         self.fs.patch_text(path, str(args.get("old_text", "")), str(args.get("new_text", "")))
         self._record_write(path, state)
         return {"status": "patched", "path": path}
+
+    def _patch_notebook(self, args, state):
+        path = str(args.get("path", "")).strip()
+        self._remember_baseline(path)
+        self.fs.patch_notebook(
+            path,
+            args.get("cell_index"),
+            str(args.get("old_source", "")),
+            str(args.get("new_source", "")),
+        )
+        self._record_write(path, state)
+        return {
+            "status": "notebook_cell_patched",
+            "path": path,
+            "cell_index": int(args.get("cell_index")),
+        }
 
     def _create_test(self, args, state):
         path = str(args.get("path", "")).strip()
