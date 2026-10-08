@@ -37,7 +37,7 @@ def main() -> int:
     sys.path.insert(0, str(work))
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["PYTHONUNBUFFERED"] = "1"
-    os.environ["HOME"] = "/tmp/home"
+    os.environ["HOME"] = "/tmp"
 
     for raw_path in args.paths:
         path = raw_path.replace("\\", "/")
