@@ -121,7 +121,7 @@ class CoderReasoner:
         action = str(data.get("action", "")).upper()
         allowed = {
             "PLAN", "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE",
-            "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
+            "WRITE_NOTEBOOK", "PATCH_FILE", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
             "NEW_CHAT",
             "READ_DIFF", "VERIFY_GOAL", "FINISH",
         }
