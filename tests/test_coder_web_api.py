@@ -712,6 +712,8 @@ def test_coder_web_frontend_uses_terminal_state_as_authoritative_completion():
     assert "if(doneReceived&&finalState)updateSummary(finalState);" in source
     assert "await loadHistory();" in source
     assert "if(finalState)updateSummary(finalState);" in source
+    assert 'st.goal_verified??st.verified' in source
+    assert 'if(finalState)updateSummary(finalState);' in source
 
 
 def test_coder_web_frontend_renders_completion_state_human_readably_and_accepts_history_shape():
@@ -730,6 +732,16 @@ def test_coder_web_frontend_history_selection_restores_full_sidebar_state():
     assert "last_test_result:item.last_test_result||null" in source
     assert "state.finalState=historyState;" in source
     assert "updateSummary(historyState);" in source
+
+
+
+
+def test_coder_web_api_terminal_error_and_cancel_paths_emit_result_state():
+    source = Path(__import__("examples.coder_web_api").coder_web_api.__file__).read_text(encoding="utf-8")
+    assert '"state": result_state' in source
+    assert '"type": "result"' in source
+    assert '"state": _state_payload(result_state)' in source
+    assert 'events.put({"type": "done"})' in source
 
 
 def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
