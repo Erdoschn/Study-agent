@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import Any
 
 from core.web_model import BrowserModel
@@ -72,20 +73,27 @@ RUN_PYTHON, RUN_PYTEST, READ_DIFF, VERIFY_GOAL, FINISH
     @staticmethod
     def _untrusted(value: Any) -> str:
         if value is None:
-            return "<UNTRUSTED_TOOL_OUTPUT>\n<empty>\n</UNTRUSTED_TOOL_OUTPUT>"
-        try:
-            text = json.dumps(value, ensure_ascii=False, default=str)
-        except Exception:
-            text = str(value)
+            text = "<empty>"
+        else:
+            try:
+                text = json.dumps(value, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(value)
+        scrubbed = "".join(
+            ch for ch in text
+            if ch in "\n\t" or unicodedata.category(ch) not in {"Cc", "Cf"}
+        )
         return (
             "<UNTRUSTED_TOOL_OUTPUT>\n"
-            + text[:12000]
+            + scrubbed[:12000]
             + "\n</UNTRUSTED_TOOL_OUTPUT>"
         )
 
     @staticmethod
     def _parse(raw: str) -> dict[str, Any]:
         text = str(raw or "").strip()
+        if len(text.encode("utf-8")) > 65_536:
+            raise RuntimeError("CoderReasoner 输出超过安全长度上限。")
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
