@@ -48,8 +48,12 @@ class CoderAgent:
             preflight = getattr(self.harness.sandbox, "preflight", None)
             if callable(preflight):
                 preflight()
+            initial = getattr(self.harness.backup, "ensure_initial_snapshot", None)
+            if callable(initial):
+                snapshot = initial(0)
+                state.initial_backup_generation = snapshot.generation
         except Exception as exc:
-            state.error = f"Coder 沙箱预检失败：{type(exc).__name__}: {exc}"
+            state.error = f"Coder 启动安全检查失败：{type(exc).__name__}: {exc}"
             debug.log("CoderAgent", state.error)
             return state
 
