@@ -42,6 +42,7 @@ from coder.reasoner import CoderReasoner
 from coder.memory import CoderMemoryStore
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
+from core.cancellation import raise_if_cancelled
 from core.web_model import BrowserModel
 
 
@@ -711,6 +712,7 @@ class Handler(BaseHTTPRequestHandler):
                     control.finished = True
                 RUN_LOCK.release()
 
+        worker_started = False
         try:
             # Send the first SSE frame before starting browser/model work. This
             # makes the UI visibly enter RUNNING even if Playwright startup or
@@ -726,6 +728,7 @@ class Handler(BaseHTTPRequestHandler):
             }))
             self.wfile.flush()
             threading.Thread(target=worker, daemon=True).start()
+            worker_started = True
             while True:
                 try:
                     event = events.get(timeout=1.0)
@@ -793,10 +796,15 @@ class Handler(BaseHTTPRequestHandler):
             control.cancel()
             print("[CoderWebAPI] SSE client disconnected; cancelling backend task.", flush=True)
         finally:
-            # A disconnected browser must cancel the backend task; the worker
-            # remains the sole owner responsible for releasing RUN_LOCK.
+            # A disconnected browser must cancel the backend task. The worker
+            # remains the owner of RUN_LOCK once it has started.
             if not control.finished:
                 control.cancel()
+            if not worker_started and not control.finished:
+                with RUNS_LOCK:
+                    ACTIVE_RUNS.pop(control.run_id, None)
+                control.finished = True
+                RUN_LOCK.release()
 
 
 def build_agent(
