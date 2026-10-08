@@ -119,10 +119,17 @@ function $(selector){
 function selectedProject(){return String(state.project||"").trim()}
 function readSelectedProject(){return String($("project").value||"").trim()}
 function setProject(name){
-  state.project=name||"";
+  state.project=String(name||"").trim();
   projectsLoadSeq++;
   filesLoadSeq++;
-  $("project").value=state.project;
+  const select=$("project");
+  if(state.project&&!Array.from(select.options).some(option=>option.value===state.project)){
+    const option=document.createElement("option");
+    option.value=state.project;
+    option.textContent=state.project+" (当前选择)";
+    select.append(option);
+  }
+  select.value=state.project;
   if(state.project) $("projectHint").textContent="当前项目："+state.project+"；文件和 Agent 操作都限制在该目录。";
   else $("projectHint").textContent="没有项目也可以直接输入要求，Coder 会自动创建独立目录。";
 }
