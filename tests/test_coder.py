@@ -122,6 +122,34 @@ def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
     assert second["verified"] is True
 
 
+def test_agent_emits_progress_events(tmp_path):
+    class FakeHarness(CoderHarness):
+        def _verify_goal(self, args, state):
+            state.goal_verified = True
+            return {"verified": True, "checks": []}
+
+    class FakeReasoner:
+        def __init__(self):
+            self.model = SimpleNamespace(close=lambda: None)
+
+        def decide(self, state, tools):
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+
+    harness = FakeHarness(str(tmp_path), sandbox=SimpleNamespace())
+    events = []
+    agent = CoderAgent(
+        tmp_path,
+        reasoner=FakeReasoner(),
+        harness=harness,
+        max_runtime_seconds=30,
+    )
+    result = agent.run("finish", event_hook=events.append)
+
+    assert result.finished is True
+    assert [event["type"] for event in events] == ["started", "step", "finished"]
+    assert events[1]["step"].action == "FINISH"
+
+
 def test_agent_captures_initial_backup_before_reasoning(tmp_path):
     (tmp_path / "main.py").write_bytes(b"VERSION = 0\n")
 
