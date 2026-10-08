@@ -1289,6 +1289,38 @@ def test_browser_model_detects_invalid_json_for_recovery():
     ) is True
 
 
+def test_browser_model_returns_stable_non_json_without_waiting_for_full_timeout(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        poll_interval=0.01,
+        stable_seconds=0.05,
+        invalid_json_grace_seconds=0.05,
+    )
+    model._json_mode_active = True
+
+    monkeypatch.setattr(
+        model,
+        "_latest_response",
+        lambda _page, _snapshot: "Works",
+    )
+    monkeypatch.setattr(
+        model,
+        "_loading_visible",
+        lambda _page: False,
+    )
+    monkeypatch.setattr(
+        model,
+        "_find_copy_button",
+        lambda _page: None,
+    )
+
+    started = time.monotonic()
+    answer = model._wait_for_response(object(), [(0, "")])
+
+    assert answer == "Works"
+    assert time.monotonic() - started < 0.5
+
+
 def test_browser_model_recovers_invalid_json_in_same_chat(monkeypatch):
     model = BrowserModel(
         timeout=1,
