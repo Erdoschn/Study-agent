@@ -1,0 +1,122 @@
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from coder.agent import CoderAgent
+from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
+from coder.harness import CoderHarness
+from coder.sandbox import DockerPythonSandbox, SandboxResult
+
+
+def test_workspace_rejects_escape_and_absolute_paths(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    with pytest.raises(WorkspaceSecurityError):
+        fs.read_text("../secret.py")
+    with pytest.raises(WorkspaceSecurityError):
+        fs.read_text(r"C:\Users\secret.py")
+
+
+def test_workspace_rejects_sensitive_files(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    (tmp_path / ".env").write_text("SECRET=x", encoding="utf-8")
+    with pytest.raises(WorkspaceSecurityError):
+        fs.read_text(".env")
+
+
+def test_workspace_allows_only_python_writes(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    with pytest.raises(WorkspaceSecurityError):
+        fs.write_text("notes.txt", "no")
+    fs.write_text("src/a.py", "print(1)")
+    assert fs.read_text("src/a.py") == "print(1)"
+
+
+def test_workspace_patch_requires_exactly_one_match(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    fs.write_text("a.py", "x=1\nx=1\n")
+    with pytest.raises(WorkspaceSecurityError):
+        fs.patch_text("a.py", "x=1", "x=2")
+
+
+def test_workspace_test_creation_is_scoped_to_tests(tmp_path):
+    fs = WorkspaceFS(tmp_path)
+    fs.write_text("tests/test_a.py", "def test_a(): assert True", test=True)
+    with pytest.raises(WorkspaceSecurityError):
+        fs.write_text("src/test_a.py", "def test_a(): assert True", test=True)
+
+
+def test_harness_rejects_unapproved_actions(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    with pytest.raises(PermissionError):
+        harness.execute("EXEC", {}, SimpleNamespace())
+
+
+def test_harness_never_uses_shell_for_sandbox(tmp_path, monkeypatch):
+    calls = []
+
+    class FakeProc:
+        def __init__(self, *args, **kwargs):
+            calls.append((args, kwargs))
+        def poll(self): return 0
+        def wait(self): return 0
+
+    monkeypatch.setattr("coder.sandbox.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("coder.sandbox.subprocess.run", lambda *a, **k: None)
+    sandbox = DockerPythonSandbox(tmp_path, timeout_seconds=1)
+    result = sandbox.run("python", ["a.py"])
+    assert result.returncode == 0
+    assert calls
+    command = calls[0][0][0]
+    kwargs = calls[0][1]
+    assert kwargs["shell"] is False
+    assert "--network" in command and command[command.index("--network") + 1] == "none"
+    assert "--read-only" in command
+    assert "--cap-drop" in command
+    assert "--pull=never" in command
+
+
+def test_goal_verifier_requires_test_after_latest_modification(tmp_path):
+    class FakeSandbox:
+        def run(self, kind, paths):
+            return SandboxResult(0, "1 passed", "")
+
+    harness = CoderHarness(str(tmp_path), sandbox=FakeSandbox())
+    state = __import__("coder.state", fromlist=["CoderState"]).CoderState("fix")
+    harness.execute("WRITE_FILE", {"path": "a.py", "content": "print(1)"}, state)
+    first = harness.execute("VERIFY_GOAL", {}, state)
+    assert first["verified"] is False
+    harness.execute("CREATE_TEST", {"path": "tests/test_a.py", "content": "def test_a(): assert True"}, state)
+    harness.execute("RUN_PYTEST", {"paths": []}, state)
+    second = harness.execute("VERIFY_GOAL", {}, state)
+    assert second["verified"] is True
+
+
+def test_agent_does_not_finish_before_goal_is_verified(tmp_path):
+    class FakeReasoner:
+        def __init__(self):
+            self.calls = 0
+            self.model = SimpleNamespace(close=lambda: None)
+        def decide(self, state, tools):
+            self.calls += 1
+            if self.calls == 1:
+                return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+
+    class FakeHarness(CoderHarness):
+        def _verify_goal(self, args, state):
+            state.goal_verified = self._verified
+            return {"verified": self._verified, "checks": []}
+        _verified = False
+
+    harness = FakeHarness(str(tmp_path), sandbox=SimpleNamespace())
+    agent = CoderAgent(
+        tmp_path,
+        reasoner=FakeReasoner(),
+        harness=harness,
+        max_runtime_seconds=30,
+    )
+    result = agent.run("fix")
+    assert result.goal_verified is False
+    assert result.error is None
+    assert result.step_count >= 2
