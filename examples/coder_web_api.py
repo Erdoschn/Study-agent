@@ -654,13 +654,21 @@ class Handler(BaseHTTPRequestHandler):
         control: CoderRunControl,
     ) -> None:
         worker_started = False
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("Connection", "close")
-        self.send_header("X-Accel-Buffering", "no")
-        _cors_headers(self)
-        self.end_headers()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")
+            _cors_headers(self)
+            self.end_headers()
+        except Exception:
+            control.cancel()
+            with RUNS_LOCK:
+                ACTIVE_RUNS.pop(control.run_id, None)
+                control.finished = True
+            RUN_LOCK.release()
+            raise
 
         events: queue.Queue = queue.Queue()
         done = object()
