@@ -5,8 +5,14 @@ def test_coder_agent_initializes_debug_mode_before_reasoner(monkeypatch):
     seen = []
 
     class FakeReasoner:
-        def __init__(self, *, debug_mode=False):
-            seen.append(debug_mode)
+        def __init__(
+            self,
+            *,
+            debug_mode=False,
+            reuse_chat=True,
+            min_send_interval_seconds=5.0,
+        ):
+            seen.append((debug_mode, reuse_chat, min_send_interval_seconds))
 
     monkeypatch.setattr(agent_module, "CoderReasoner", FakeReasoner)
 
@@ -17,7 +23,7 @@ def test_coder_agent_initializes_debug_mode_before_reasoner(monkeypatch):
         debug_mode=True,
     )
 
-    assert seen == [True]
+    assert seen == [(True, True, 5.0)]
 
 
 def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
@@ -35,7 +41,7 @@ def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
         harness=object(),
     )
 
-    assert seen == [False]
+    assert seen == [(False, True, 5.0)]
 
 
 def test_coder_agent_handles_model_selected_new_chat():
