@@ -42,6 +42,7 @@ def main() -> int:
     os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["PYTHONUNBUFFERED"] = "1"
     os.environ["HOME"] = "/tmp"
+    os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
     for raw_path in args.paths:
         path = raw_path.replace("\\", "/")
