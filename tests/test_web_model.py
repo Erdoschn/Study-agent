@@ -1238,6 +1238,31 @@ def test_browser_model_accepts_coder_agent_actions_in_json_mode():
     assert BrowserModel._needs_json_recovery(response) is False
 
 
+def test_browser_model_json_wait_accepts_stable_json_despite_lingering_loading():
+    class Page:
+        def locator(self, selector):
+            if selector == ".ds-markdown":
+                return FakeLocator([
+                    '{"action":"LIST_FILES","arguments":{},"reasoning_summary":"inspect workspace"}'
+                ])
+            if selector == ".ds-message-loading":
+                return FakeLocator(["thinking"])
+            return FakeLocator([])
+
+    model = BrowserModel(
+        response_selectors=(".ds-markdown",),
+        loading_selectors=(".ds-message-loading",),
+        timeout=1,
+        poll_interval=0.05,
+        stable_seconds=0.1,
+    )
+    model._json_mode_active = True
+
+    answer = model._wait_for_response(object(), [(0, "")])
+
+    assert answer.startswith('{"action":"LIST_FILES"')
+
+
 def test_browser_model_json_wait_does_not_accept_incomplete_stream():
     class Page:
         def __init__(self):
