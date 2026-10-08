@@ -174,6 +174,39 @@ def test_browser_model_wraps_send_enter_timeout_as_runtime_error(monkeypatch):
         model._send_prompt(object(), "hello")
 
 
+def test_browser_model_sleep_can_be_cancelled():
+    from threading import Event
+    from core.cancellation import RunCancelled
+
+    event = Event()
+    event.set()
+    model = BrowserModel(cancellation_event=event)
+
+    with pytest.raises(RunCancelled):
+        model._sleep(1)
+
+
+def test_browser_model_wait_response_stops_when_cancelled(monkeypatch):
+    from threading import Event
+    from core.cancellation import RunCancelled
+
+    event = Event()
+    model = BrowserModel(
+        timeout=30,
+        poll_interval=0.01,
+        cancellation_event=event,
+    )
+
+    def latest(_page, _snapshot):
+        event.set()
+        return ""
+
+    monkeypatch.setattr(model, "_latest_response", latest)
+
+    with pytest.raises(RunCancelled):
+        model._wait_for_response(object(), [])
+
+
 def test_browser_model_send_interval_is_configurable():
     model = BrowserModel(min_send_interval_seconds=7.5)
     assert model.min_send_interval_seconds == 7.5
