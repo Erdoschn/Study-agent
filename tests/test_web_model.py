@@ -681,6 +681,8 @@ def test_browser_model_close_releases_browser_resources():
     model._context = context
     model._page = object()
     model._playwright = playwright
+    model._chat_initialized = True
+    model._last_send_monotonic = 123.0
 
     model.close()
 
@@ -689,6 +691,8 @@ def test_browser_model_close_releases_browser_resources():
     assert model._context is None
     assert model._page is None
     assert model._playwright is None
+    assert model._chat_initialized is False
+    assert model._last_send_monotonic is None
 
 
 def test_browser_model_raises_if_login_was_not_completed(monkeypatch):
