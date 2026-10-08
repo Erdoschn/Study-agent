@@ -1505,6 +1505,13 @@ def test_browser_model_accepts_coder_agent_actions_in_json_mode():
     assert BrowserModel._needs_json_recovery(response) is False
 
 
+def test_browser_model_accepts_patch_notebook_in_json_mode():
+    response = '{"action":"PATCH_NOTEBOOK","arguments":{"path":"demo.ipynb","cell_index":1,"old_source":"x","new_source":"y"}}'
+
+    assert BrowserModel._extract_json_object(response) == response
+    assert BrowserModel._needs_json_recovery(response) is False
+
+
 def test_browser_model_json_wait_accepts_completed_json_with_lingering_loading(monkeypatch):
     model = BrowserModel(
         timeout=1,
