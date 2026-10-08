@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .knowledge_graph import CoderKnowledgeGraph
+
 
 class CoderMemoryStore:
     """Persistent, host-side memory for Coder runs.
@@ -24,6 +26,7 @@ class CoderMemoryStore:
         self.root = Path(workspace_root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / ".coder-memory.json"
+        self.knowledge_graph = CoderKnowledgeGraph(self.root)
         self._lock = threading.Lock()
 
     def load(self) -> dict[str, Any]:
@@ -38,6 +41,7 @@ class CoderMemoryStore:
             data["runs"] = data["runs"][-self.MAX_RUNS:]
             self._merge_knowledge(data, entry)
             self._write_unlocked(data)
+        self.knowledge_graph.record_run(entry)
         return entry
 
     def recent_runs(self, limit: int = 30) -> list[dict[str, Any]]:
@@ -105,7 +109,10 @@ class CoderMemoryStore:
                     extensions.add(Path(value).suffix.casefold())
 
         technologies = []
-        if ".py" in extensions or actions:
+        if ".py" in extensions or any(
+            action in {"RUN_PYTHON", "RUN_PYTEST", "WRITE_FILE", "WRITE_NOTEBOOK", "PATCH_FILE", "CREATE_TEST"}
+            for action in actions
+        ):
             technologies.append("Python")
         if ".ipynb" in extensions:
             technologies.append("Jupyter Notebook")
@@ -141,6 +148,7 @@ class CoderMemoryStore:
             "modified_files": sorted(getattr(state, "modified_files", set()) or set()),
             "created_tests": sorted(getattr(state, "created_tests", set()) or set()),
             "chat_resets": int(getattr(state, "chat_resets", 0)),
+            "study_agent_calls": int(getattr(state, "metrics", {}).get("study_agent_calls", 0)),
             "strategy": strategy,
             "experience": experience,
             "technologies": technologies,
