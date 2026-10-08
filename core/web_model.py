@@ -1065,6 +1065,7 @@ class BrowserModel(ModelClient):
             )
 
         self._wait_for_send_slot()
+        self._check_cancelled()
         debug.log("BrowserModel", f"SEND FILL → chars={len(prompt)}")
         try:
             textbox.fill(prompt, timeout=self.SEND_ACTION_TIMEOUT_MS)
@@ -1075,6 +1076,7 @@ class BrowserModel(ModelClient):
             )
             raise RuntimeError("DeepSeek Web 输入框填充超时或不可操作。") from exc
 
+        self._check_cancelled()
         debug.log("BrowserModel", "SEND ENTER → submitting prompt")
         try:
             textbox.press("Enter", timeout=self.SEND_ACTION_TIMEOUT_MS)
@@ -1084,6 +1086,7 @@ class BrowserModel(ModelClient):
                 f"SEND ENTER SKIP → {type(exc).__name__}: {exc}",
             )
             raise RuntimeError("DeepSeek Web 输入框发送超时或不可操作。") from exc
+        self._check_cancelled()
         debug.log("BrowserModel", "SEND SUCCESS → prompt submitted")
 
     def _response_counts(self, page) -> list[int]:
