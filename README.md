@@ -1426,3 +1426,8 @@ Pedagogical structure
 **下一阶段的重点不应该只是继续增加模块，而应该从工程完整性转向实验验证：**
 
 > **证明这些机制是否真的让学习 Agent 更有效、更高效、更个性化。**
+
+### Last-known-good backup
+
+Coder maintains one host-side backup of the latest generation whose pytest run actually passed. The backup is stored outside the model workspace (for the default workspace, `D:\\Coder_workspace.coder-backup\\latest.zip`) and is overwritten only after a passing pytest run. A failing generation never replaces the previous known-good backup. The backup directory is not exposed as a Coder action, is not included in sandbox mounts, and its host path is not sent to the reasoner.
+
