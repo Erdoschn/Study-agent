@@ -41,6 +41,9 @@ class BrowserModel(ModelClient):
     # selector, then retain the accessible-label fallbacks for UI changes.
     DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
+    DEFAULT_STOP_LABELS = (
+        "Stop generating", "Stop generation", "Stop", "停止生成", "停止", "中止生成",
+    )
     DEFAULT_COOKIE_ACCEPT_LABELS = (
         "Accept", "Accept all", "Agree", "I agree",
         "同意", "接受", "全部接受", "同意全部",
@@ -1222,6 +1225,9 @@ class BrowserModel(ModelClient):
         invalid_json_since: float | None = None
 
         while time.monotonic() < deadline:
+            if self.cancellation_event is not None and self.cancellation_event.is_set():
+                self._stop_current_generation(page)
+                raise RunCancelled("Coder 任务已被用户中止。")
             self._check_cancelled()
             candidate = self._latest_response(page, before_snapshot)
             if candidate:
@@ -1326,6 +1332,31 @@ class BrowserModel(ModelClient):
         raise TimeoutError(
             f"等待 DeepSeek Web 回答超时：{self.timeout}s"
         )
+
+    def _stop_current_generation(self, page) -> bool:
+        """Click the visible DeepSeek Stop control before abandoning the current turn."""
+        try:
+            stopped = self._click_first_visible(
+                page,
+                self.DEFAULT_STOP_LABELS,
+                role="button",
+            )
+            if not stopped:
+                stopped = self._click_first_visible(
+                    page,
+                    self.DEFAULT_STOP_LABELS,
+                )
+            if stopped:
+                debug.log("BrowserModel", "CANCEL → DeepSeek generation stop requested")
+            else:
+                debug.log("BrowserModel", "CANCEL → DeepSeek Stop control not found")
+            return stopped
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"CANCEL STOP SKIP → {type(exc).__name__}: {exc}",
+            )
+            return False
 
     @staticmethod
     def _find_visible(page, selectors: tuple[str, ...]):
