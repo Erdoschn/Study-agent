@@ -454,7 +454,7 @@ async function requestCancel(){
   if(state.cancelling)return;
   state.cancelling=true;
   $("run").textContent="正在中止…";
-  const runId=state.lastRunId;
+  const runId=state.activeRunId;
   if(!runId){
     state.cancelling=false;
     $("timer").textContent="等待中止信号";
@@ -495,7 +495,7 @@ async function run(){
   state.cancelling=false;
   state.cancelRequested=false;
   state.runProject=project;
-  state.lastRunId="";
+  state.activeRunId="";
   state.startedAt=Date.now();
   if(!state.runProject && state.project){
     state.runProject=state.project;
@@ -515,7 +515,11 @@ async function run(){
     const r=await fetch("/v1/coder/run",{
       method:"POST",
       headers:headers(),
-      body:JSON.stringify({request,project:project||null}),
+      body:JSON.stringify({
+        request,
+        project:project||null,
+        project_mode:project?"existing":"new",
+      }),
     });
     if(!r.ok)throw Error((await r.text()).slice(0,800));
     if(!r.body)throw Error("浏览器不支持 SSE");
