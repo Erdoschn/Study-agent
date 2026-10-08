@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 import time
 from threading import Event
@@ -104,7 +105,22 @@ class CoderAgent:
                 if self.cancellation_event is None:
                     preflight()
                 else:
-                    preflight(cancellation_event=self.cancellation_event)
+                    try:
+                        parameters = inspect.signature(preflight).parameters
+                    except (TypeError, ValueError):
+                        parameters = {}
+                    accepts_cancel = (
+                        "cancellation_event" in parameters
+                        or any(
+                            parameter.kind is inspect.Parameter.VAR_KEYWORD
+                            for parameter in parameters.values()
+                        )
+                    )
+                    if accepts_cancel:
+                        preflight(cancellation_event=self.cancellation_event)
+                    else:
+                        preflight()
+                    raise_if_cancelled(self.cancellation_event)
             initial = getattr(self.harness.backup, "ensure_initial_snapshot", None)
             if callable(initial):
                 snapshot = initial(0)
