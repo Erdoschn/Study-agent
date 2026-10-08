@@ -295,6 +295,30 @@ def test_reasoner_parser_never_accepts_unknown_action():
 
 
 
+def test_sandbox_staging_excludes_workspace_backup(tmp_path, monkeypatch):
+    backup = tmp_path / ".coder-backup"
+    backup.mkdir()
+    (backup / "latest.zip").write_bytes(b"secret-backup")
+    (tmp_path / "main.py").write_text("print(1)", encoding="utf-8")
+    observed = {}
+
+    def fake_run(command, name):
+        mount_arg = command[command.index("--mount") + 1]
+        stage = Path(mount_arg.split("src=", 1)[1].split(",dst=", 1)[0])
+        observed["paths"] = {
+            p.relative_to(stage).as_posix()
+            for p in stage.rglob("*")
+            if p.is_file()
+        }
+        return SandboxResult(0, "", "")
+
+    sandbox = DockerPythonSandbox(tmp_path)
+    monkeypatch.setattr(sandbox, "_run_limited", fake_run)
+    sandbox.run("python", ["main.py"])
+
+    assert observed["paths"] == {"main.py"}
+
+
 def test_sandbox_staging_filters_sensitive_names_case_insensitively(tmp_path, monkeypatch):
     for name in (".env", ".ENV", "id_rsa", "ID_RSA", "secret.pem", "SECRET.PEM"):
         (tmp_path / name).write_text("PRIVATE", encoding="utf-8")
