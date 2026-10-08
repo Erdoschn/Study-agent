@@ -409,11 +409,14 @@ class BrowserModel(ModelClient):
         ) is not None:
             return
 
-        print(
-            "\n[BrowserModel] DeepSeek Web 尚未检测到聊天输入框。"
-            "\n[BrowserModel] 请在打开的 Edge 中完成登录。"
-            "\n[BrowserModel] 登录完成后回到终端按 Enter 继续。"
-        )
+        if self.debug_mode:
+            print(
+                "\n[BrowserModel] 未检测到聊天输入框。"
+                "\n[BrowserModel] 请在 Edge 中完成 DeepSeek 登录。"
+                "\n[BrowserModel] 完成后回终端按 Enter 继续。"
+            )
+        else:
+            print("\n[BrowserModel] 请在 Edge 中登录 DeepSeek，完成后回终端按 Enter 继续。")
         input()
 
         if self._find_visible(
