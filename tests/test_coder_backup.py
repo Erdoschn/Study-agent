@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -150,6 +151,12 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
                 archive=archive,
                 file_count=1,
             )
+
+        def has_initial_snapshot(self):
+            return True
+
+        def has_latest_snapshot(self):
+            return (self.root / "latest.zip").is_file()
 
     class FakeSandbox:
         def run(self, kind, paths):
