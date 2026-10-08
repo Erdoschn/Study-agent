@@ -580,6 +580,63 @@ Study-agent/
 ```
 
 
+## Python Coder Agent
+
+仓库现在额外提供一个独立的 Python Coding Agent。它复用现有 BrowserModel 调用 DeepSeek Web，但拥有独立的 Coding Harness，不会把代码执行权限加入 StudyAgent 的普通工具系统。
+
+固定工作空间：
+
+`D:\Coder_workspace`
+
+第一版能力：
+
+```text
+Search
+  ↓
+Read Python
+  ↓
+Plan
+  ↓
+Patch / Write
+  ↓
+Create pytest
+  ↓
+Run pytest in Docker sandbox
+  ↓
+Observe failure
+  ↓
+Repair
+  ↓
+Run pytest again
+  ↓
+Verify Goal
+  ↓
+Finish
+```
+
+安全边界：
+
+- Coder 文件 API 只接受 workspace 相对路径，拒绝绝对路径、`..`、reparse point、敏感凭据文件以及 workspace 外的路径。
+- 模型不能提交 shell command；RUN_PYTHON / RUN_PYTEST 只接受经过 Harness 校验的相对文件路径。
+- Python 执行要求本地镜像 `study-agent-coder-python:1` 已存在，运行时使用 `--pull=never`、`--network none`、只读镜像根文件系统、丢弃 Linux capabilities、禁止提权、CPU/RAM/PID/输出上限。
+- 容器拿到的是经过过滤的 workspace 副本，而不是原始 workspace 的可写挂载；敏感文件不会进入执行环境。
+- Coder 默认必须实际修改代码、创建 pytest，并在最后一次修改之后通过 pytest，才能进入 FINISH。
+- 没有可信 Docker 沙箱时，Coder 不执行 Python/pytest，而是 fail-closed。
+
+构建安全执行镜像（首次使用）：
+
+```powershell
+docker build -t study-agent-coder-python:1 coder
+```
+
+运行：
+
+```powershell
+python examples/coder_agent.py "修复 xxx，并添加 pytest 回归测试"
+```
+
+Coder 当前是独立 Agent；后续可以让 StudyAgent 在识别到 coding 任务后把任务转交给 Coder，而不改变现有学习 Agent 的工具权限。
+
 ## Adaptive Model + Reasoning Effort Routing
 
 当前模型路由分成两个相互独立的问题：
