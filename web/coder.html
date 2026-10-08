@@ -627,8 +627,11 @@ async function run(){
           void loadHistory();
         }else if(e.type==="error"){
           state.failed=true;
+          finalState=e.state||finalState;
+          state.finalState=finalState;
           appendStep("ERROR",false,e.error||"Coder 后端执行失败。");
-          $("summary").textContent="Coder 执行失败："+(e.error||"未知错误");
+          if(finalState)updateSummary(finalState);
+          else $("summary").textContent="Coder 执行失败："+(e.error||"未知错误");
         }
       }
 
