@@ -428,7 +428,8 @@ def test_coder_web_frontend_allows_task_without_upload_and_has_project_selector(
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "新建项目（直接描述要求）" in source
     assert "可以直接创建新项目" in source
-    assert 'body:JSON.stringify({request,project:project||null})' in source
+    assert 'project:project||null' in source
+    assert 'project_mode:project?"existing":"new"' in source
     assert "/projects" in source
     assert 'window.addEventListener("error"' in source
     assert 'window.addEventListener("unhandledrejection"' in source
