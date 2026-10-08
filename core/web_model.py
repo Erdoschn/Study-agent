@@ -183,6 +183,7 @@ class BrowserModel(ModelClient):
         launch_kwargs: dict[str, Any] = {
             "user_data_dir": self.user_data_dir,
             "headless": False,
+            "args": ["--start-minimized"],
         }
         if self.browser_channel:
             launch_kwargs["channel"] = self.browser_channel
