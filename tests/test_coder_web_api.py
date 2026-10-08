@@ -180,6 +180,7 @@ def test_coder_memory_store_persists_history_and_knowledge(tmp_path):
     assert entry["project"] == "calculator"
     assert data["runs"][-1]["request"] == "build a calculator"
     assert data["runs"][-1]["strategy"] == "READ_FILE → PATCH_FILE → CREATE_TEST → RUN_PYTEST"
+    assert data["runs"][-1]["study_agent_calls"] == 0
     assert any(item["name"] == "Python" for item in data["technologies"])
     assert any(item["name"] == "pytest" for item in data["technologies"])
     assert data["experiences"][0]["text"].startswith("PATCH_FILE: pytest failed")
@@ -242,6 +243,8 @@ def test_coder_web_api_exposes_history_memory():
     api_source = Path(api.__file__).read_text(encoding="utf-8")
     assert 'if path == "/v1/coder/history":' in api_source
     assert "CoderMemoryStore" in api_source
+    assert "knowledge_graph" in api_source
+    assert ".coder-knowledge.sqlite3" in Path(__import__("coder.knowledge_graph").knowledge_graph.__file__).read_text(encoding="utf-8")
 
 
 def test_coder_web_frontend_has_every_dom_node_used_by_javascript():
@@ -288,3 +291,30 @@ def test_coder_web_frontend_does_not_throw_on_missing_dom_during_startup():
     assert "def agent_event_hook(event: dict) -> None:" in api_source
     assert 'if event.get("type") != "started":' in api_source
     assert "setInterval(()=>void health(),30000);" in source
+
+
+
+def test_coder_and_study_browser_profiles_are_separate():
+    from coder.reasoner import CoderReasoner
+    from core.web_model import BrowserModel
+
+    class FakeModel:
+        pass
+
+    reasoner = CoderReasoner(model=FakeModel())
+    assert reasoner.model is not None
+    assert ".coder-browser" in Path(__import__("coder.reasoner").reasoner.__file__).read_text(encoding="utf-8")
+    assert ".study-agent-browser" in (
+        str(BrowserModel.DEFAULT_URL)
+        + Path(__import__("core.web_model").web_model.__file__).read_text(encoding="utf-8")
+    )
+
+
+def test_study_agent_bridge_is_available_from_study_api():
+    import examples.study_agent_api as api
+
+    source = Path(api.__file__).read_text(encoding="utf-8")
+    assert '"/internal/study/ask"' in source
+    assert "STUDY_AGENT_BRIDGE_KEY" in source
+    assert "Study Agent Bridge 仅允许本机调用" in source
+    assert "learner_context" in source
