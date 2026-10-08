@@ -719,6 +719,17 @@ def test_coder_web_frontend_renders_completion_state_human_readably_and_accepts_
     assert 'verified?"✓ 已验证":"— 未验证"' in source
 
 
+
+
+def test_coder_web_frontend_history_selection_restores_full_sidebar_state():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert "const historyState={" in source
+    assert "modified_files:Array.isArray(item.modified_files)?item.modified_files:[]" in source
+    assert "last_test_result:item.last_test_result||null" in source
+    assert "state.finalState=historyState;" in source
+    assert "updateSummary(historyState);" in source
+
+
 def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert "activeRunId" in source
