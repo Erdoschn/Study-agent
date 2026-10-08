@@ -256,9 +256,9 @@ class Handler(BaseHTTPRequestHandler):
             graph_context = {}
             graph = getattr(result, "knowledge_graph", None)
             if graph is not None:
-                learner_context = getattr(graph, "learner_context", None)
-                if callable(learner_context):
-                    graph_context = learner_context(question)
+                context_for = getattr(graph, "context_for", None)
+                if callable(context_for):
+                    graph_context = context_for(question, limit=10)
 
             evidence = []
             for item in list(getattr(result, "evidence", []) or [])[:8]:
