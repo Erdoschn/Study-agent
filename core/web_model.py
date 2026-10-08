@@ -138,36 +138,13 @@ class BrowserModel(ModelClient):
             time.sleep(seconds)
 
 
-    def cancel(self) -> None:
-        """Signal the current browser operation to stop as soon as possible."""
-        if self.cancellation_event is not None:
-            self.cancellation_event.set()
-
-    def reset_cancellation(self) -> None:
-        if self.cancellation_event is not None:
-            self.cancellation_event.clear()
-
-    def _check_cancelled(self) -> None:
-        raise_if_cancelled(self.cancellation_event)
-
-    def _sleep(self, seconds: float) -> None:
-        seconds = max(0.0, float(seconds))
-        self._check_cancelled()
-        if seconds <= 0:
-            return
-        event = self.cancellation_event
-        if event is not None:
-            if event.wait(seconds):
-                raise RunCancelled("Coder 任务已被用户中止。")
-        else:
-            time.sleep(seconds)
-
     def prepare_browser(self) -> None:
         """Open this model's browser profile without sending a model prompt.
 
         Authentication remains manual. This is used by API shells so the user
         can log into the correct isolated browser profile before an Agent run.
         """
+        self._check_cancelled()
         page = self._ensure_page()
         self._dismiss_cookie_banner(page)
         debug.log(
@@ -183,8 +160,10 @@ class BrowserModel(ModelClient):
         reasoning_effort: str | None = None,
     ) -> str:
         del reasoning_effort
+        self._check_cancelled()
         prompt = self._build_prompt(system_prompt, user_prompt, json_mode=json_mode)
         page = self._ensure_page()
+        self._check_cancelled()
 
         debug.log(
             "BrowserModel",
@@ -192,6 +171,7 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
+        self._check_cancelled()
         self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
         self._minimize_browser_window(page)
@@ -204,9 +184,11 @@ class BrowserModel(ModelClient):
             self._pending_prompt = prompt
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
+            self._check_cancelled()
 
             self._dismiss_cookie_banner(page)
             markdown = self._copy_latest_response_markdown(page)
+            self._check_cancelled()
             if markdown:
                 if json_mode:
                     extracted = self._extract_json_object(markdown)
@@ -538,8 +520,10 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"WINDOW MINIMIZE SKIP → {type(exc).__name__}: {exc}")
     def new_chat(self) -> None:
         """Start a fresh browser conversation for the next generation."""
+        self._check_cancelled()
         page = self._ensure_page()
         self._ensure_logged_in(page)
+        self._check_cancelled()
         self._json_mode_active = False
         self._minimize_browser_window(page)
         self._start_fresh_chat(page)
@@ -603,7 +587,7 @@ class BrowserModel(ModelClient):
             )
         else:
             print("\n[BrowserModel] 请在 Edge 中登录 DeepSeek，完成后回终端按 Enter 继续。")
-        input()
+        self._wait_for_terminal_enter()
 
         if self._find_visible(
             page,
@@ -618,6 +602,28 @@ class BrowserModel(ModelClient):
             )
 
     @staticmethod
+    def _wait_for_terminal_enter(self) -> None:
+        """Wait for Enter while still allowing an active run to be cancelled."""
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                self._check_cancelled()
+                if msvcrt.kbhit():
+                    char = msvcrt.getwch()
+                    if char == chr(3):
+                        raise KeyboardInterrupt
+                    if char in {"\r", "\n"}:
+                        return
+                self._sleep(0.1)
+
+        import select
+        while True:
+            self._check_cancelled()
+            ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if ready:
+                sys.stdin.readline()
+                return
+
     def _session_id_from_url(url: str) -> str | None:
         match = re.search(r"/a/chat/s/([^/?#]+)", str(url or ""))
         return match.group(1) if match else None
@@ -771,7 +777,7 @@ class BrowserModel(ModelClient):
                     return
             except Exception:
                 pass
-            time.sleep(self.poll_interval)
+            self._sleep(self.poll_interval)
         debug.log("BrowserModel", f"CLEANUP WARNING → session may still exist: {session_id}")
 
     def _click_session_more(self, page, row_link) -> bool:
