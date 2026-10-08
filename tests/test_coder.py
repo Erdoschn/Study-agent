@@ -217,6 +217,36 @@ def test_agent_builds_deterministic_completion_summary(tmp_path):
     assert "pytest 测试通过" in result.summary
 
 
+def test_agent_can_keep_shared_model_open(tmp_path):
+    closed = []
+
+    class FakeHarness(CoderHarness):
+        def _verify_goal(self, args, state):
+            return {"verified": True, "checks": []}
+
+    class FakeReasoner:
+        def __init__(self):
+            self.model = SimpleNamespace(
+                close=lambda: closed.append(True),
+            )
+
+        def decide(self, state, tools):
+            return {"action": "FINISH", "arguments": {}, "reasoning_summary": "", "goal": {}}
+
+    harness = FakeHarness(str(tmp_path), sandbox=SimpleNamespace())
+    result = CoderAgent(
+        tmp_path,
+        reasoner=FakeReasoner(),
+        harness=harness,
+        max_runtime_seconds=30,
+        close_model_on_run=False,
+    ).run("finish")
+
+    assert result.finished is True
+    assert result.goal_verified is True
+    assert closed == []
+
+
 def test_agent_emits_progress_events(tmp_path):
     class FakeHarness(CoderHarness):
         def _verify_goal(self, args, state):
