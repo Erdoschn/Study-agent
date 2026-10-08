@@ -150,3 +150,52 @@ def test_coder_reasoner_accepts_configurable_chat_policy(monkeypatch):
     assert reasoner.model is not None
     assert seen["reuse_chat"] is False
     assert seen["min_send_interval_seconds"] == 9.0
+
+
+
+def test_coder_agent_stops_when_cancellation_event_is_set(tmp_path):
+    import threading
+
+    calls = []
+
+    class FakeReasoner:
+        model = None
+
+        def decide(self, state, tools):
+            calls.append(state.step_count)
+            event.set()
+            return {"action": "FINISH", "arguments": {}}
+
+    class FakeHarness:
+        class Sandbox:
+            def preflight(self):
+                return None
+
+        sandbox = Sandbox()
+
+        class Backup:
+            def ensure_initial_snapshot(self, generation):
+                return type("Snapshot", (), {"generation": generation})()
+
+        backup = Backup()
+
+        def tool_specs(self):
+            return []
+
+    event = threading.Event()
+    agent = agent_module.CoderAgent(
+        workspace=tmp_path,
+        reasoner=FakeReasoner(),
+        harness=FakeHarness(),
+        max_runtime_seconds=30,
+        cancellation_event=event,
+    )
+
+    state = agent.run("cancel me")
+
+    assert state.cancelled is True
+    assert state.finished is True
+    assert state.goal_verified is False
+    assert state.error is None
+    assert state.summary == "任务已被用户中止。"
+    assert calls == [0]
