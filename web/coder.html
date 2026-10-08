@@ -397,6 +397,11 @@ async function run(){
           updateSummary(e.state);
         }else if(e.type==="result"){
           updateSummary(e.state);
+          if(e.state?.error){
+            state.failed=true;
+            appendStep("ERROR",false,e.state.error);
+            $("summary").textContent="Coder 执行失败："+e.state.error;
+          }
           void loadProjects();
           void loadHistory();
         }else if(e.type==="error"){
