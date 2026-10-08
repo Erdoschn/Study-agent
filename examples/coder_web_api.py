@@ -609,21 +609,31 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
-            browser_model = getattr(self.server, "coder_browser_model", None)
-            cancellation_event = (
-                browser_model.cancellation_event
-                if browser_model is not None
-                else threading.Event()
-            )
-            if browser_model is not None:
-                browser_model.begin_run()
-            control = CoderRunControl(
-                "coder-" + uuid.uuid4().hex,
-                cancellation_event=cancellation_event,
-            )
-            with RUNS_LOCK:
-                ACTIVE_RUNS[control.run_id] = control
-            self._stream_run(task, requested_project, control)
+            control = None
+            try:
+                browser_model = getattr(self.server, "coder_browser_model", None)
+                cancellation_event = (
+                    browser_model.cancellation_event
+                    if browser_model is not None
+                    else threading.Event()
+                )
+                if browser_model is not None:
+                    browser_model.begin_run()
+                control = CoderRunControl(
+                    "coder-" + uuid.uuid4().hex,
+                    cancellation_event=cancellation_event,
+                )
+                with RUNS_LOCK:
+                    ACTIVE_RUNS[control.run_id] = control
+                self._stream_run(task, requested_project, control)
+            except Exception:
+                if control is not None:
+                    control.cancel()
+                    with RUNS_LOCK:
+                        ACTIVE_RUNS.pop(control.run_id, None)
+                    control.finished = True
+                RUN_LOCK.release()
+                raise
         except Exception as exc:
             self._json({
                 "error": {
