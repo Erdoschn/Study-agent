@@ -26,6 +26,7 @@ class CoderAgent:
         search_router=None,
         sandbox=None,
         max_runtime_seconds: float = 1800,
+        debug_mode: bool = False,
     ):
         self.workspace = Path(workspace)
         if search_router is None:
@@ -36,8 +37,9 @@ class CoderAgent:
         self.reasoner = reasoner
         self.harness = harness or CoderHarness(str(self.workspace), search_router=search_router, sandbox=sandbox)
         if self.reasoner is None:
-            self.reasoner = CoderReasoner()
+            self.reasoner = CoderReasoner(debug_mode=self.debug_mode)
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
+        self.debug_mode = bool(debug_mode)
 
     def run(self, request: str) -> CoderState:
         request = str(request or "").strip()

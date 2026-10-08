@@ -54,6 +54,7 @@ class BrowserModel(ModelClient):
         cleanup_after_generate: bool = True,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
+        debug_mode: bool = False,
     ):
         self.model = model
         self.url = url or os.getenv("STUDY_AGENT_WEB_URL", self.DEFAULT_URL)
@@ -75,6 +76,9 @@ class BrowserModel(ModelClient):
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
+        self.debug_mode = bool(debug_mode)
+        self._created_edge_window_handles: set[int] = set()
+        self._json_mode_active = False
 
         self._playwright = None
         self._context = None
@@ -277,6 +281,7 @@ class BrowserModel(ModelClient):
             ) from exc
 
         Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
+        edge_windows_before = self._edge_window_handles()
         self._playwright = sync_playwright().start()
 
         launch_kwargs = self._browser_launch_kwargs()
@@ -294,13 +299,14 @@ class BrowserModel(ModelClient):
         pages = self._context.pages
         self._page = pages[0] if pages else self._context.new_page()
         self._page.goto(self.url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+        self._created_edge_window_handles = self._find_new_edge_window_handles(edge_windows_before)
         return self._page
 
     def _browser_launch_kwargs(self) -> dict[str, Any]:
         launch_kwargs: dict[str, Any] = {
             "user_data_dir": self.user_data_dir,
             "headless": False,
-            "args": ["--start-minimized"],
+            "args": [],
         }
         if self.browser_channel:
             launch_kwargs["channel"] = self.browser_channel
@@ -311,23 +317,87 @@ class BrowserModel(ModelClient):
             launch_kwargs["ignore_default_args"] = ["--no-sandbox"]
         return launch_kwargs
 
-    def _minimize_browser_window(self, page) -> None:
-        """Minimize the native browser window after login when possible."""
+    @staticmethod
+    def _edge_window_handles() -> set[int]:
+        """Return visible top-level windows owned by msedge.exe on Windows."""
         if os.name != "nt":
+            return set()
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            handles: set[int] = set()
+            process_query = 0x1000
+
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def enum_window(hwnd, _lparam):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                process = kernel32.OpenProcess(process_query, False, pid.value)
+                if not process:
+                    return True
+                try:
+                    size = wintypes.DWORD(32768)
+                    buffer = ctypes.create_unicode_buffer(size.value)
+                    ok = kernel32.QueryFullProcessImageNameW(
+                        process, 0, buffer, ctypes.byref(size)
+                    )
+                    if ok and Path(buffer.value).name.casefold() == "msedge.exe":
+                        handles.add(int(hwnd))
+                finally:
+                    kernel32.CloseHandle(process)
+                return True
+
+            user32.EnumWindows(enum_window, 0)
+            return handles
+        except Exception as exc:
+            debug.log("BrowserModel", f"WINDOW ENUM SKIP → {type(exc).__name__}: {exc}")
+            return set()
+
+    @classmethod
+    def _find_new_edge_window_handles(cls, before: set[int]) -> set[int]:
+        return cls._edge_window_handles() - set(before)
+
+    def _minimize_browser_window(self, page) -> None:
+        """Minimize only Edge windows created by this BrowserModel instance."""
+        if self.debug_mode or os.name != "nt":
             return
         try:
             import ctypes
+            handles = set(self._created_edge_window_handles)
+            if not handles:
+                debug.log("BrowserModel", "WINDOW MINIMIZE SKIP → new Edge window not identified")
+                return
 
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            if hwnd:
-                # SW_MINIMIZE = 6. The browser is foreground immediately after
-                # the Playwright launch/navigation, while the first-run login
-                # remains visible because this runs only after login detection.
-                ctypes.windll.user32.ShowWindow(hwnd, 6)
-                debug.log("BrowserModel", "WINDOW → minimized")
+            target = None
+            try:
+                page_title = str(page.title() or "").strip().casefold()
+            except Exception:
+                page_title = ""
+            if page_title:
+                for hwnd in handles:
+                    buffer = ctypes.create_unicode_buffer(1024)
+                    ctypes.windll.user32.GetWindowTextW(hwnd, buffer, 1024)
+                    title = str(buffer.value).strip().casefold()
+                    if page_title in title:
+                        target = hwnd
+                        break
+            if target is None:
+                if len(handles) != 1:
+                    debug.log(
+                        "BrowserModel",
+                        "WINDOW MINIMIZE SKIP → multiple new Edge windows and no title match",
+                    )
+                    return
+                target = next(iter(handles))
+            if ctypes.windll.user32.IsWindow(target):
+                ctypes.windll.user32.ShowWindow(target, 6)
+                debug.log("BrowserModel", f"WINDOW → minimized hwnd={target}")
         except Exception as exc:
             debug.log("BrowserModel", f"WINDOW MINIMIZE SKIP → {type(exc).__name__}: {exc}")
-
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
 
@@ -345,11 +415,14 @@ class BrowserModel(ModelClient):
         ) is not None:
             return
 
-        print(
-            "\n[BrowserModel] DeepSeek Web 尚未检测到聊天输入框。"
-            "\n[BrowserModel] 请在打开的 Edge 中完成登录。"
-            "\n[BrowserModel] 登录完成后回到终端按 Enter 继续。"
-        )
+        if self.debug_mode:
+            print(
+                "\n[BrowserModel] 未检测到聊天输入框。"
+                "\n[BrowserModel] 请在 Edge 中完成 DeepSeek 登录。"
+                "\n[BrowserModel] 完成后回终端按 Enter 继续。"
+            )
+        else:
+            print("\n[BrowserModel] 请在 Edge 中登录 DeepSeek，完成后回终端按 Enter 继续。")
         input()
 
         if self._find_visible(

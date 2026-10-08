@@ -37,11 +37,17 @@ RUN_PYTHON, RUN_PYTEST, READ_DIFF, VERIFY_GOAL, FINISH
 {"action":"PLAN|SEARCH|LIST_FILES|READ_FILE|WRITE_FILE|PATCH_FILE|CREATE_TEST|RUN_PYTHON|RUN_PYTEST|READ_DIFF|VERIFY_GOAL|FINISH","arguments":{},"reasoning_summary":"","goal":{"description":"","required_files":[],"required_tests":[]},"answer":null}
 """
 
-    def __init__(self, model: BrowserModel | None = None):
+    def __init__(
+        self,
+        model: BrowserModel | None = None,
+        *,
+        debug_mode: bool = False,
+    ):
         self.model = model or BrowserModel(
             model="deepseek-web",
             user_data_dir=".coder-browser",
             cleanup_after_generate=True,
+            debug_mode=debug_mode,
         )
 
     def decide(self, state: CoderState, tool_specs: list[dict[str, Any]]) -> dict[str, Any]:
