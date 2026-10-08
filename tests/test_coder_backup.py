@@ -31,7 +31,7 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
     assert snapshot.file_count == 4
     assert snapshot.archive == tmp_path / ".coder-backup" / "latest.zip"
     initial = backup.ensure_initial_snapshot(0)
-    assert initial.file_count == 3
+    assert initial.file_count == 4
     assert initial.archive == tmp_path / ".coder-backup" / "initial.zip"
     manifest = backup.read_manifest()
     assert manifest["generation"] == 3
