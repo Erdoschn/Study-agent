@@ -217,6 +217,42 @@ def _sse(payload: dict) -> bytes:
     ).encode("utf-8")
 
 
+def _step_summary(step) -> str:
+    action = str(step.action or "").upper()
+    args = step.arguments if isinstance(step.arguments, dict) else {}
+    path = str(args.get("path", "")).strip()
+    labels = {
+        "PLAN": "制定开发计划",
+        "SEARCH": "搜索资料",
+        "LIST_FILES": "查看工作区文件",
+        "READ_FILE": f"读取 {path}" if path else "读取文件",
+        "WRITE_FILE": f"写入 {path}" if path else "写入文件",
+        "WRITE_NOTEBOOK": f"更新 Notebook {path}" if path else "更新 Notebook",
+        "PATCH_FILE": f"局部修改 {path}" if path else "局部修改文件",
+        "CREATE_TEST": f"新增测试 {path}" if path else "新增测试",
+        "RUN_PYTHON": f"运行 {str(args.get('script_path', '')).strip()}" if args.get("script_path") else "运行 Python",
+        "RUN_PYTEST": "运行 pytest",
+        "ASK_STUDY_AGENT": "咨询 Study Agent",
+        "READ_DIFF": "检查代码修改",
+        "VERIFY_GOAL": "验证任务完成条件",
+        "NEW_CHAT": "切换新的模型会话",
+        "FINISH": "检查并尝试完成任务",
+    }
+    summary = labels.get(action, action or "执行操作")
+    if action == "SEARCH" and args.get("query"):
+        summary += "：" + str(args["query"])[:100]
+    if action == "RUN_PYTEST":
+        paths = args.get("paths") or []
+        if paths:
+            summary += "：" + ", ".join(str(x) for x in paths[:5])
+    if action == "ASK_STUDY_AGENT" and args.get("question"):
+        summary += "：" + str(args["question"]).replace("\n", " ")[:100]
+    if not step.success:
+        error = str(step.error or "").strip()
+        summary += "；失败" + (f"：{error[:180]}" if error else "")
+    return summary
+
+
 def _step_payload(step) -> dict:
     observation = step.observation
     if isinstance(observation, dict):
@@ -239,6 +275,7 @@ def _step_payload(step) -> dict:
     return {
         "step_id": step.step_id,
         "action": step.action,
+        "summary": _step_summary(step),
         "arguments": step.arguments,
         "observation": observation,
         "success": step.success,
