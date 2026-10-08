@@ -81,6 +81,51 @@ class CoderMemoryStore:
                 value[key] = []
         return value
 
+    def record_feedback(self, *, run_id: str, feedback: str) -> dict[str, Any] | None:
+        """Attach explicit user feedback to a completed run."""
+        run_id = str(run_id or "").strip()
+        feedback = " ".join(str(feedback or "").split()).strip()
+        if not run_id or not feedback:
+            raise ValueError("run_id 和 feedback 不能为空。")
+        if len(feedback.encode("utf-8")) > 16 * 1024:
+            raise ValueError("用户评价超过 16 KiB。")
+
+        with self._lock:
+            data = self._load_unlocked()
+            for run in reversed(data["runs"]):
+                if str(run.get("id", "")) != run_id:
+                    continue
+                now = datetime.now(timezone.utc).isoformat()
+                run["feedback"] = feedback[:4000]
+                run["feedback_at"] = now
+                self._write_unlocked(data)
+                return {
+                    "run_id": run_id,
+                    "project": str(run.get("project", "")),
+                    "feedback": run["feedback"],
+                    "created_at": now,
+                }
+        return None
+
+    def recent_feedback(self, limit: int = 8) -> list[dict[str, Any]]:
+        """Return recent explicit user feedback for future Coder decisions."""
+        limit = max(1, min(int(limit), self.MAX_RUNS))
+        runs = self.load()["runs"]
+        feedback: list[dict[str, Any]] = []
+        for run in reversed(runs):
+            text = str(run.get("feedback", "") or "").strip()
+            if not text:
+                continue
+            feedback.append({
+                "project": str(run.get("project", "")),
+                "request": str(run.get("request", ""))[:300],
+                "feedback": text[:800],
+                "created_at": str(run.get("feedback_at", run.get("created_at", ""))),
+            })
+            if len(feedback) >= limit:
+                break
+        return feedback
+
     def _write_unlocked(self, data: dict[str, Any]) -> None:
         temp = self.path.with_suffix(".tmp")
         temp.write_text(
@@ -156,6 +201,7 @@ class CoderMemoryStore:
             "strategy": strategy,
             "experience": experience,
             "technologies": technologies,
+            "feedback": "",
         }
 
     def _merge_knowledge(self, data: dict[str, Any], entry: dict[str, Any]) -> None:
