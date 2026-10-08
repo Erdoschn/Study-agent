@@ -22,7 +22,7 @@ BLOCKED_NAMES = {
     "id_rsa", "id_ed25519",
 }
 BLOCKED_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx"}
-SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".idea"}
+SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".idea", ".coder-backup"}
 
 
 @dataclass
