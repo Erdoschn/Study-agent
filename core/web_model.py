@@ -143,13 +143,40 @@ class BrowserModel(ModelClient):
     ) -> str:
         system = str(system_prompt or "").strip()
         user = str(user_prompt or "").strip()
+
+        if json_mode:
+            # DeepSeek Web receives one browser user message rather than a
+            # provider-level system message. Put the structured-output contract
+            # both before and after the long Reasoner context so it remains
+            # prominent even when the prompt is large.
+            contract = (
+                "CRITICAL RESPONSE CONTRACT:\n"
+                "You are controlling StudyAgent through a browser UI. "
+                "Do not directly answer or teach the user's question.\n"
+                "Choose exactly one action for the Agent Loop and return "
+                "exactly one valid JSON object.\n"
+                "The first non-whitespace character of the response must be "
+                "'{' and the last non-whitespace character must be '}'.\n"
+                "Do not output Markdown, explanations, prose, code fences, "
+                "or any text before or after the JSON object."
+            )
+            parts = [contract]
+            if system:
+                parts.append(f"Agent decision instructions:\n{system}")
+            if user:
+                parts.append(f"Current Agent state:\n{user}")
+            parts.append(
+                "FINAL FORMAT REMINDER:\n"
+                "Return ONLY the JSON object requested by the Agent decision "
+                "instructions. Do not answer the user's question directly."
+            )
+            return "\n\n".join(parts).strip()
+
         parts = []
         if system:
             parts.append(f"System instructions:\n{system}")
         if user:
             parts.append(f"User request:\n{user}")
-        if json_mode:
-            parts.append("Output requirement: return only valid JSON.")
         return "\n\n".join(parts).strip()
 
     def _ensure_page(self):
