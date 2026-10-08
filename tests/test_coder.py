@@ -403,7 +403,7 @@ def test_sandbox_staging_excludes_sensitive_files(tmp_path, monkeypatch):
 def test_sandbox_kills_process_when_coder_run_is_cancelled(tmp_path, monkeypatch):
     import threading
 
-    from coder.cancellation import RunCancelled
+    from core.cancellation import RunCancelled
 
     class Stream:
         def read(self, _size):
