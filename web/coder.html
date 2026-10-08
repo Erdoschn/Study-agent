@@ -670,7 +670,7 @@ function initCoderUI(attempt=0){
     void loadHistory();
     void health();
     setInterval(()=>void health(),30000);
-    setInterval(()=>{void loadProjects();void loadHistory();if(state.project)void loadFiles()},5000);
+    setInterval(()=>{void loadHistory();if(state.project)void loadFiles(state.project)},5000);
     return true;
   }catch(e){
     coderUIInitialized=false;
