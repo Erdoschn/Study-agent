@@ -615,7 +615,15 @@ class Handler(BaseHTTPRequestHandler):
             if len(task.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise WorkspaceSecurityError("Coder request 超过安全长度上限。")
             requested_project = request.get("project")
-            if requested_project is not None and str(requested_project).strip():
+            project_mode = str(request.get("project_mode", "") or "").strip().lower()
+            has_project = requested_project is not None and bool(str(requested_project).strip())
+            if project_mode not in {"", "existing", "new"}:
+                raise ValueError("project_mode 必须是 existing 或 new。")
+            if project_mode == "existing" and not has_project:
+                raise ValueError("project_mode=existing 时必须指定 project。")
+            if project_mode == "new" and has_project:
+                raise ValueError("project_mode=new 时不能指定已有 project。")
+            if has_project:
                 requested_project = _resolve_existing_project(str(requested_project))
             if not RUN_LOCK.acquire(blocking=False):
                 self._json(
