@@ -206,6 +206,46 @@ class WorkspaceFS:
             )
         self.write_text(path, current.replace(old, str(new_text), 1))
 
+    @staticmethod
+    def _cell_source(cell: dict) -> str:
+        source = cell.get("source", "")
+        if isinstance(source, list):
+            return "".join(str(part) for part in source)
+        return str(source or "")
+
+    def patch_notebook(
+        self,
+        path: str,
+        cell_index: int,
+        old_source: str,
+        new_source: str,
+    ) -> None:
+        rel, _ = self._target(path)
+        if rel.suffix.casefold() != ".ipynb":
+            raise WorkspaceSecurityError("PATCH_NOTEBOOK 目标必须是 .ipynb 文件。")
+        try:
+            index = int(cell_index)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceSecurityError("PATCH_NOTEBOOK.cell_index 必须是整数。") from exc
+        if index < 0:
+            raise WorkspaceSecurityError("PATCH_NOTEBOOK.cell_index 不能为负数。")
+        old = str(old_source)
+        if not old:
+            raise WorkspaceSecurityError("PATCH_NOTEBOOK 的 old_source 不能为空。")
+        value = self.validate_notebook(self.read_text(path))
+        cells = value["cells"]
+        if index >= len(cells):
+            raise WorkspaceSecurityError(
+                f"PATCH_NOTEBOOK.cell_index 超出范围：{index}，当前只有 {len(cells)} 个 cell。"
+            )
+        current = self._cell_source(cells[index])
+        if current != old:
+            raise WorkspaceSecurityError(
+                "PATCH_NOTEBOOK 要求目标 cell 的 source 与 old_source 完全一致。"
+            )
+        cells[index]["source"] = str(new_source)
+        self.write_notebook(path, json.dumps(value, ensure_ascii=False, indent=1))
+
     def exists(self, path: str) -> bool:
         rel, target = self._target(path)
         self._policy(rel)
