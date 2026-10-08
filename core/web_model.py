@@ -37,6 +37,10 @@ class BrowserModel(ModelClient):
     # selector, then retain the accessible-label fallbacks for UI changes.
     DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
+    DEFAULT_COOKIE_ACCEPT_LABELS = (
+        "Accept", "Accept all", "Agree", "I agree",
+        "同意", "接受", "全部接受", "同意全部",
+    )
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
     SEND_ACTION_TIMEOUT_MS = 1500
@@ -115,6 +119,7 @@ class BrowserModel(ModelClient):
         )
 
         self._ensure_logged_in(page)
+        self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
         self._minimize_browser_window(page)
         if not self.reuse_chat or not self._chat_initialized:
@@ -127,6 +132,7 @@ class BrowserModel(ModelClient):
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
 
+            self._dismiss_cookie_banner(page)
             markdown = self._copy_latest_response_markdown(page)
             if markdown:
                 if json_mode:
@@ -466,6 +472,37 @@ class BrowserModel(ModelClient):
         self._chat_initialized = True
         self._chat_reset_count += 1
         debug.log("BrowserModel", f"NEW CHAT → reset_count={self._chat_reset_count}")
+
+    def _dismiss_cookie_banner(self, page) -> bool:
+        """Dismiss a visible cookie-consent overlay without bypassing security checks."""
+        try:
+            banner = page.locator(".cookie_banner-wrap")
+            if banner.count() == 0:
+                return False
+            for index in range(banner.count() - 1, -1, -1):
+                candidate = banner.nth(index)
+                if not candidate.is_visible():
+                    continue
+                for label in self.DEFAULT_COOKIE_ACCEPT_LABELS:
+                    import re as _re
+                    try:
+                        button = candidate.get_by_role(
+                            "button",
+                            name=_re.compile(_re.escape(label), _re.IGNORECASE),
+                        )
+                        if button.count() <= 0:
+                            continue
+                        for button_index in range(button.count() - 1, -1, -1):
+                            target = button.nth(button_index)
+                            if target.is_visible():
+                                target.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                                debug.log("BrowserModel", "COOKIE BANNER → consent accepted")
+                                return True
+                    except Exception:
+                        continue
+        except Exception as exc:
+            debug.log("BrowserModel", f"COOKIE BANNER SKIP → {type(exc).__name__}: {exc}")
+        return False
 
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
