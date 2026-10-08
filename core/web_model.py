@@ -590,7 +590,11 @@ class BrowserModel(ModelClient):
                 if not message.is_visible():
                     continue
                 text = self._compact_text(message.inner_text())
-                if head in text and (not tail or tail in text):
+                has_response = any(
+                    message.locator(selector).count() > 0
+                    for selector in self.response_selectors
+                )
+                if not has_response and head in text and (not tail or tail in text):
                     return index
         except Exception:
             return None
