@@ -20,13 +20,15 @@ class CoderReasoner:
         model: BrowserModel | None = None,
         *,
         debug_mode: bool = False,
+        reuse_chat: bool = True,
+        min_send_interval_seconds: float = 5.0,
     ):
         self.model = model or BrowserModel(
             model="deepseek-web",
             user_data_dir=".coder-browser",
             cleanup_after_generate=False,
-            reuse_chat=True,
-            min_send_interval_seconds=5.0,
+            reuse_chat=reuse_chat,
+            min_send_interval_seconds=min_send_interval_seconds,
             debug_mode=debug_mode,
         )
 
