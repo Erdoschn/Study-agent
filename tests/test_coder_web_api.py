@@ -175,19 +175,15 @@ def test_coder_project_slug_from_llm_prefers_specific_last_candidate():
     assert api._project_slug_from_llm("Project") == ""
 
 
-def test_coder_browser_prewarm_creates_shared_browser_model(monkeypatch):
+def test_coder_browser_prewarm_creates_shared_browser_session(monkeypatch):
     import examples.coder_web_api as api
 
-    class FakeModel:
+    class FakeSession:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
-            self.model = kwargs["model"]
+            self.model = "deepseek-web"
             self.user_data_dir = kwargs["user_data_dir"]
-            self.prepared = False
             self.closed = False
-
-        def prepare_browser(self):
-            self.prepared = True
 
         def close(self):
             self.closed = True
@@ -195,20 +191,56 @@ def test_coder_browser_prewarm_creates_shared_browser_model(monkeypatch):
     holder = {}
 
     def factory(**kwargs):
-        model = FakeModel(**kwargs)
-        holder["model"] = model
-        return model
+        session = FakeSession(**kwargs)
+        holder["session"] = session
+        return session
 
-    monkeypatch.setattr(api, "BrowserModel", factory)
-    model = api._prewarm_coder_browser()
+    monkeypatch.setattr(api, "CoderBrowserSession", factory)
+    session = api._prewarm_coder_browser()
 
-    assert model is holder["model"]
-    assert model.prepared is True
-    assert model.closed is False
-    assert model.model == "deepseek-web"
-    assert model.user_data_dir == ".coder-browser"
-    assert model.kwargs["cleanup_after_generate"] is False
-    assert model.kwargs["reuse_chat"] is True
+    assert session is holder["session"]
+    assert session.closed is False
+    assert session.model == "deepseek-web"
+    assert session.user_data_dir == ".coder-browser"
+    assert session.kwargs["reuse_chat"] is True
+
+
+def test_coder_browser_session_keeps_playwright_on_one_thread(monkeypatch):
+    import coder.browser_session as module
+
+    threads = []
+    closed = []
+
+    class FakeBrowser:
+        def __init__(self, **kwargs):
+            self.model = kwargs["model"]
+
+        def prepare_browser(self):
+            threads.append(("prepare", __import__("threading").get_ident()))
+
+        def generate(self, system_prompt, user_prompt, json_mode=False, reasoning_effort=None):
+            threads.append(("generate", __import__("threading").get_ident()))
+            return "answer"
+
+        def new_chat(self):
+            threads.append(("new_chat", __import__("threading").get_ident()))
+
+        def close(self):
+            closed.append(__import__("threading").get_ident())
+
+    monkeypatch.setattr(module, "BrowserModel", FakeBrowser)
+    session = module.CoderBrowserSession(user_data_dir=".coder-browser")
+
+    caller_thread = __import__("threading").get_ident()
+    assert session.generate("system", "user") == "answer"
+    session.new_chat()
+    session.close()
+
+    assert threads[0][0] == "prepare"
+    assert len({thread_id for _, thread_id in threads}) == 1
+    assert threads[0][1] != caller_thread
+    assert len(closed) == 1
+    assert closed[0] == threads[0][1]
 
 
 def test_coder_project_name_shared_browser_is_not_closed(monkeypatch):
