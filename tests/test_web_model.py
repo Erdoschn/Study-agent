@@ -1620,3 +1620,10 @@ def test_browser_model_new_chat_explicitly_resets_reused_conversation(monkeypatc
     assert starts == ["new_chat"]
     assert model._chat_initialized is True
     assert model._chat_reset_count == 1
+
+
+def test_browser_model_accepts_ask_study_agent_action_in_json_mode():
+    response = '{"action":"ASK_STUDY_AGENT","arguments":{"question":"explain attention"}}'
+
+    assert BrowserModel._extract_json_object(response) == response
+    assert BrowserModel._needs_json_recovery(response) is False
