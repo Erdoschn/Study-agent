@@ -118,6 +118,7 @@ def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert 'e.type==="error"' in source
     assert 'state.failed=true' in source
+    assert 'if(e.state?.error)' in source
     assert 'Coder SSE 连接在收到完成信号前就结束了。' in source
     assert 'e.key==="Enter"&&e.shiftKey' in source
     assert 'void run();' in source
