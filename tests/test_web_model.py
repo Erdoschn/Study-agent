@@ -107,8 +107,8 @@ def test_build_prompt_keeps_system_and_user_separate():
         json_mode=True,
     )
 
-    assert "System instructions:" in prompt
-    assert "User request:" in prompt
+    assert "Agent decision instructions:" in prompt
+    assert "Current Agent state:" in prompt
     assert "You are a reasoner." in prompt
     assert "What is attention?" in prompt
     assert "return only valid JSON" in prompt
@@ -247,7 +247,8 @@ def test_browser_model_binds_response_to_current_user_turn():
     page = Page()
 
     assert model._latest_response(page, [(0, "")]) == "answer"
-    assert model._find_copy_button(page) is page.messages.values[-1].item.copy_button
+    button = model._find_copy_button(page)
+    assert button.values == page.messages.values[-1].item.copy_button.values
 
 
 def test_browser_model_finds_copy_button_inside_latest_message_item():
@@ -603,10 +604,15 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
     ]
 
 
-def test_browser_model_starts_browser_minimized():
+def test_browser_model_leaves_browser_visible_until_after_login():
     model = BrowserModel()
     options = model._browser_launch_kwargs()
-    assert options["args"] == ["--start-minimized"]
+    assert options["args"] == []
+
+
+def test_browser_model_debug_mode_keeps_browser_visible():
+    model = BrowserModel(debug_mode=True)
+    assert model.debug_mode is True
 
 
 def test_browser_model_filters_playwright_no_sandbox_on_windows(monkeypatch):
@@ -796,13 +802,16 @@ def test_browser_model_uses_current_deepseek_history_action_xpath():
     assert row.button.clicked is True
 
 
-def test_browser_model_minimizes_native_window_on_windows(monkeypatch):
+def test_browser_model_minimizes_only_new_edge_window_on_windows(monkeypatch):
     class User32:
         def __init__(self):
             self.calls = []
 
-        def GetForegroundWindow(self):
-            return 1234
+        def IsWindow(self, hwnd):
+            return hwnd == 5678
+
+        def GetWindowTextW(self, hwnd, buffer, size):
+            buffer.value = "DeepSeek"
 
         def ShowWindow(self, hwnd, command):
             self.calls.append((hwnd, command))
@@ -816,10 +825,43 @@ def test_browser_model_minimizes_native_window_on_windows(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
 
     model = BrowserModel()
+    model._edge_window_handles = {5678}
     model._minimize_browser_window(object())
 
-    assert fake_ctypes.windll.user32.calls == [(1234, 6)]
+    assert fake_ctypes.windll.user32.calls == [(5678, 6)]
 
+
+def test_browser_model_debug_mode_does_not_minimize_edge_window(monkeypatch):
+    class User32:
+        def __init__(self):
+            self.calls = []
+
+        def ShowWindow(self, hwnd, command):
+            self.calls.append((hwnd, command))
+
+    class FakeCtypes:
+        def __init__(self):
+            self.windll = type("Windll", (), {"user32": User32()})()
+
+    fake_ctypes = FakeCtypes()
+    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
+
+    model = BrowserModel(debug_mode=True)
+    model._edge_window_handles = {5678}
+    model._minimize_browser_window(object())
+
+    assert fake_ctypes.windll.user32.calls == []
+
+
+def test_browser_model_tracks_only_new_edge_windows(monkeypatch):
+    monkeypatch.setattr(
+        BrowserModel,
+        "_edge_window_handles",
+        staticmethod(lambda: {2, 3, 4}),
+    )
+
+    assert BrowserModel._find_new_edge_window_handles({1, 2}) == {3, 4}
 
 
 def test_browser_model_detects_invalid_json_for_recovery():
