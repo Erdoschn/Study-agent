@@ -243,6 +243,24 @@ def test_harness_writes_only_valid_notebook(tmp_path):
     assert state.modified_files == {"analysis.ipynb"}
 
 
+def test_reasoner_parser_accepts_notebook_action():
+    result = CoderReasoner._parse(
+        '{"action":"WRITE_NOTEBOOK","arguments":{"path":"demo.ipynb","content":"{}"}}'
+    )
+    assert result["action"] == "WRITE_NOTEBOOK"
+
+
+def test_harness_rejects_direct_notebook_patch(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState("notebook")
+    with pytest.raises(Exception, match="WRITE_NOTEBOOK"):
+        harness.execute(
+            "PATCH_FILE",
+            {"path": "demo.ipynb", "old_text": "x", "new_text": "y"},
+            state,
+        )
+
+
 def test_reasoner_parser_never_accepts_unknown_action():
     with pytest.raises(RuntimeError):
         CoderReasoner._parse(
