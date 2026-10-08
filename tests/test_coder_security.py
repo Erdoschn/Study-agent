@@ -57,7 +57,7 @@ def test_search_egress_blocks_secrets_paths_and_code_payloads(tmp_path):
         r"C:\Users\alice\secret.txt",
         "../secret.py",
         "\x60\x60\x60python\nprint('secret')\n\x60\x60\x60",
-        "x" * 70 + "A1!",
+        "Ab9_" * 20,
         "'This is a very long quoted source fragment that should never be sent'",
     ]
     for query in blocked:
