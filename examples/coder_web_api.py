@@ -101,6 +101,7 @@ def _state_payload(state) -> dict:
         "finished": state.finished,
         "goal_verified": state.goal_verified,
         "error": state.error,
+        "summary": state.summary,
         "step_count": state.step_count,
         "chat_resets": state.chat_resets,
         "modified_files": sorted(state.modified_files),
@@ -373,6 +374,13 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "step",
                         "step": _step_payload(event["step"]),
+                    }))
+                    self.wfile.flush()
+                elif kind == "finished":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "finished",
+                        "state": _state_payload(event["state"]),
                     }))
                     self.wfile.flush()
                 elif kind == "result":
