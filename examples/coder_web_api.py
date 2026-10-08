@@ -302,6 +302,7 @@ def _state_payload(state) -> dict:
         "request": state.request,
         "finished": state.finished,
         "goal_verified": state.goal_verified,
+        "cancelled": bool(getattr(state, "cancelled", False)),
         "error": state.error,
         "summary": state.summary,
         "step_count": state.step_count,
@@ -653,8 +654,8 @@ class Handler(BaseHTTPRequestHandler):
             events.put(event)
 
         def worker() -> None:
+            actual_project = str(project).strip() if project is not None else ""
             try:
-                actual_project = str(project).strip() if project is not None else ""
                 browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
                     actual_project = _resolve_existing_project(actual_project)
@@ -704,6 +705,12 @@ class Handler(BaseHTTPRequestHandler):
                     events.put({"type": "result", "state": result, "memory": entry})
                 finally:
                     debug.log = previous
+            except RunCancelled:
+                events.put({
+                    "type": "cancelled",
+                    "project": actual_project,
+                    "state": None,
+                })
             except Exception as exc:
                 events.put({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
             finally:
@@ -764,6 +771,14 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "step",
                         "step": _step_payload(event["step"]),
+                    }))
+                    self.wfile.flush()
+                elif kind == "cancelled":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "cancelled",
+                        "project": event.get("project", ""),
+                        "state": _state_payload(event["state"]) if event.get("state") is not None else None,
                     }))
                     self.wfile.flush()
                 elif kind == "finished":
@@ -859,6 +874,10 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nCoder Web API stopped.")
     finally:
+        with RUNS_LOCK:
+            active_controls = list(ACTIVE_RUNS.values())
+        for control in active_controls:
+            control.cancel()
         try:
             browser_model = getattr(server, "coder_browser_model", None)
             if browser_model is not None:
