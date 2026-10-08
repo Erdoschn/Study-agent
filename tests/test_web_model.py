@@ -777,3 +777,28 @@ def test_browser_model_uses_current_deepseek_history_action_xpath():
     assert model._click_session_more(object(), row) is True
     assert row.requested == ["xpath=./div[3]/div"]
     assert row.button.clicked is True
+
+
+def test_browser_model_minimizes_native_window_on_windows(monkeypatch):
+    class User32:
+        def __init__(self):
+            self.calls = []
+
+        def GetForegroundWindow(self):
+            return 1234
+
+        def ShowWindow(self, hwnd, command):
+            self.calls.append((hwnd, command))
+
+    class FakeCtypes:
+        def __init__(self):
+            self.windll = type("Windll", (), {"user32": User32()})()
+
+    fake_ctypes = FakeCtypes()
+    monkeypatch.setattr(web_model_module.os, "name", "nt")
+    monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
+
+    model = BrowserModel()
+    model._minimize_browser_window(object())
+
+    assert fake_ctypes.windll.user32.calls == [(1234, 6)]
