@@ -30,8 +30,14 @@ def test_coder_agent_defaults_debug_mode_to_false(monkeypatch):
     seen = []
 
     class FakeReasoner:
-        def __init__(self, *, debug_mode=False):
-            seen.append(debug_mode)
+        def __init__(
+            self,
+            *,
+            debug_mode=False,
+            reuse_chat=True,
+            min_send_interval_seconds=5.0,
+        ):
+            seen.append((debug_mode, reuse_chat, min_send_interval_seconds))
 
     monkeypatch.setattr(agent_module, "CoderReasoner", FakeReasoner)
 
