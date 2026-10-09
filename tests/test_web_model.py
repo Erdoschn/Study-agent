@@ -1030,6 +1030,38 @@ def test_browser_model_falls_back_to_response_snapshot_when_fast_reply_has_no_se
     page = Page()
     assert model._latest_response(page, [(1, "old answer")]) == "new answer"
 
+def test_browser_model_ignores_duplicated_stale_response_before_current_turn_binds():
+    class Message:
+        def inner_text(self):
+            return "current prompt"
+
+        def is_visible(self):
+            return True
+
+        def locator(self, _selector):
+            return FakeLocator([])
+
+    class Messages:
+        def count(self):
+            return 1
+
+        def nth(self, _index):
+            return Message()
+
+    class Page:
+        def locator(self, selector):
+            if selector == ".ds-message":
+                return Messages()
+            if selector == ".ds-markdown":
+                return FakeLocator(["old answer", "old answer"])
+            return FakeLocator([])
+
+    model = BrowserModel(response_selectors=(".ds-markdown",))
+    model._pending_prompt = "current prompt"
+
+    assert model._latest_response(Page(), [(1, "old answer")]) == ""
+
+
 def test_browser_model_does_not_reuse_previous_response(monkeypatch):
     model = BrowserModel(
         timeout=1,
