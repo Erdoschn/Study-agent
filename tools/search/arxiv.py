@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -55,6 +56,7 @@ class ArxivSearchProvider(SearchProvider):
             backoff_seconds=1.0,
         )
         self._last_request_time = 0.0
+        self._rate_limit_lock = threading.Lock()
 
     @property
     def endpoints(self) -> tuple[str, ...]:
@@ -252,11 +254,15 @@ class ArxivSearchProvider(SearchProvider):
         return expression
 
     def _wait_for_rate_limit(self) -> None:
-        elapsed = time.monotonic() - self._last_request_time
-        delay = self.MIN_REQUEST_INTERVAL - elapsed
-        if delay > 0:
-            time.sleep(delay)
-        self._last_request_time = time.monotonic()
+        # The provider is shared by parallel Agent/API requests. Keep the
+        # check-sleep-update sequence atomic so concurrent searches cannot all
+        # pass the same rate-limit window.
+        with self._rate_limit_lock:
+            elapsed = time.monotonic() - self._last_request_time
+            delay = self.MIN_REQUEST_INTERVAL - elapsed
+            if delay > 0:
+                time.sleep(delay)
+            self._last_request_time = time.monotonic()
 
     def _parse_atom(self, data: bytes) -> list[SearchResult]:
         try:
