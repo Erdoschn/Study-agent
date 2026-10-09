@@ -769,3 +769,76 @@ def test_coder_replan_replaces_future_milestones_but_preserves_original_request(
     assert state.completed_milestones == ["inspect"]
     assert state.goal.success_criteria == ["TODOs complete", "output validated"]
     assert state.verified_success_criteria == ["TODOs complete"]
+
+
+
+def test_coder_agent_blocks_unchanged_retry_after_tool_failure(tmp_path):
+    class SequenceReasoner:
+        model = None
+
+        def __init__(self):
+            self.calls = 0
+
+        def decide(self, _state, _tools):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "action": "PLAN",
+                    "arguments": {},
+                    "goal": {
+                        "description": "fix ambiguous notebook patch",
+                        "scope_files": ["main.py"],
+                        "milestones": ["inspect", "patch", "verify"],
+                        "success_criteria": ["patch succeeds"],
+                        "must_pass_tests": False,
+                    },
+                }
+            if self.calls in {2, 3}:
+                return {
+                    "action": "PATCH_FILE",
+                    "arguments": {
+                        "path": "main.py",
+                        "old_text": "old",
+                        "new_text": "new",
+                    },
+                }
+            if self.calls == 4:
+                return {
+                    "action": "PLAN",
+                    "arguments": {},
+                    "goal": {
+                        "description": "fix ambiguous notebook patch with fresh source",
+                        "scope_files": ["main.py"],
+                        "milestones": ["read latest source", "apply a unique patch", "verify"],
+                        "success_criteria": ["patch succeeds"],
+                        "must_pass_tests": False,
+                    },
+                }
+            return {"action": "STOP", "arguments": {}, "reasoning_summary": "fixture done"}
+
+    class Harness:
+        sandbox = SimpleNamespace()
+        backup = None
+
+        def __init__(self):
+            self.executed = []
+
+        def tool_specs(self):
+            return []
+
+        def execute(self, action, arguments, _state):
+            self.executed.append((action, arguments))
+            raise ValueError("ambiguous patch source")
+
+    reasoner = SequenceReasoner()
+    harness = Harness()
+    agent = CoderAgent(
+        tmp_path, reasoner=reasoner, harness=harness, close_model_on_run=False
+    )
+    state = agent.run("fix the requested code without leaving its goal")
+
+    assert len(harness.executed) == 1
+    assert harness.executed[0][0] == "PATCH_FILE"
+    assert state.metrics["repeated_failed_action_blocked"] == 1
+    assert any(step.observation.get("status") == "repeat_blocked" for step in state.steps if isinstance(step.observation, dict))
+    assert any(step.action == "PLAN" and "unique patch" in str(step.observation) for step in state.steps)
