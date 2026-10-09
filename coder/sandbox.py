@@ -113,6 +113,11 @@ class DockerPythonSandbox:
             dir=str(self.workspace),
         )
         root = Path(stage.name)
+        # TemporaryDirectory defaults to mode 0700. The sandbox container runs
+        # as an unprivileged UID, so a bind-mounted staging root with that mode
+        # cannot even be traversed. The staged copy is disposable and isolated;
+        # make the root traversable without granting access to the host workspace.
+        root.chmod(0o755)
         for current, dirs, files in os.walk(self.workspace, topdown=True, followlinks=False):
             raise_if_cancelled(cancellation_event)
             current_path = Path(current)
