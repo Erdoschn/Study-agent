@@ -546,6 +546,26 @@ def test_browser_model_retries_new_chat_click_after_stale_locator():
 
 
 
+def test_browser_model_waits_for_delayed_chat_input_during_prewarm(monkeypatch):
+    model = BrowserModel()
+    now = [10.0]
+    checks = [None, None, object()]
+
+    monkeypatch.setattr(model, "_check_cancelled", lambda: None)
+    monkeypatch.setattr("core.web_model.time.monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        model,
+        "_find_visible",
+        lambda _page, _selectors: checks.pop(0) if checks else object(),
+    )
+    monkeypatch.setattr(
+        model, "_sleep", lambda seconds: now.__setitem__(0, now[0] + seconds)
+    )
+
+    assert model._wait_for_chat_input(object(), timeout=2.0) is True
+    assert now[0] > 10.0
+
+
 def test_browser_model_sends_logged_in_prewarmed_browser_to_back(monkeypatch):
     model = BrowserModel(debug_mode=False)
     page = object()
@@ -554,8 +574,11 @@ def test_browser_model_sends_logged_in_prewarmed_browser_to_back(monkeypatch):
     monkeypatch.setattr(model, "_check_cancelled", lambda: None)
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
     monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: False)
+    seen = []
     monkeypatch.setattr(
-        model, "_find_visible", lambda _page, _selectors: object()
+        model,
+        "_wait_for_chat_input",
+        lambda _page, timeout: seen.append(timeout) or True,
     )
     monkeypatch.setattr(
         model, "_send_browser_window_to_back", lambda _page: events.append("back")
@@ -563,6 +586,7 @@ def test_browser_model_sends_logged_in_prewarmed_browser_to_back(monkeypatch):
 
     model.prepare_browser()
 
+    assert seen == [8.0]
     assert events == ["back"]
 
 
@@ -574,7 +598,9 @@ def test_browser_model_keeps_login_window_visible_until_authenticated(monkeypatc
     monkeypatch.setattr(model, "_check_cancelled", lambda: None)
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
     monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: False)
-    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: None)
+    monkeypatch.setattr(
+        model, "_wait_for_chat_input", lambda _page, timeout: False
+    )
     monkeypatch.setattr(
         model, "_send_browser_window_to_back", lambda _page: events.append("back")
     )
