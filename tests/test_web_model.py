@@ -607,7 +607,7 @@ def test_browser_model_attempts_background_placement_even_before_login(monkeypat
 
     model.prepare_browser()
 
-    assert events == []
+    assert events == ["back"]
 
 
 def test_browser_model_sends_browser_to_back_before_and_after_new_chat(monkeypatch):
