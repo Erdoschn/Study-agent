@@ -4,6 +4,7 @@ import os
 import stat
 import uuid
 import re
+import threading
 from pathlib import Path
 
 
@@ -53,6 +54,9 @@ class WorkspaceFS:
         else:
             self.root.mkdir(parents=True, exist_ok=True)
         self.root = self.root.resolve()
+        # Serialize writes through one workspace instance. Windows can return
+        # PermissionError when concurrent os.replace calls target the same file.
+        self._write_lock = threading.RLock()
         if self.root == Path(self.root.anchor):
             raise WorkspaceSecurityError("禁止把文件系统根目录作为 Coder workspace。")
 
@@ -171,27 +175,29 @@ class WorkspaceFS:
         }
 
     def write_text(self, path: str, content: str, *, test: bool = False) -> None:
-        rel, target = self._target(path)
-        self._policy(rel, write=True, test=test)
-        data = str(content)
-        if len(data.encode("utf-8")) > self.MAX_FILE_BYTES:
-            raise WorkspaceSecurityError("写入内容超过安全上限。")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._reject_reparse(target.parent)
-        if target.exists():
-            self._reject_reparse(target)
-        # A deterministic temporary filename races when two operations
-        # write the same target concurrently. Unique sibling files preserve
-        # atomic replacement without deleting another writer's in-progress data.
-        temp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.coder-tmp")
-        try:
-            temp.write_text(data, encoding="utf-8", newline="")
-            os.replace(temp, target)
-        finally:
+        # Keep validation, temporary-file creation and replacement in one
+        # critical section so two threads cannot race on the same destination.
+        with self._write_lock:
+            rel, target = self._target(path)
+            self._policy(rel, write=True, test=test)
+            data = str(content)
+            if len(data.encode("utf-8")) > self.MAX_FILE_BYTES:
+                raise WorkspaceSecurityError("写入内容超过安全上限。")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._reject_reparse(target.parent)
+            if target.exists():
+                self._reject_reparse(target)
+            # Unique sibling temp files keep the target untouched until the
+            # complete payload is ready; os.replace publishes it atomically.
+            temp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.coder-tmp")
             try:
-                temp.unlink()
-            except FileNotFoundError:
-                pass
+                temp.write_text(data, encoding="utf-8", newline="")
+                os.replace(temp, target)
+            finally:
+                try:
+                    temp.unlink()
+                except FileNotFoundError:
+                    pass
 
     def validate_notebook(self, content: str) -> dict:
         try:
