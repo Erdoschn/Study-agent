@@ -514,22 +514,31 @@ class CoderAgent:
             goal.scope_files,
             raw.get("scope_files", raw.get("allowed_files", [])),
         )
-        new_milestones = raw.get("milestones", [])
-        if isinstance(new_milestones, list) and new_milestones:
-            goal.milestones = merge_strings(goal.milestones, new_milestones, limit=20)
-        new_criteria = raw.get("success_criteria", [])
-        if isinstance(new_criteria, list) and new_criteria:
-            goal.success_criteria = merge_strings(goal.success_criteria, new_criteria, limit=20)
+        # A revised PLAN may reorganize future work. Keep completed/verified
+        # progress only when the exact milestone or criterion still exists.
+        if "milestones" in raw and isinstance(raw.get("milestones"), list):
+            goal.milestones = merge_strings([], raw.get("milestones", []), limit=20)
+            state.completed_milestones = [
+                item for item in state.completed_milestones if item in goal.milestones
+            ]
+        if "success_criteria" in raw and isinstance(raw.get("success_criteria"), list):
+            goal.success_criteria = merge_strings([], raw.get("success_criteria", []), limit=20)
+            state.verified_success_criteria = [
+                item for item in state.verified_success_criteria
+                if item in goal.success_criteria
+            ]
 
         completed = raw.get("completed_milestones", [])
+        requested_completed = merge_strings([], completed, limit=20)
         state.completed_milestones = merge_strings(
             state.completed_milestones,
-            completed,
+            [item for item in requested_completed if item in goal.milestones],
             limit=20,
         )
+        requested_verified = merge_strings([], raw.get("verified_success_criteria", []), limit=20)
         state.verified_success_criteria = merge_strings(
             state.verified_success_criteria,
-            raw.get("verified_success_criteria", []),
+            [item for item in requested_verified if item in goal.success_criteria],
             limit=20,
         )
         description = str(raw.get("description", "")).strip()
