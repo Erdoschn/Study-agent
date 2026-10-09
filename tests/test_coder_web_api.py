@@ -831,3 +831,61 @@ def test_coder_run_lock_release_is_safe_under_competing_cleanup_threads():
     assert not any(worker.is_alive() for worker in workers)
     assert sorted(results) == [False, True]
     assert not api.RUN_LOCK.locked()
+
+
+def test_coder_user_response_window_times_out_when_button_is_not_clicked():
+    import threading
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("user-timeout")
+    events = []
+    result = {}
+    worker = threading.Thread(
+        target=lambda: result.setdefault(
+            "answer",
+            control.wait_for_user_response("Need a decision", events.append, open_timeout_seconds=0.05),
+        )
+    )
+    worker.start()
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+    assert result["answer"] is None
+    assert events[0]["type"] == "ask_user"
+    assert events[0]["question"] == "Need a decision"
+
+
+def test_coder_user_response_is_returned_after_button_open_and_submit():
+    import threading
+    import time
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("user-answer")
+    events = []
+    result = {}
+    worker = threading.Thread(
+        target=lambda: result.setdefault(
+            "answer",
+            control.wait_for_user_response("Which file?", events.append, open_timeout_seconds=1, response_timeout_seconds=1),
+        )
+    )
+    worker.start()
+    deadline = time.monotonic() + 1
+    while not events and time.monotonic() < deadline:
+        time.sleep(0.005)
+    question_id = events[0]["question_id"]
+    assert control.respond_to_user_question(question_id, "open") is True
+    assert control.respond_to_user_question(question_id, "submit", "Use the existing notebook") is True
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+    assert result["answer"] == "Use the existing notebook"
+
+
+def test_coder_web_ui_and_api_expose_planning_question_response_flow():
+    import examples.coder_web_api as api
+    backend = Path(api.__file__).read_text(encoding="utf-8")
+    frontend = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'if path == "/v1/coder/respond":' in backend
+    assert "wait_for_user_response" in backend
+    assert 'id="askOpen"' in frontend
+    assert 'API+"/respond"' in frontend
+    assert "10 秒内点击" in frontend
