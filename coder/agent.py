@@ -97,7 +97,12 @@ class CoderAgent:
             "创建脚本", "新建项目", "创建项目", "从零搭建", "从头搭建",
             "搭建一个应用", "开发一个新应用",
         )
-        return any(phrase in text for phrase in explicit_phrases)
+        if any(phrase in text for phrase in explicit_phrases):
+            return True
+        return bool(re.search(
+            r"(创建|新建|写一个|编写).{0,24}(脚本|程序|项目|应用|模块)",
+            text,
+        ))
 
     def _workspace_has_tests(self) -> bool:
         list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
