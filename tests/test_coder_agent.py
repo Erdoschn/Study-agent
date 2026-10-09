@@ -52,6 +52,18 @@ def test_coder_agent_defaults_debug_mode_to_false(tmp_path, monkeypatch):
 
 def test_coder_agent_handles_model_selected_new_chat(tmp_path):
     actions = iter([
+        {
+            "action": "PLAN",
+            "arguments": {},
+            "goal": {
+                "description": "修复一个小 bug",
+                "scope_files": ["a.py"],
+                "milestones": ["inspect", "fix", "verify"],
+                "success_criteria": ["bug is fixed"],
+                "must_create_tests": False,
+                "must_pass_tests": False,
+            },
+        },
         {"action": "NEW_CHAT", "arguments": {}},
         {"action": "FINISH", "arguments": {}},
     ])
@@ -89,7 +101,7 @@ def test_coder_agent_handles_model_selected_new_chat(tmp_path):
     assert state.chat_resets == 1
     assert state.metrics["chat_resets"] == 1
     assert new_chat_calls == [True]
-    assert [step.action for step in state.steps] == ["NEW_CHAT", "FINISH"]
+    assert [step.action for step in state.steps] == ["PLAN", "NEW_CHAT", "FINISH"]
 
 
 def test_coder_reasoner_accepts_patch_notebook_action():
