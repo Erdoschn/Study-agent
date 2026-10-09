@@ -255,7 +255,7 @@ class CoderHarness:
         if start_raw is None and end_raw is None:
             value = self.fs.read_text(path)
             total_lines = value.count("\n") + (1 if value and not value.endswith("\n") else 0)
-            if len(value) > 48_000 and total_lines > self.READ_CHUNK_LINES:
+            if total_lines > self.READ_CHUNK_LINES:
                 result = self.fs.read_text_range(path, 1, self.READ_CHUNK_LINES)
                 result["complete"] = False
                 result["next_start_line"] = self.READ_CHUNK_LINES + 1
@@ -297,6 +297,8 @@ class CoderHarness:
         if baseline is None:
             return
         current = self.fs.read_text(path)
+        if str(content) == current:
+            return
         total_lines = current.count("\n") + (1 if current and not current.endswith("\n") else 0)
         if not self._coverage_is_complete(path, total_lines):
             raise WorkspaceSecurityError(
