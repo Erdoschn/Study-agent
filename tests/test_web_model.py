@@ -2046,3 +2046,17 @@ def test_browser_model_accepts_ask_study_agent_action_in_json_mode():
 
     assert BrowserModel._extract_json_object(response) == response
     assert BrowserModel._needs_json_recovery(response) is False
+
+
+def test_browser_model_json_recovery_fails_closed_to_stop(monkeypatch):
+    import json
+
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda *_args: None)
+    monkeypatch.setattr(model, "_wait_for_response", lambda *_args: '{"action":"PATCH_FILE","arguments":{"path":"tests/test_assignment1.py","old_text":"x","new_text":"y')
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "still truncated JSON")
+    result = model._recover_json_response(object(), '{"action":"PATCH_FILE",')
+    parsed = json.loads(result)
+    assert parsed["action"] == "STOP"
+    assert "安全停止" in parsed["reasoning_summary"]
