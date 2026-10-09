@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import zipfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -128,7 +129,9 @@ class CoderBackupStore:
                 file_count=int(data.get("file_count", 0)),
             )
 
-        archive_tmp = self.root / f".{archive.name}.{os.getpid()}.tmp"
+        # A PID-only temp name collides when concurrent snapshots run in the
+        # same process. A unique sibling keeps os.replace atomic per snapshot.
+        archive_tmp = self.root / f".{archive.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
         try:
             file_count = self._build_archive(archive_tmp, generation)
             if immutable and archive.exists():
