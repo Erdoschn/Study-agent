@@ -389,8 +389,32 @@ class ToolExecutor:
 class AgentToolLoop:
     """真正的 LLM ↔ Harness 闭环：Decide → Act → Observe → Decide。"""
 
-    def __init__(self, reasoner, executor: ToolExecutor):
+    def __init__(
+        self,
+        reasoner,
+        executor: ToolExecutor,
+        *,
+        cancellation_event=None,
+    ):
         self.reasoner, self.executor = reasoner, executor
+        self.cancellation_event = cancellation_event
+
+    def _stop_if_cancelled(self, state, *, model="", effort="") -> bool:
+        if self.cancellation_event is None or not self.cancellation_event.is_set():
+            return False
+        state.error = "Agent 请求已取消。"
+        state.add_step(AgentStep(
+            step_id=state.step_count + 1,
+            action="STOP",
+            model=model,
+            effort=effort,
+            reasoning_summary="检测到客户端取消请求，停止继续调用模型或工具。",
+            success=False,
+            error=state.error,
+        ))
+        state.finished = True
+        debug.log("AgentToolLoop", "CANCEL → request cancellation observed")
+        return True
 
     @staticmethod
     def _canonical_arguments(action, tool, arguments):
@@ -547,6 +571,8 @@ class AgentToolLoop:
             state.student.mind.begin_interaction()
         with debug.scope("AgentToolLoop", "RUN"):
             while not state.finished:
+                if self._stop_if_cancelled(state):
+                    break
                 if state.max_steps is not None and state.step_count >= state.max_steps:
                     state.error = f"达到 Agent 最大安全步数上限：{state.max_steps}。"
                     state.add_step(AgentStep(
@@ -562,6 +588,12 @@ class AgentToolLoop:
                 debug.log("AgentToolLoop", f"GOAL CONTEXT → matched={len(state.goal_context)}")
                 debug.log("AgentToolLoop", f"REASON → step={state.step_count + 1}")
                 decision = self._decide(state)
+                if self._stop_if_cancelled(
+                    state,
+                    model=getattr(decision, "model", ""),
+                    effort=getattr(decision, "effort", ""),
+                ):
+                    break
                 debug.log("AgentToolLoop", f"DECISION → {decision.action}")
 
                 if decision.action != "ANSWER":
