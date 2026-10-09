@@ -700,34 +700,74 @@ class BrowserModel(ModelClient):
 
     @staticmethod
     def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+        """Resolve and click a matching visible control, tolerating DOM rerenders.
+
+        DeepSeek can rerender the sidebar after a locator is highlighted. Keep
+        each candidate failure local, re-query before retrying, and log the
+        actual click exception instead of silently treating it as a missing
+        button.
+        """
         import re as _re
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in labels]
+
+        def try_click(locator, description: str) -> bool:
+            for attempt in range(2):
+                try:
+                    count = locator.count()
+                    if count <= 0:
+                        return False
+                    candidate = locator.nth(count - 1)
+                    if not candidate.is_visible():
+                        return False
+                    try:
+                        candidate.scroll_into_view_if_needed(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                    except (AttributeError, TypeError):
+                        # Lightweight test doubles and older locator wrappers
+                        # may not expose scroll_into_view_if_needed.
+                        pass
+                    candidate.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                    return True
+                except Exception as exc:
+                    debug.log(
+                        "BrowserModel",
+                        f"CLICK RETRY → {description}, attempt={attempt + 1}/2, "
+                        f"error={type(exc).__name__}: {exc}",
+                    )
+                    if attempt == 0:
+                        continue
+            return False
+
         for pattern in patterns:
             try:
                 locator = page.get_by_role(role, name=pattern) if role else page.get_by_text(pattern)
-                for index in range(locator.count() - 1, -1, -1):
-                    candidate = locator.nth(index)
-                    if candidate.is_visible():
-                        candidate.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
-                        return True
-            except Exception:
-                continue
+                if try_click(locator, f"label={pattern.pattern!r}"):
+                    return True
+            except Exception as exc:
+                debug.log("BrowserModel", f"CLICK LOCATOR SKIP → {type(exc).__name__}: {exc}")
+
         try:
             buttons = page.locator("button, [role='button']")
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
-                if not button.is_visible():
-                    continue
-                text = " ".join(str(value or "") for value in (
-                    button.inner_text(),
-                    button.get_attribute("aria-label"),
-                    button.get_attribute("title"),
-                )).strip()
-                if any(pattern.search(text) for pattern in patterns):
-                    button.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
-                    return True
-        except Exception:
-            pass
+                try:
+                    if not button.is_visible():
+                        continue
+                    text = " ".join(str(value or "") for value in (
+                        button.inner_text(),
+                        button.get_attribute("aria-label"),
+                        button.get_attribute("title"),
+                    )).strip()
+                    if any(pattern.search(text) for pattern in patterns):
+                        if try_click(buttons.nth(index), f"button-text={text!r}"):
+                            return True
+                except Exception as exc:
+                    debug.log(
+                        "BrowserModel",
+                        f"CLICK CANDIDATE SKIP → index={index}, "
+                        f"error={type(exc).__name__}: {exc}",
+                    )
+        except Exception as exc:
+            debug.log("BrowserModel", f"CLICK BUTTON SCAN SKIP → {type(exc).__name__}: {exc}")
         return False
 
     def _start_fresh_chat(self, page) -> None:
