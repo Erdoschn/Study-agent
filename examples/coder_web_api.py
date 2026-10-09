@@ -370,15 +370,31 @@ class CoderRunControl:
         self.cancel_event = cancellation_event or threading.Event()
         self.finished = False
         self.worker_started = False
+        self._lock_release_guard = threading.Lock()
+        self._owns_run_lock = True
 
     def cancel(self) -> None:
         self.cancel_event.set()
 
+    def release_run_lock_once(self) -> bool:
+        """Release this run lock at most once across competing cleanup paths."""
+        with self._lock_release_guard:
+            if not self._owns_run_lock:
+                return False
+            self._owns_run_lock = False
+        try:
+            RUN_LOCK.release()
+        except RuntimeError:
+            return False
+        return True
+
 
 def _release_run_lock_if_unowned(control) -> None:
-    """Release the global run lock only before ownership transfers to a worker."""
-    if control is None or not control.worker_started:
+    """Release the run lock only if worker ownership has not transferred."""
+    if control is None:
         RUN_LOCK.release()
+    elif not control.worker_started:
+        control.release_run_lock_once()
 
 
 class CoderServer(ThreadingHTTPServer):
@@ -808,7 +824,7 @@ class Handler(BaseHTTPRequestHandler):
                 with RUNS_LOCK:
                     ACTIVE_RUNS.pop(control.run_id, None)
                     control.finished = True
-                RUN_LOCK.release()
+                control.release_run_lock_once()
 
         try:
             # Send the first SSE frame before starting browser/model work. This
