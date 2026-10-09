@@ -29,6 +29,11 @@ jobs:
 
       - name: Run tests
         shell: bash
+        env:
+          # Production defaults intentionally pin Coder to a Windows workspace.
+          # Use an isolated POSIX workspace in Linux CI instead of weakening
+          # the runtime's host-platform guard.
+          CODER_WORKSPACE: ${{ runner.temp }}/study-agent-coder-workspace
         run: |
           set -o pipefail
           python -m pytest -q --tb=short -ra --ignore=tests/test_coder_security.py --junitxml=pytest-results.xml 2>&1 | tee pytest.log
