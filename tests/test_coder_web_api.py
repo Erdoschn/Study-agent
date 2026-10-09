@@ -106,12 +106,11 @@ def test_coder_web_frontend_javascript_parses():
 
 def test_coder_web_frontend_supports_importing_files_into_a_new_project():
     source = _frontend_path("/").read_text(encoding="utf-8")
-    assert "把已有工程文件拖到这里" in source
-    assert "自动创建一个新项目" in source
+    assert "直接拖入文件/文件夹" in source
+    assert "也可以先把已有工程框架拖进来" in source
     assert "createProjectForImport" in source
     assert 'JSON.stringify({name:base,unique:true})' in source
     assert "webkitRelativePath" in source
-    assert "拖入的目录结构" in source
     assert "文件框架已导入" in source
 
 
@@ -143,7 +142,8 @@ def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
     assert 'e.key==="Enter"&&!e.shiftKey&&!e.isComposing' in source
     assert 'e.preventDefault();if(!state.running)void run()' in source
     assert "Enter 发送，Shift + Enter 换行" in source
-    assert 'void run();' in source
+    assert "async function run(){" in source
+    assert 'void run()' in source
 
 
 def test_coder_web_frontend_keeps_output_position_and_compacts_memory():
@@ -161,6 +161,9 @@ def test_coder_web_frontend_layout_keeps_current_task_with_history_and_files_on_
     assert 'items.unshift({current:true,project:state.runProject||state.project||"当前任务",request:state.currentTask})' in source
     assert 'className="history-item"+(item.current?" current":"")' in source
     assert '<div class="files" id="files">' in source
+    assert "function fileType(path)" in source
+    assert "b.append(label,e)" in source
+    assert 'ipynb:"Notebook"' in source
     assert '<div id="modified">暂无</div>' in source
     assert '<h3 style="margin-bottom:7px">测试结果</h3><div id="tests">暂无测试结果</div>' in source
     assert 'id="taskDrop"' in source
