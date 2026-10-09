@@ -597,7 +597,7 @@ class BrowserModel(ModelClient):
             if user32.IsWindow(target):
                 # SW_RESTORE makes a minimized window actionable; SetWindowPos
                 # then immediately sends it behind other windows without focus.
-                user32.ShowWindow(target, 9)
+                user32.ShowWindow(target, 4)
                 flags = 0x0001 | 0x0002 | 0x0010 | 0x0040  # NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW
                 if user32.SetWindowPos(target, -2, 0, 0, 0, 0, flags):
                     debug.log("BrowserModel", f"WINDOW → sent to back hwnd={target}")
