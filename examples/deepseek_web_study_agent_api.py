@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
+from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -270,7 +271,14 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._json({"error": {"message": f"{type(exc).__name__}: {exc}", "type": "server_error"}}, 500)
 
-    def _run(self, question: str, emit) -> Any:
+    def _run(
+        self,
+        question: str,
+        emit,
+        cancellation_event: threading.Event | None = None,
+    ) -> Any:
+        cancellation_event = cancellation_event or threading.Event()
+
         def log_hook(module: str, message: str) -> None:
             print(f"[{module}] {message}", flush=True)
             if module == "AgentReasoner" and message.startswith("ACTION →"):
@@ -284,7 +292,12 @@ class Handler(BaseHTTPRequestHandler):
 
         emit("🤔 StudyAgent 正在分析任务")
         with _RUN_LOCK:
+            if cancellation_event.is_set():
+                raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
             old = debug.log
+            factory = getattr(self.server.agent, "_web_model_factory", None)
+            if factory is not None:
+                factory.begin_run(cancellation_event)
             debug.log = log_hook
             try:
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
@@ -293,8 +306,8 @@ class Handler(BaseHTTPRequestHandler):
                 return result
             finally:
                 debug.log = old
-                factory = getattr(self.server.agent, "_web_model_factory", None)
                 if factory is not None:
+                    factory.end_run(cancellation_event)
                     factory.close()
 
     def _write(self, data: bytes) -> None:
@@ -312,6 +325,7 @@ class Handler(BaseHTTPRequestHandler):
 
         events = queue.Queue()
         sentinel = object()
+        cancellation_event = threading.Event()
         cid = "chatcmpl-" + uuid.uuid4().hex
         self._write(sse(chunk(cid, role="assistant")))
 
@@ -320,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             try:
-                events.put(("result", self._run(question, emit)))
+                events.put(("result", self._run(question, emit, cancellation_event)))
             except Exception as exc:
                 events.put(("error", exc))
             finally:
@@ -351,10 +365,12 @@ class Handler(BaseHTTPRequestHandler):
                     finished = True
                 elif kind == "done" and value is sentinel:
                     break
-        except (BrokenPipeError, ConnectionResetError):
-            print("⚠️ SSE 客户端已断开连接，后台 Agent 不会被强制终止", flush=True)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            cancellation_event.set()
+            print("⚠️ SSE 客户端已断开连接，已请求取消当前浏览器模型调用", flush=True)
         finally:
             if not finished:
+                cancellation_event.set()
                 print("[StudyAgentWebAPI] 客户端提前结束 SSE 等待", flush=True)
 
 
