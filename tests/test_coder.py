@@ -557,7 +557,7 @@ def test_harness_blocks_unrequested_new_test_files(tmp_path):
             {"path": "tests/test_assignment1.py", "content": "def test_x(): assert True"},
             state,
         )
-    with pytest.raises(PermissionError, match="禁止通过 WRITE_FILE 绕过"):
+    with pytest.raises(PermissionError, match="禁止通过 WRITE_FILE 修改测试文件"):
         harness.execute(
             "WRITE_FILE",
             {"path": "tests/test_assignment1.py", "content": "def test_x(): assert True"},
@@ -566,6 +566,21 @@ def test_harness_blocks_unrequested_new_test_files(tmp_path):
     assert not (tmp_path / "tests" / "test_assignment1.py").exists()
 
 
+
+def test_harness_blocks_modifying_existing_tests_outside_task_scope(tmp_path):
+    from types import SimpleNamespace
+    from coder.harness import CoderHarness
+    from coder.state import CoderGoal, CoderState
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState(request="fill TODO cells", goal=CoderGoal("fill TODO cells", must_create_tests=False, must_pass_tests=False))
+    (tmp_path / "tests").mkdir()
+    target = tmp_path / "tests" / "test_assignment1.py"
+    target.write_text("def test_original(): assert True\\n", encoding="utf-8")
+    with pytest.raises(PermissionError, match="未要求新增或修改测试文件"):
+        harness.execute("WRITE_FILE", {"path": "tests/test_assignment1.py", "content": "def test_rewritten(): assert True"}, state)
+    with pytest.raises(PermissionError, match="未要求新增或修改测试文件"):
+        harness.execute("PATCH_FILE", {"path": "tests/test_assignment1.py", "old_text": "test_original", "new_text": "test_rewritten"}, state)
+    assert "test_original" in target.read_text(encoding="utf-8")
 
 def test_coder_test_policy_does_not_match_words_containing_test():
     from coder.agent import CoderAgent
