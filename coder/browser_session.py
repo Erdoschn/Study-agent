@@ -27,8 +27,24 @@ class CoderBrowserSession:
         self._init_error: BaseException | None = None
         self._cancellation_event = Event()
         self._debug_sink = model_kwargs.get("debug_sink")
-        self.model = "deepseek-web"
-        self.user_data_dir = str(model_kwargs.get("user_data_dir", ".coder-browser"))
+        self._model_kwargs = {
+            "model": str(model_kwargs.get("model", "deepseek-web")),
+            "url": model_kwargs.get("url"),
+            "user_data_dir": model_kwargs.get("user_data_dir", ".coder-browser"),
+            "browser_channel": model_kwargs.get("browser_channel"),
+            "timeout": int(model_kwargs.get("timeout", 180)),
+            "response_selectors": model_kwargs.get("response_selectors"),
+            "loading_selectors": model_kwargs.get("loading_selectors"),
+            "session_pause_seconds": float(model_kwargs.get("session_pause_seconds", 1.5)),
+            "cleanup_pause_seconds": float(model_kwargs.get("cleanup_pause_seconds", 3.0)),
+            "post_cleanup_pause_seconds": float(model_kwargs.get("post_cleanup_pause_seconds", 1.5)),
+            "cleanup_after_generate": bool(model_kwargs.get("cleanup_after_generate", False)),
+            "reuse_chat": bool(model_kwargs.get("reuse_chat", True)),
+            "min_send_interval_seconds": float(model_kwargs.get("min_send_interval_seconds", 5.0)),
+            "debug_mode": bool(model_kwargs.get("debug_mode", False)),
+        }
+        self.model = self._model_kwargs["model"]
+        self.user_data_dir = str(self._model_kwargs["user_data_dir"])
         self.reuse_chat = bool(model_kwargs.get("reuse_chat", True))
         self.min_send_interval_seconds = float(
             model_kwargs.get("min_send_interval_seconds", 5.0)
@@ -52,13 +68,7 @@ class CoderBrowserSession:
             if self._debug_sink is not None:
                 debug.bind_thread(self._debug_sink)
             browser = BrowserModel(
-                model="deepseek-web",
-                user_data_dir=self.user_data_dir,
-                timeout=180,
-                cleanup_after_generate=False,
-                reuse_chat=self.reuse_chat,
-                min_send_interval_seconds=self.min_send_interval_seconds,
-                debug_mode=False,
+                **self._model_kwargs,
                 cancellation_event=self._cancellation_event,
             )
             self._browser = browser
@@ -113,6 +123,10 @@ class CoderBrowserSession:
     @property
     def cancellation_event(self) -> Event:
         return self._cancellation_event
+
+    def bind_cancellation_event(self, event: Event | None) -> None:
+        """Bind a caller-owned event to the worker-owned BrowserModel."""
+        self._call(lambda browser: setattr(browser, "cancellation_event", event))
 
     def begin_run(self) -> None:
         with self._state_lock:
