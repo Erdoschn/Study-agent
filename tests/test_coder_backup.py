@@ -81,6 +81,8 @@ def test_harness_updates_backup_only_after_passing_pytest(tmp_path):
     harness = CoderHarness(str(tmp_path), sandbox=sandbox)
     state = CoderState("repair")
 
+    # This test exercises backup timing, not the separate full-read write guard.
+    harness.execute("READ_FILE", {"path": "main.py"}, state)
     harness.execute(
         "WRITE_FILE",
         {"path": "main.py", "content": "VERSION = 1\n"},
