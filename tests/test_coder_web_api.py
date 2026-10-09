@@ -889,3 +889,30 @@ def test_coder_web_ui_and_api_expose_planning_question_response_flow():
     assert 'id="askOpen"' in frontend
     assert 'API+"/respond"' in frontend
     assert "10 秒内点击" in frontend
+
+
+
+def test_coder_plan_summary_shows_goal_scope_and_milestones():
+    import examples.coder_web_api as api
+    from coder.state import CoderStep
+
+    step = CoderStep(
+        1,
+        "PLAN",
+        {},
+        {
+            "status": "PLAN_SET",
+            "long_term_goal": "complete notebook TODOs",
+            "goal": {
+                "description": "complete notebook TODOs",
+                "scope_files": ["assignment1.ipynb", "tests/test_assignment1.py"],
+                "milestones": ["inspect notebook", "implement TODOs", "verify results"],
+                "success_criteria": ["TODOs implemented", "validation passes"],
+            },
+        },
+    )
+    summary = api._step_summary(step)
+    assert "complete notebook TODOs" in summary
+    assert "assignment1.ipynb" in summary
+    assert "inspect notebook" in summary
+    assert "validation passes" in summary
