@@ -5,6 +5,7 @@ import json
 import os
 import zipfile
 import uuid
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -21,6 +22,9 @@ class BackupSnapshot:
 
 class CoderBackupStore:
     """Stores one immutable initial snapshot and one replaceable last-known-good snapshot."""
+
+    _ROOT_LOCKS: dict[str, threading.RLock] = {}
+    _ROOT_LOCKS_GUARD = threading.Lock()
 
     INITIAL_ARCHIVE_NAME = "initial.zip"
     ARCHIVE_NAME = "latest.zip"
@@ -40,6 +44,10 @@ class CoderBackupStore:
             raise WorkspaceSecurityError("Coder backup 必须位于 workspace 内。") from exc
 
         self.root.mkdir(parents=True, exist_ok=True)
+        with self._ROOT_LOCKS_GUARD:
+            self._snapshot_lock = self._ROOT_LOCKS.setdefault(
+                str(self.root).casefold(), threading.RLock()
+            )
         try:
             status = self.root.lstat()
         except OSError as exc:
@@ -121,37 +129,43 @@ class CoderBackupStore:
         generation = int(generation)
         if generation < 0:
             raise ValueError("backup generation 不能为负数。")
-        if immutable and archive.exists():
-            data = self._read_archive_manifest(archive)
-            return BackupSnapshot(
-                generation=int(data.get("generation", generation)),
-                archive=archive,
-                file_count=int(data.get("file_count", 0)),
-            )
 
-        # A PID-only temp name collides when concurrent snapshots run in the
-        # same process. A unique sibling keeps os.replace atomic per snapshot.
-        archive_tmp = self.root / f".{archive.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-        try:
-            file_count = self._build_archive(archive_tmp, generation)
-            if immutable and archive.exists():
+        # Serialize snapshots across store instances targeting the same root.
+        # Otherwise an older generation that finishes late can overwrite a
+        # newer last-known-good archive even when each individual replace is
+        # atomic.
+        with self._snapshot_lock:
+            if archive.exists():
+                current = self._read_archive_manifest(archive)
+                current_generation = int(current.get("generation", -1))
+                if immutable or current_generation > generation:
+                    return BackupSnapshot(
+                        generation=current_generation,
+                        archive=archive,
+                        file_count=int(current.get("file_count", 0)),
+                    )
+
+            archive_tmp = self.root / f".{archive.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            try:
+                file_count = self._build_archive(archive_tmp, generation)
+                if immutable and archive.exists():
+                    try:
+                        archive_tmp.unlink()
+                    except FileNotFoundError:
+                        pass
+                    return self._snapshot(archive, generation, immutable=True)
+                os.replace(archive_tmp, archive)
+                return BackupSnapshot(
+                    generation=generation,
+                    archive=archive,
+                    file_count=file_count,
+                )
+            except Exception:
                 try:
                     archive_tmp.unlink()
                 except FileNotFoundError:
                     pass
-                return self._snapshot(archive, generation, immutable=True)
-            os.replace(archive_tmp, archive)
-            return BackupSnapshot(
-                generation=generation,
-                archive=archive,
-                file_count=file_count,
-            )
-        except Exception:
-            try:
-                archive_tmp.unlink()
-            except FileNotFoundError:
-                pass
-            raise
+                raise
 
     def ensure_initial_snapshot(self, generation: int = 0) -> BackupSnapshot:
         return self._snapshot(
