@@ -169,6 +169,42 @@ def test_browser_model_wait_response_recovers_rate_limit(monkeypatch):
     assert retries == [True]
 
 
+def test_browser_model_retries_rate_limit_via_xpath_when_button_has_no_label(monkeypatch):
+    model = BrowserModel(poll_interval=0.01)
+    events = []
+
+    class Button:
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def click(self, *, timeout):
+            events.append(("click", timeout))
+
+    button = Button()
+
+    class Page:
+        def locator(self, selector):
+            assert selector == (
+                "xpath=" + BrowserModel.DEFAULT_RATE_LIMIT_RETRY_XPATHS[0]
+            )
+            return button
+
+    page = Page()
+    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_click_button_with_matching_label", lambda *_args: False)
+
+    assert model._retry_rate_limited_prompt(page) is True
+    assert events == [("click", BrowserModel.CLICK_ACTION_TIMEOUT_MS)]
+
+
 def test_browser_model_default_chat_policy_is_fresh():
     model = BrowserModel()
     assert model.reuse_chat is False

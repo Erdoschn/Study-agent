@@ -63,6 +63,12 @@ class BrowserModel(ModelClient):
         "Retry",
         "重试",
     )
+    # DeepSeek's rate-limit retry control can be rendered without an accessible
+    # name. Keep the user-confirmed DOM path as a fallback after semantic lookup.
+    DEFAULT_RATE_LIMIT_RETRY_XPATHS = (
+        "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]",
+    )
+    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = 5.0
     MAX_CONTINUE_GENERATIONS = 3
     MAX_RATE_LIMIT_RETRIES = 3
     DEFAULT_COOKIE_ACCEPT_LABELS = (
@@ -1392,12 +1398,68 @@ class BrowserModel(ModelClient):
     def _retry_rate_limited_prompt(self, page) -> bool:
         if not self._rate_limit_visible(page):
             return False
+        # Honour the minimum send interval before attempting the web UI retry.
         self._wait_for_send_slot()
-        if not self._click_button_with_matching_label(page, self.DEFAULT_RESEND_LABELS):
-            debug.log("BrowserModel", "RATE LIMIT → retry button not found")
+        if not self._click_rate_limit_retry_button(page):
+            debug.log(
+                "BrowserModel",
+                "RATE LIMIT → retry button not found "
+                f"(labels + XPath checked for up to "
+                f"{self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS:.1f}s)",
+            )
             return False
         debug.log("BrowserModel", "RATE LIMIT → resend requested")
         return True
+
+    def _click_rate_limit_retry_button(self, page) -> bool:
+        """Find the resend action by accessible label, then the observed DOM XPath.
+
+        DeepSeek sometimes exposes an icon/element without a useful accessible
+        name, so a text-only lookup is not sufficient. The short polling window
+        also allows the retry control to appear after the rate-limit notice.
+        """
+        deadline = time.monotonic() + self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS
+        while True:
+            self._check_cancelled()
+            if not self._rate_limit_visible(page):
+                return False
+
+            if self._click_button_with_matching_label(page, self.DEFAULT_RESEND_LABELS):
+                debug.log("BrowserModel", "RATE LIMIT → resend clicked by accessible label")
+                return True
+
+            for xpath in self.DEFAULT_RATE_LIMIT_RETRY_XPATHS:
+                try:
+                    locator = page.locator(f"xpath={xpath}")
+                    for index in range(locator.count() - 1, -1, -1):
+                        button = locator.nth(index)
+                        if not button.is_visible():
+                            continue
+                        scroll = getattr(button, "scroll_into_view_if_needed", None)
+                        if callable(scroll):
+                            try:
+                                scroll(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                            except Exception:
+                                # A visible target can still be clickable when
+                                # the browser refuses to scroll it.
+                                pass
+                        button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        debug.log(
+                            "BrowserModel",
+                            f"RATE LIMIT → resend clicked by XPath {xpath!r}",
+                        )
+                        return True
+                except Exception as exc:
+                    debug.log(
+                        "BrowserModel",
+                        f"RATE LIMIT → XPath retry click skipped "
+                        f"({type(exc).__name__}: {exc})",
+                    )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._sleep(min(self.poll_interval, remaining))
 
     def _click_button_with_matching_label(self, page, labels: tuple[str, ...]) -> bool:
         """Click only a button whose rendered label actually matches the requested action."""
