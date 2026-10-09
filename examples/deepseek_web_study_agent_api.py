@@ -296,8 +296,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
             old = debug.log
             factory = getattr(self.server.agent, "_web_model_factory", None)
-            if factory is not None:
-                factory.begin_run(cancellation_event)
+            begin_run = getattr(factory, "begin_run", None)
+            if callable(begin_run):
+                begin_run(cancellation_event)
             debug.log = log_hook
             try:
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
@@ -306,9 +307,12 @@ class Handler(BaseHTTPRequestHandler):
                 return result
             finally:
                 debug.log = old
-                if factory is not None:
-                    factory.end_run(cancellation_event)
-                    factory.close()
+                end_run = getattr(factory, "end_run", None)
+                if callable(end_run):
+                    end_run(cancellation_event)
+                close_factory = getattr(factory, "close", None)
+                if callable(close_factory):
+                    close_factory()
 
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
