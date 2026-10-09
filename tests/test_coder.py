@@ -551,7 +551,7 @@ def test_harness_allows_planned_new_files_and_blocks_unplanned_paths(tmp_path):
         goal=CoderGoal(
             "complete notebook TODOs",
             scope_files=["assignment1.ipynb", "tests/test_assignment1.py"],
-            must_create_tests=False,
+            must_create_tests=True,
             must_pass_tests=False,
         ),
         plan_confirmed=True,
@@ -710,3 +710,62 @@ def test_coder_agent_passes_user_reply_into_following_decisions(tmp_path):
     assert questions == ["Should public APIs stay compatible?"]
     assert state.user_responses[-1]["response"] == "Yes, preserve compatibility"
     assert reasoner.seen_responses[-1][-1]["response"] == "Yes, preserve compatibility"
+
+
+
+def test_harness_blocks_new_test_when_plan_did_not_authorize_test_creation(tmp_path):
+    from types import SimpleNamespace
+    from coder.harness import CoderHarness
+    from coder.state import CoderGoal, CoderState
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState(
+        "complete notebook TODOs",
+        goal=CoderGoal(
+            "complete notebook TODOs",
+            scope_files=["assignment1.ipynb", "tests/test_assignment1.py"],
+            milestones=["implement TODOs"],
+            success_criteria=["TODOs implemented"],
+            must_create_tests=False,
+            must_pass_tests=False,
+        ),
+        plan_confirmed=True,
+    )
+    with pytest.raises(PermissionError, match="未批准新建回归测试"):
+        harness.execute(
+            "CREATE_TEST",
+            {"path": "tests/test_assignment1.py", "content": "def test_smoke(): assert True"},
+            state,
+        )
+    assert not (tmp_path / "tests" / "test_assignment1.py").exists()
+
+
+def test_coder_replan_replaces_future_milestones_but_preserves_original_request(tmp_path):
+    from coder.agent import CoderAgent
+    from coder.state import CoderGoal, CoderState
+
+    state = CoderState(
+        "complete the original notebook TODOs",
+        goal=CoderGoal(
+            "initial plan",
+            scope_files=["assignment1.ipynb"],
+            milestones=["inspect", "implement", "test"],
+            success_criteria=["TODOs complete", "tests pass"],
+            must_pass_tests=False,
+        ),
+        plan_confirmed=True,
+    )
+    state.completed_milestones = ["inspect"]
+    state.verified_success_criteria = ["TODOs complete"]
+    CoderAgent._apply_plan(state, {
+        "description": "revised plan still completing notebook TODOs",
+        "scope_files": ["inspect_cell.py"],
+        "milestones": ["inspect", "implement with helper", "verify"],
+        "success_criteria": ["TODOs complete", "output validated"],
+    })
+    assert state.request == "complete the original notebook TODOs"
+    assert state.goal.scope_files == ["assignment1.ipynb", "inspect_cell.py"]
+    assert state.goal.milestones == ["inspect", "implement with helper", "verify"]
+    assert state.completed_milestones == ["inspect"]
+    assert state.goal.success_criteria == ["TODOs complete", "output validated"]
+    assert state.verified_success_criteria == ["TODOs complete"]
