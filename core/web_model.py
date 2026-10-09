@@ -457,11 +457,23 @@ class BrowserModel(ModelClient):
                 "可设置 STUDY_AGENT_WEB_BROWSER=chromium 并安装 Playwright Chromium。"
             ) from exc
 
-        pages = self._context.pages
-        self._page = pages[0] if pages else self._context.new_page()
-        self._page.goto(self.url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-        self._created_edge_window_handles = self._find_new_edge_window_handles(edge_windows_before)
-        return self._page
+        try:
+            pages = self._context.pages
+            self._page = pages[0] if pages else self._context.new_page()
+            self._page.goto(
+                self.url,
+                wait_until="domcontentloaded",
+                timeout=self.timeout * 1000,
+            )
+            self._created_edge_window_handles = self._find_new_edge_window_handles(
+                edge_windows_before
+            )
+            return self._page
+        except Exception:
+            # Navigation can fail after Playwright and the persistent context
+            # have already started. Release both before propagating the error.
+            self.close()
+            raise
 
     def _browser_launch_kwargs(self) -> dict[str, Any]:
         launch_kwargs: dict[str, Any] = {
@@ -1440,7 +1452,7 @@ class BrowserModel(ModelClient):
                             "WAIT RESPONSE → valid JSON candidate found; waiting for response completion signal",
                         )
 
-                ready = stable and json_ready and (not json_mode or not loading)
+                ready = stable and json_ready and not loading
                 if ready:
                     debug.log(
                         "BrowserModel",
