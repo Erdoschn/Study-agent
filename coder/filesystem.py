@@ -2,6 +2,7 @@ import json
 import ntpath
 import os
 import stat
+import uuid
 import re
 from pathlib import Path
 
@@ -172,12 +173,18 @@ class WorkspaceFS:
         self._reject_reparse(target.parent)
         if target.exists():
             self._reject_reparse(target)
-        temp = target.with_name(target.name + ".coder-tmp")
-        if temp.exists():
-            self._reject_reparse(temp)
-            temp.unlink()
-        temp.write_text(data, encoding="utf-8", newline="")
-        os.replace(temp, target)
+        # A deterministic temporary filename races when two operations
+        # write the same target concurrently. Unique sibling files preserve
+        # atomic replacement without deleting another writer's in-progress data.
+        temp = target.with_name(f".{target.name}.{uuid.uuid4().hex}.coder-tmp")
+        try:
+            temp.write_text(data, encoding="utf-8", newline="")
+            os.replace(temp, target)
+        finally:
+            try:
+                temp.unlink()
+            except FileNotFoundError:
+                pass
 
     def validate_notebook(self, content: str) -> dict:
         try:
