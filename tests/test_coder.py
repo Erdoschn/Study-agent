@@ -533,12 +533,12 @@ def test_coder_plan_cannot_escalate_test_policy(tmp_path):
 
     assert state.goal.must_create_tests is False
     assert state.goal.must_pass_tests is False
+    assert state.goal.required_tests == []
 
 
 def test_harness_blocks_unrequested_new_test_files(tmp_path):
     from types import SimpleNamespace
     from coder.harness import CoderHarness
-    from coder.filesystem import WorkspaceFS
     from coder.state import CoderGoal, CoderState
 
     harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
