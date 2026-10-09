@@ -200,6 +200,7 @@ class BrowserModel(ModelClient):
         self._check_cancelled()
         self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
+        self._response_binding_fallback_logged = False
         self._minimize_browser_window(page)
         if not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
@@ -1045,7 +1046,12 @@ class BrowserModel(ModelClient):
                             "COPY BUTTON FALLBACK SKIP → "
                             f"{type(fallback_exc).__name__}: {fallback_exc}",
                         )
-                        return ""
+                        # The message can be re-rendered between locating the
+                        # button and invoking its handler. Re-resolve the target
+                        # within the existing deadline instead of abandoning
+                        # clipboard capture on this transient stale-element race.
+                        self._sleep(min(0.1, self.poll_interval))
+                        continue
 
                 read_deadline = time.monotonic() + min(2.0, float(self.timeout))
                 while time.monotonic() < read_deadline:
@@ -1292,10 +1298,12 @@ class BrowserModel(ModelClient):
             # splitting the assistant DOM node away from the current user node.
             # Fall back to the pre-send response snapshot instead of waiting
             # forever for the transient DOM structure to settle.
-            debug.log(
-                "BrowserModel",
-                "RESPONSE BINDING FALLBACK → current user turn has no separate assistant node yet",
-            )
+            if not getattr(self, "_response_binding_fallback_logged", False):
+                self._response_binding_fallback_logged = True
+                debug.log(
+                    "BrowserModel",
+                    "RESPONSE BINDING FALLBACK → current user turn has no separate assistant node yet",
+                )
 
         for index, selector in enumerate(self.response_selectors):
             try:
