@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass
 from typing import Callable
 
@@ -75,6 +76,10 @@ class HttpClient:
             self.session = session_factory()
         else:
             self.session = requests.Session()
+        # Search providers are shared by concurrent API requests. requests
+        # Session does not promise arbitrary concurrent mutation/use safety;
+        # serialize access to this shared transport instance.
+        self._session_lock = threading.Lock()
 
     def get(
         self,
@@ -92,11 +97,12 @@ class HttpClient:
             )
 
             try:
-                response = self.session.get(
-                    url,
-                    headers=headers or {},
-                    timeout=self.timeout,
-                )
+                with self._session_lock:
+                    response = self.session.get(
+                        url,
+                        headers=headers or {},
+                        timeout=self.timeout,
+                    )
 
                 status = response.status_code
                 reason = response.reason or ""
