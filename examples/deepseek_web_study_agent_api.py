@@ -313,19 +313,18 @@ class Handler(BaseHTTPRequestHandler):
         with _RUN_LOCK:
             if cancellation_event.is_set():
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
-            old = debug.log
             factory = getattr(self.server.agent, "_web_model_factory", None)
             begin_run = getattr(factory, "begin_run", None)
             if callable(begin_run):
                 begin_run(cancellation_event)
-            debug.log = log_hook
+            debug.bind_thread(log_hook)
             try:
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
                 result = _run_agent_with_cancellation(self.server.agent, question, cancellation_event)
                 emit(f"✓ Agent 完成：steps={result.step_count}, evidence={len(result.evidence)}, claims={len(result.claims)}")
                 return result
             finally:
-                debug.log = old
+                debug.clear_thread_binding()
                 end_run = getattr(factory, "end_run", None)
                 if callable(end_run):
                     end_run(cancellation_event)
