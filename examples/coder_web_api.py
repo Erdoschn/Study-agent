@@ -267,6 +267,29 @@ def _step_summary(step) -> str:
         "FINISH": "检查并尝试完成任务",
     }
     summary = labels.get(action, action or "执行操作")
+    if action == "PLAN":
+        observation = step.observation if isinstance(step.observation, dict) else {}
+        goal = observation.get("goal", {}) if isinstance(observation.get("goal", {}), dict) else {}
+        description = str(goal.get("description", "") or observation.get("long_term_goal", "")).strip()
+        scope = goal.get("scope_files", []) if isinstance(goal.get("scope_files", []), list) else []
+        milestones = goal.get("milestones", []) if isinstance(goal.get("milestones", []), list) else []
+        criteria = goal.get("success_criteria", []) if isinstance(goal.get("success_criteria", []), list) else []
+        if description:
+            summary += f"：目标={description[:180]}"
+        if scope:
+            summary += "；范围=" + ", ".join(str(x) for x in scope[:6])
+            if len(scope) > 6:
+                summary += f" 等 {len(scope)} 个路径/模式"
+        if milestones:
+            summary += "；步骤=" + " → ".join(str(x)[:60] for x in milestones[:5])
+            if len(milestones) > 5:
+                summary += f" → …（共 {len(milestones)} 项）"
+        if criteria:
+            summary += "；验收=" + "；".join(str(x)[:80] for x in criteria[:3])
+            if len(criteria) > 3:
+                summary += f"；另有 {len(criteria)-3} 项"
+    if action == "ASK_USER" and args.get("question"):
+        summary += "：" + str(args["question"]).replace("\n", " ")[:180]
     if action == "SEARCH" and args.get("query"):
         summary += "：" + str(args["query"])[:100]
     if action == "RUN_PYTEST":
