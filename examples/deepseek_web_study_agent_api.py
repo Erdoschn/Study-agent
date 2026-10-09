@@ -32,6 +32,25 @@ API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", "").strip()
 _RUN_LOCK = threading.Lock()
 
 
+def _run_agent_with_cancellation(agent, question: str, cancellation_event: threading.Event):
+    """Pass cancellation to current StudyAgent implementations without breaking test doubles."""
+    import inspect
+
+    run = agent.run
+    try:
+        parameters = inspect.signature(run).parameters.values()
+        supports_cancellation = any(
+            parameter.name == "cancellation_event"
+            or parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+    except (TypeError, ValueError):
+        supports_cancellation = False
+    if supports_cancellation:
+        return run(question, cancellation_event=cancellation_event)
+    return run(question)
+
+
 def build_search_router() -> SearchRouter:
     router = SearchRouter()
     router.register(ArxivSearchProvider())
@@ -302,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             debug.log = log_hook
             try:
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
-                result = self.server.agent.run(question)
+                result = _run_agent_with_cancellation(self.server.agent, question, cancellation_event)
                 emit(f"✓ Agent 完成：steps={result.step_count}, evidence={len(result.evidence)}, claims={len(result.claims)}")
                 return result
             finally:
