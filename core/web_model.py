@@ -34,7 +34,10 @@ class BrowserModel(ModelClient):
         '[class*="streaming"]',
         '[class*="thinking"]',
     )
-    DEFAULT_NEW_CHAT_LABELS = ("New chat", "新对话", "新建对话")
+    DEFAULT_NEW_CHAT_LABELS = (
+        "New chat", "New conversation", "Start new chat",
+        "新对话", "新建对话", "新建聊天", "新建会话", "开始新对话", "开启新对话",
+    )
     DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
     # DeepSeek currently renders the per-conversation action control as the
     # third child div of the history-row anchor. Keep this as a primary
