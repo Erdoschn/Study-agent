@@ -14,7 +14,7 @@
 .body{flex:1 1 0;min-width:0;min-height:0;overflow:hidden;padding:18px;display:flex;flex-direction:column}.hero{max-width:920px;margin:3vh auto 18px;width:100%;flex:none}.hero h1{margin:0;font-size:28px}.hero p{margin:6px 0;color:var(--muted)}.task{margin-top:15px;border:1px solid var(--border);background:var(--panel);border-radius:14px;padding:12px;transition:border-color .15s}.task.drag-hot{border-color:#b7becb;background:#1b2029}.task textarea{width:100%;min-height:110px;max-height:40vh;resize:vertical;border:0;outline:0;background:transparent;color:var(--text)}.composer-hint{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;color:var(--muted);font-size:10px}.taskbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:9px;color:var(--muted);font-size:11px}.run{padding:8px 15px;background:var(--accent);color:var(--accentText);border-color:transparent;font-weight:700}.run.stop{background:#39252a;color:#efc4c6}
 .timeline{max-width:920px;width:100%;flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 4px 30px;margin:0 auto;scrollbar-width:thin;scrollbar-color:#586171 #11141a}.timeline::-webkit-scrollbar{width:10px}.timeline::-webkit-scrollbar-track{background:#11141a}.timeline::-webkit-scrollbar-thumb{background:#586171;border-radius:8px;border:2px solid #11141a}.timeline::-webkit-scrollbar-thumb:hover{background:#70798a}.step{border-left:2px solid #313845;padding:0 0 14px 14px;margin-left:5px}.step-head{display:flex;gap:8px;align-items:center}.num{font-size:10px;color:var(--muted);min-width:28px}.action{font-weight:800}.ok{color:var(--ok)}.bad{color:var(--bad)}.meta{color:var(--muted);font-size:11px}.obs{margin-top:6px;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;white-space:pre-wrap;overflow:auto;max-height:180px}.empty{padding:28px;text-align:center;color:var(--muted)}
 .panel{border:1px solid var(--border);background:var(--panel);border-radius:13px;padding:12px;margin-bottom:12px}.panel h3{margin:0 0 9px;font-size:13px}.kv{display:grid;grid-template-columns:110px 1fr;gap:5px;font-size:11px}.kv span{color:var(--muted)}.chip{display:inline-block;margin:3px 4px 0 0;padding:3px 7px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:#b8bfca}.pre{white-space:pre-wrap;word-break:break-word;max-height:300px;overflow:auto;font:11px/1.5 ui-monospace,Consolas,monospace;color:#c4cbd5}.hidden{display:none!important}.feedback textarea{width:100%;min-height:88px;resize:vertical;border:1px solid var(--border);background:#101319;color:var(--text);border-radius:9px;padding:8px 9px;outline:0}.feedback-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}.feedback-actions button{padding:7px 10px}.feedback-status{color:var(--muted);font-size:10px}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:20px}.modal.hidden{display:none}.card{width:min(460px,100%);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}.field{display:grid;gap:6px;margin-top:10px}.field span{color:var(--muted);font-size:11px}.field input{padding:9px 10px;border:1px solid var(--border);background:#101319;color:var(--text);border-radius:9px;outline:0}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:20px}.ask-overlay{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.68);display:grid;place-items:center;padding:18px}.ask-card{width:min(560px,100%);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid #667183;border-radius:16px;padding:18px;box-shadow:0 20px 70px rgba(0,0,0,.45)}.ask-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;font-weight:800}.ask-heading span{font-size:11px;color:var(--muted);font-weight:500}.ask-question{white-space:pre-wrap;overflow-wrap:anywhere;background:#101319;border:1px solid var(--border);border-radius:10px;padding:12px;margin:10px 0 14px}.ask-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px}.ask-actions button{padding:8px 12px}.ask-primary{background:var(--accent);color:var(--accentText);font-weight:700}.ask-response{width:100%;min-height:100px;resize:vertical;background:#101319;border:1px solid var(--border);border-radius:9px;padding:10px;color:var(--text)}.ask-status{font-size:11px;color:var(--muted);margin-top:8px}.modal.hidden{display:none}.card{width:min(460px,100%);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}.field{display:grid;gap:6px;margin-top:10px}.field span{color:var(--muted);font-size:11px}.field input{padding:9px 10px;border:1px solid var(--border);background:#101319;color:var(--text);border-radius:9px;outline:0}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}
 @media(max-width:1200px){.shell{grid-template-columns:250px minmax(0,1fr) 300px}.side,.right{padding:12px}}@media(max-width:900px){.shell{grid-template-columns:230px minmax(0,1fr)}.right{display:none}}@media(max-width:640px){.shell{grid-template-columns:1fr}.side{display:none}.hero,.timeline{max-width:none}.body{padding:12px}.top{padding:0 12px}}
 </style>
 </head>
@@ -75,6 +75,22 @@
   <div class="panel"><h3>Coder 记忆</h3><div id="memory" class="memory-line">暂无策略、经验或技术记录。</div></div>
 </aside>
 </div>
+<div id="askPanel" class="ask-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="askTitle">
+  <div class="ask-card">
+    <div class="ask-heading"><strong id="askTitle">Coder 需要你的意见</strong><span id="askCountdown">10 秒内可回应</span></div>
+    <div id="askQuestion" class="ask-question"></div>
+    <button id="askOpen" class="ask-primary">回应（10 秒内）</button>
+    <div id="askForm" class="hidden">
+      <p class="meta">你可以补充要求、指出方向或回答具体问题。提交后 Coder 会回到原任务目标继续执行。</p>
+      <textarea id="askResponse" class="ask-response" maxlength="12000" placeholder="输入回应…"></textarea>
+      <div class="ask-actions">
+        <button id="askAutonomous">让 Coder 自主决定</button>
+        <button id="askSend" class="ask-primary">发送回应</button>
+      </div>
+    </div>
+    <div id="askStatus" class="ask-status"></div>
+  </div>
+</div>
 <script>
 window.addEventListener("error", function(e) {
   if (!e.error && !e.message) return;
@@ -99,14 +115,16 @@ const UI_IDS=[
   "workspace","project","projectHint","drop","fileInput","files","history","taskDrop","fileProject",
   "dot","health","task","timer","run","timeline","request",
   "modified","tests","finished","verified","steps","summary","feedbackPanel","feedback",
-  "feedbackStatus","submitFeedback","memory"
+  "feedbackStatus","submitFeedback","memory",
+  "askPanel","askCountdown","askQuestion","askOpen","askForm","askResponse","askSend","askAutonomous","askStatus"
 ];
 let ui=Object.create(null);
 let projectsLoadSeq=0;
 let filesLoadSeq=0;
 const state={
   running:false,startedAt:0,timer:null,project:"",runProject:"",
-  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:"",finalState:null,currentTask:""
+  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:"",finalState:null,currentTask:"",
+  pendingQuestion:null,questionTimer:null
 };
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
@@ -152,6 +170,80 @@ async function fetchTimeout(resource,options={},ms=10000){
   }finally{
     clearTimeout(timer);
     if(options.signal&&abortListener)options.signal.removeEventListener("abort",abortListener);
+  }
+}
+function hideAskPanel(){
+  if(state.questionTimer){clearInterval(state.questionTimer);state.questionTimer=null;}
+  state.pendingQuestion=null;
+  $("askPanel").classList.add("hidden");
+  $("askForm").classList.add("hidden");
+  $("askOpen").disabled=false;
+  $("askStatus").textContent="";
+}
+function showAskPanel(event){
+  if(state.questionTimer){clearInterval(state.questionTimer);state.questionTimer=null;}
+  state.pendingQuestion={question_id:String(event.question_id||""),question:String(event.question||""),opened:false};
+  $("askQuestion").textContent=state.pendingQuestion.question;
+  $("askResponse").value="";
+  $("askForm").classList.add("hidden");
+  $("askOpen").classList.remove("hidden");
+  $("askOpen").disabled=false;
+  $("askStatus").textContent="10 秒内点击“回应”即可输入；未点击时 Coder 会自行规划下一步。";
+  $("askPanel").classList.remove("hidden");
+  const deadline=Date.now()+Math.max(1,Number(event.timeout_seconds||10))*1000;
+  const tick=()=>{
+    const remaining=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+    $("askCountdown").textContent=remaining>0?(remaining+" 秒内可回应"):"回应窗口已关闭";
+    if(remaining<=0){
+      if(state.questionTimer){clearInterval(state.questionTimer);state.questionTimer=null;}
+      if(!state.pendingQuestion?.opened)hideAskPanel();
+    }
+  };
+  tick();
+  state.questionTimer=setInterval(tick,200);
+}
+async function openAskResponse(){
+  const question=state.pendingQuestion;
+  if(!question||!state.activeRunId||question.opened)return;
+  $("askOpen").disabled=true;
+  $("askStatus").textContent="正在打开回应通道…";
+  try{
+    const r=await fetchTimeout(API+"/respond",{
+      method:"POST",headers:headers(),
+      body:JSON.stringify({run_id:state.activeRunId,question_id:question.question_id,action:"open"})
+    },5000);
+    if(!r.ok)throw Error((await r.text()).slice(0,500));
+    question.opened=true;
+    if(state.questionTimer){clearInterval(state.questionTimer);state.questionTimer=null;}
+    $("askCountdown").textContent="回应通道已打开";
+    $("askOpen").classList.add("hidden");
+    $("askForm").classList.remove("hidden");
+    $("askStatus").textContent="请填写后发送。若不确定，可以选择让 Coder 根据原目标自主决定。";
+    $("askResponse").focus();
+  }catch(e){
+    $("askOpen").disabled=false;
+    $("askStatus").textContent="未能打开回应窗口："+(e.message||String(e));
+  }
+}
+async function submitAskResponse(valueOverride=null){
+  const question=state.pendingQuestion;
+  if(!question||!question.opened||!state.activeRunId)return;
+  const value=String(valueOverride===null?$("askResponse").value:valueOverride).trim();
+  if(!value){$("askStatus").textContent="请先输入回应，或选择让 Coder 自主决定。";return;}
+  $("askSend").disabled=true;
+  $("askAutonomous").disabled=true;
+  try{
+    const r=await fetchTimeout(API+"/respond",{
+      method:"POST",headers:headers(),
+      body:JSON.stringify({run_id:state.activeRunId,question_id:question.question_id,action:"submit",response:value})
+    },8000);
+    if(!r.ok)throw Error((await r.text()).slice(0,500));
+    appendStep("USER_RESPONSE",true,"已收到你的回应，Coder 将依据原始目标继续。");
+    hideAskPanel();
+  }catch(e){
+    $("askStatus").textContent="发送失败："+(e.message||String(e));
+    $("askSend").disabled=false;
+    $("askAutonomous").disabled=false;
   }
 }
 function setHealth(ok,text){$("dot").className="dot dot "+(ok?"ok":"bad");$("health").textContent=text}
@@ -555,6 +647,9 @@ async function run(){
             setProject(namedProject);
           }
           appendStep("PROJECT",true,"项目："+(namedProject||"未知"));
+        }else if(e.type==="ask_user"){
+          appendStep("ASK_USER",true,e.question||"Coder 需要你的意见。");
+          showAskPanel(e);
         }else if(e.type==="started"){
           const startedProject=String(e.project||"").trim();
           if(state.runProject){
@@ -633,6 +728,7 @@ async function run(){
       console.error("Coder run failed",e);
     }
   }finally{
+    hideAskPanel();
     state.running=false;
     clearInterval(state.timer);
     state.timer=null;
@@ -689,6 +785,9 @@ function initCoderUI(attempt=0){
     };
     $("run").onclick=()=>state.running?void requestCancel():run();
     $("submitFeedback").onclick=()=>void submitFeedback();
+    $("askOpen").onclick=()=>void openAskResponse();
+    $("askSend").onclick=()=>void submitAskResponse();
+    $("askAutonomous").onclick=()=>void submitAskResponse("请根据原始目标和当前计划自行选择最稳妥的下一步，不要再等待我的回应。");
     $("task").onkeydown=e=>{
       if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!state.running)void run()}
     };
