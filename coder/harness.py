@@ -600,6 +600,16 @@ class CoderHarness:
             "check": "planned_success_criteria",
             "ok": bool(goal.success_criteria),
         })
+        checks.append({
+            "check": "planned_milestones_completed",
+            "ok": bool(goal.milestones)
+            and all(item in state.completed_milestones for item in goal.milestones),
+        })
+        checks.append({
+            "check": "success_criteria_verified",
+            "ok": bool(goal.success_criteria)
+            and all(item in state.verified_success_criteria for item in goal.success_criteria),
+        })
         normalized_scope = [self._normalize_scope_path(x) for x in goal.scope_files]
         changes_in_scope = all(
             any(
