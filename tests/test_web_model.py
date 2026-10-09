@@ -545,6 +545,49 @@ def test_browser_model_retries_new_chat_click_after_stale_locator():
     assert button.scroll_attempts == 2
 
 
+
+def test_browser_model_does_not_minimize_window_before_new_chat(monkeypatch):
+    model = BrowserModel(debug_mode=False)
+    events = []
+    page = object()
+
+    monkeypatch.setattr(model, "_check_cancelled", lambda: None)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: events.append("new_chat"))
+    monkeypatch.setattr(
+        model, "_minimize_browser_window", lambda _page: events.append("minimize")
+    )
+
+    model.new_chat()
+
+    assert events == ["new_chat"]
+
+
+def test_browser_model_generate_does_not_minimize_before_fresh_chat(monkeypatch):
+    model = BrowserModel(cleanup_after_generate=False)
+    events = []
+    page = object()
+
+    monkeypatch.setattr(model, "_check_cancelled", lambda: None)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: False)
+    monkeypatch.setattr(
+        model, "_start_fresh_chat", lambda _page: events.append("new_chat")
+    )
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: {})
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, _prompt: None)
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: "answer")
+    monkeypatch.setattr(model, "_continue_generation_if_available", lambda _page: False)
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(
+        model, "_minimize_browser_window", lambda _page: events.append("minimize")
+    )
+
+    assert model.generate("", "test prompt") == "answer"
+    assert events == ["new_chat"]
+
 def test_browser_model_finds_copy_button_inside_latest_message_item():
     class Button:
         def __init__(self, name):
