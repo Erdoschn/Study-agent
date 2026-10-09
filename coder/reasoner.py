@@ -60,8 +60,8 @@ class CoderReasoner:
                     "required_files": [],
                     "required_tests": [],
                     "must_modify": True,
-                    "must_create_tests": False,
-                    "must_pass_tests": False,
+                    "must_create_tests": True,
+                    "must_pass_tests": True,
                 }
             ),
             "step": state.step_count,
