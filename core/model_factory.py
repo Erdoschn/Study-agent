@@ -1,3 +1,5 @@
+import threading
+from threading import Event
 from typing import Any
 
 from .__debug__ import debug
@@ -13,6 +15,21 @@ class ModelClientFactory:
     ):
         self.config = config
         self._browser_clients: dict[str, Any] = {}
+        self._run_context = threading.local()
+
+    def begin_run(self, cancellation_event: Event) -> None:
+        """Bind one request's cancellation event to browser clients on this thread."""
+        self._run_context.cancellation_event = cancellation_event
+        for client in tuple(self._browser_clients.values()):
+            client.cancellation_event = cancellation_event
+
+    def end_run(self, cancellation_event: Event) -> None:
+        """Detach a completed request's event so it cannot poison the next run."""
+        if getattr(self._run_context, "cancellation_event", None) is cancellation_event:
+            del self._run_context.cancellation_event
+        for client in tuple(self._browser_clients.values()):
+            if getattr(client, "cancellation_event", None) is cancellation_event:
+                client.cancellation_event = None
 
     def create(
         self,
@@ -84,8 +101,12 @@ class ModelClientFactory:
         model: ModelInfo,
         provider: dict[str, Any],
     ):
+        cancellation_event = getattr(
+            self._run_context, "cancellation_event", None
+        )
         cached = self._browser_clients.get(model.name)
         if cached is not None:
+            cached.cancellation_event = cancellation_event
             return cached
 
         from .web_model import BrowserModel
@@ -111,6 +132,7 @@ class ModelClientFactory:
             min_send_interval_seconds=float(
                 provider.get("min_send_interval_seconds", 5.0)
             ),
+            cancellation_event=cancellation_event,
         )
         self._browser_clients[model.name] = client
         return client
