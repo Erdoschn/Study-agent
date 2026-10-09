@@ -807,3 +807,27 @@ def test_coder_run_lock_release_is_idempotent_across_cleanup_paths():
     assert control.release_run_lock_once() is True
     assert control.release_run_lock_once() is False
     assert not api.RUN_LOCK.locked()
+
+
+def test_coder_run_lock_release_is_safe_under_competing_cleanup_threads():
+    import threading
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("test-competing-cleanup")
+    assert api.RUN_LOCK.acquire(blocking=False)
+    barrier = threading.Barrier(3)
+    results = []
+
+    def release():
+        barrier.wait(timeout=2)
+        results.append(control.release_run_lock_once())
+
+    workers = [threading.Thread(target=release) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    barrier.wait(timeout=2)
+    for worker in workers:
+        worker.join(timeout=2)
+    assert not any(worker.is_alive() for worker in workers)
+    assert sorted(results) == [False, True]
+    assert not api.RUN_LOCK.locked()
