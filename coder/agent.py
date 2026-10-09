@@ -86,6 +86,19 @@ class CoderAgent:
             "补充测试", "创建测试", "编写测试",
         ))
 
+    @staticmethod
+    def _request_requires_new_files(request: str) -> bool:
+        text = str(request or "").casefold()
+        explicit_phrases = (
+            "create a file", "create new file", "new file", "write a script",
+            "create a script", "scaffold", "from scratch", "new project",
+            "create a project", "build an app", "create an app",
+            "创建文件", "新建文件", "新增文件", "写一个脚本", "新建脚本",
+            "创建脚本", "新建项目", "创建项目", "从零搭建", "从头搭建",
+            "搭建一个应用", "开发一个新应用",
+        )
+        return any(phrase in text for phrase in explicit_phrases)
+
     def _workspace_has_tests(self) -> bool:
         list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
         if not callable(list_files):
@@ -187,6 +200,7 @@ class CoderAgent:
             # Only create new test modules when the user asks for them.
             # Existing project tests remain mandatory when present.
             must_create_tests=explicitly_requests_test_creation,
+            must_create_files=self._request_requires_new_files(request),
             must_pass_tests=existing_tests or explicitly_requests_tests,
         )
         started = time.monotonic()
@@ -200,6 +214,28 @@ class CoderAgent:
                 raise_if_cancelled(self.cancellation_event)
                 action = decision["action"]
                 arguments = decision["arguments"]
+
+                if action == "STOP":
+                    reason = (
+                        str(decision.get("reasoning_summary", "")).strip()
+                        or str(decision.get("answer", "")).strip()
+                        or "模型无法给出有效的结构化操作，已安全停止。"
+                    )
+                    state.finished = True
+                    state.goal_verified = False
+                    state.error = "Coder 安全停止：" + reason
+                    state.summary = state.error
+                    state.add_step(CoderStep(
+                        state.step_count + 1,
+                        action,
+                        arguments,
+                        {"status": "stopped", "reason": reason},
+                        success=False,
+                        error=reason,
+                    ))
+                    emit({"type": "step", "step": state.steps[-1]})
+                    emit({"type": "error", "state": state})
+                    return state
 
                 if action == "PLAN":
                     self._apply_plan(state, decision.get("goal", {}))
@@ -260,6 +296,31 @@ class CoderAgent:
                 except Exception as exc:
                     if self.cancellation_event is not None and self.cancellation_event.is_set():
                         raise RunCancelled("Coder 任务已被用户中止。") from exc
+                    message = str(exc)
+                    if any(marker in message for marker in (
+                        "未要求新增或修改测试文件",
+                        "未要求新增测试文件",
+                        "未授权创建新文件",
+                    )):
+                        observation = {"error": f"{type(exc).__name__}: {exc}"}
+                        state.add_step(CoderStep(
+                            state.step_count + 1, action, arguments, observation,
+                            success=False, error=message,
+                        ))
+                        emit({"type": "step", "step": state.steps[-1]})
+                        scope_failures = int(state.metrics.get("scope_write_failures", 0)) + 1
+                        state.metrics["scope_write_failures"] = scope_failures
+                        if scope_failures >= 2:
+                            state.finished = True
+                            state.goal_verified = False
+                            state.error = (
+                                "Coder 连续尝试越过任务范围创建或修改文件，"
+                                "Harness 已阻止操作并终止本轮。"
+                            )
+                            state.summary = state.error
+                            emit({"type": "error", "state": state})
+                            return state
+                        continue
                     observation = {"error": f"{type(exc).__name__}: {exc}"}
                     state.add_step(CoderStep(
                         state.step_count + 1, action, arguments, observation,
