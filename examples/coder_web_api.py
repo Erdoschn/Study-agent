@@ -889,9 +889,20 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(b"data: [DONE]\n\n")
                     self.wfile.flush()
                     return
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             control.cancel()
             print("[CoderWebAPI] SSE client disconnected; cancelling backend task.", flush=True)
+            if not worker_started:
+                raise
+        except OSError as exc:
+            # Windows can report a closed socket as WinError 10053. Once the
+            # worker has started, it owns RUN_LOCK and releases it in its own
+            # finally block; do not bubble this into do_POST's cleanup path.
+            control.cancel()
+            print(
+                f"[CoderWebAPI] SSE socket closed ({type(exc).__name__}: {exc}); cancelling backend task.",
+                flush=True,
+            )
             if not worker_started:
                 raise
         finally:
