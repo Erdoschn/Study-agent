@@ -377,6 +377,11 @@ class CoderHarness:
             normalized = normalized[2:]
         return normalized.casefold()
 
+    @staticmethod
+    def _is_test_artifact_path(path: str) -> bool:
+        normalized = str(path or "").replace("\\", "/").casefold()
+        return "/tests/" in "/" + normalized or normalized.rsplit("/", 1)[-1].startswith("test_")
+
     def _assert_planned_scope(self, path: str, state, action: str) -> None:
         goal = getattr(state, "goal", None)
         # Older direct Harness clients without an Agent goal remain compatible;
@@ -401,9 +406,23 @@ class CoderHarness:
             "请先返回 PLAN，将此文件加入 goal.scope_files，再执行文件操作。"
         )
 
+    def _assert_new_test_allowed(self, path: str, state, action: str) -> None:
+        goal = getattr(state, "goal", None)
+        if (
+            self._is_test_artifact_path(path)
+            and goal is not None
+            and not getattr(goal, "must_create_tests", False)
+        ):
+            raise PermissionError(
+                f"{action} 被 Harness 拦截：当前 PLAN 未批准新建回归测试。"
+                "如确有必要，先通过 PLAN 设置 must_create_tests=true 并授权对应路径。"
+            )
+
     def _write_file(self, args, state):
         path = str(args.get("path", "")).strip()
         self._assert_planned_scope(path, state, "WRITE_FILE")
+        if not self.fs.exists(path):
+            self._assert_new_test_allowed(path, state, "WRITE_FILE")
         content = str(args.get("content", ""))
         self._remember_baseline(path)
         if path.casefold().endswith(".ipynb"):
@@ -457,6 +476,7 @@ class CoderHarness:
     def _create_test(self, args, state):
         path = str(args.get("path", "")).strip()
         self._assert_planned_scope(path, state, "CREATE_TEST")
+        self._assert_new_test_allowed(path, state, "CREATE_TEST")
         if not path.casefold().endswith(".py"):
             raise WorkspaceSecurityError("CREATE_TEST 目标必须是 .py pytest 文件。")
         self._remember_baseline(path)
