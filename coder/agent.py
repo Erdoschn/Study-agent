@@ -208,15 +208,10 @@ class CoderAgent:
                         "PLAN_REQUIRED：第一步必须规划长期目标、成功标准、里程碑和初始文件范围；"
                         "当前动作未执行。请先返回 PLAN。"
                     )
-                    state.add_step(CoderStep(
-                        state.step_count + 1,
-                        "PLAN_REQUIRED",
-                        {},
-                        {"error": message, "attempted_action": action},
-                        success=False,
-                        error=message,
-                    ))
-                    emit({"type": "step", "step": state.steps[-1]})
+                    state.last_observation = {
+                        "error": message,
+                        "attempted_action": action,
+                    }
                     continue
 
                 if action == "STOP":
