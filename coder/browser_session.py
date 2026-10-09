@@ -48,9 +48,9 @@ class CoderBrowserSession:
 
     def _run_browser_thread(self) -> None:
         browser: BrowserModel | None = None
-        if self._debug_sink is not None:
-            debug.bind_thread(self._debug_sink)
         try:
+            if self._debug_sink is not None:
+                debug.bind_thread(self._debug_sink)
             browser = BrowserModel(
                 model="deepseek-web",
                 user_data_dir=self.user_data_dir,
