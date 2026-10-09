@@ -194,6 +194,17 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
         backup=FakeBackup(),
     )
     state = CoderState("repair")
+    from coder.state import CoderGoal
+    state.goal = CoderGoal(
+        "repair",
+        scope_files=["a.py", "tests/test_a.py"],
+        milestones=["repair", "test"],
+        success_criteria=["the regression test passes"],
+        must_create_tests=True,
+        must_pass_tests=True,
+    )
+    state.plan_confirmed = True
+    state.completed_milestones = list(state.goal.milestones)
     harness.execute(
         "WRITE_FILE",
         {"path": "a.py", "content": "print(1)\n"},
