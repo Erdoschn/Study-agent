@@ -36,8 +36,15 @@ class WorkspaceFS:
 
     def __init__(self, root: str | Path):
         raw_root = str(root)
-        if os.name != "nt" and ntpath.isabs(raw_root):
-            raise WorkspaceSecurityError("固定 Coder 工作空间只允许在 Windows 主机上使用。")
+        # ntpath.isabs() also treats POSIX paths such as /tmp/workspace as
+        # absolute. On non-Windows hosts, reject Windows drive/UNC paths while
+        # still allowing the temporary POSIX workspaces used by tests and CI.
+        if (
+            os.name != "nt"
+            and ntpath.isabs(raw_root)
+            and not Path(raw_root).expanduser().is_absolute()
+        ):
+            raise WorkspaceSecurityError("Windows 风格的固定 Coder 工作空间只允许在 Windows 主机上使用。")
         self.root = Path(root).expanduser()
         if not self.root.is_absolute():
             self.root = self.root.resolve()
