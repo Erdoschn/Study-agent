@@ -689,7 +689,7 @@ def test_coder_web_api_sends_sse_done_after_worker_finishes():
 def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refresh_guard():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert ".timeline{max-width:920px;width:100%;flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;" in source
-    assert ".body{flex:1;min-height:0;overflow:hidden;" in source
+    assert ".body{flex:1 1 0;min-width:0;min-height:0;overflow:hidden;" in source
     assert "try{\n      await loadProjects();" in source
     assert 'console.error("Coder final refresh failed",e);' in source
 
