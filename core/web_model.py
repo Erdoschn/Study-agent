@@ -1298,6 +1298,7 @@ class BrowserModel(ModelClient):
         before_snapshot: list[tuple[int, str]],
     ) -> str:
         user_index = self._current_user_message_index(page)
+        unbound_current_turn = False
         if user_index is not None:
             current_message = self._latest_response_message(page)
             if current_message is not None:
@@ -1312,11 +1313,14 @@ class BrowserModel(ModelClient):
                             return candidate
                     except Exception:
                         continue
+            else:
+                unbound_current_turn = True
 
             # Fast web responses can briefly appear before DeepSeek finishes
             # splitting the assistant DOM node away from the current user node.
-            # Fall back to the pre-send response snapshot instead of waiting
-            # forever for the transient DOM structure to settle.
+            # Fall back to the global selector only when its text actually
+            # changed; a rerender that merely duplicates an old response must
+            # not be mistaken for the answer to this turn.
             if not getattr(self, "_response_binding_fallback_logged", False):
                 self._response_binding_fallback_logged = True
                 debug.log(
@@ -1339,7 +1343,10 @@ class BrowserModel(ModelClient):
                     if index < len(before_snapshot)
                     else (0, "")
                 )
-                if count > before_count or candidate != before_text:
+                if unbound_current_turn:
+                    if candidate != before_text:
+                        return candidate
+                elif count > before_count or candidate != before_text:
                     return candidate
             except Exception:
                 continue
