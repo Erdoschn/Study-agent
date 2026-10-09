@@ -347,8 +347,12 @@ class CoderAgent:
         tests = raw.get("required_tests", [])
         if isinstance(files, list):
             goal.required_files = [str(x).strip() for x in files if str(x).strip()][:20]
-        if isinstance(tests, list):
+        if isinstance(tests, list) and goal.must_pass_tests:
             goal.required_tests = [str(x).strip() for x in tests if str(x).strip()][:20]
+        elif not goal.must_pass_tests:
+            # A model-generated plan must not invent mandatory test artifacts
+            # for a task whose scope does not require tests.
+            goal.required_tests = []
         goal.description = str(raw.get("description", goal.description)).strip() or goal.description
         # Security policy: a model cannot weaken mandatory coding verification.
         goal.must_modify = True
