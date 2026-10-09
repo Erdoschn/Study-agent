@@ -643,3 +643,70 @@ def test_plan_can_authorize_new_helper_files_without_scope_bypass(tmp_path):
     result = harness.execute("WRITE_FILE", {"path": "inspect_cell.py", "content": "print(1)"}, state)
     assert result["status"] == "written"
     assert (tmp_path / "inspect_cell.py").exists()
+
+
+def test_coder_agent_requires_plan_before_any_tool_execution(tmp_path):
+    class SequenceReasoner:
+        model = None
+        def __init__(self): self.calls = 0
+        def decide(self, _state, _tools):
+            self.calls += 1
+            if self.calls == 1:
+                return {"action": "LIST_FILES", "arguments": {}}
+            if self.calls == 2:
+                return {
+                    "action": "PLAN", "arguments": {}, "reasoning_summary": "plan first",
+                    "goal": {
+                        "description": "complete the requested TODO",
+                        "scope_files": ["assignment1.ipynb"],
+                        "milestones": ["inspect", "implement", "verify"],
+                        "success_criteria": ["complete requested TODO", "validate output"],
+                        "must_create_tests": False, "must_pass_tests": False,
+                    },
+                }
+            return {"action": "STOP", "arguments": {}, "reasoning_summary": "end test"}
+
+    class Harness:
+        sandbox = SimpleNamespace()
+        backup = None
+        def tool_specs(self): return []
+        def execute(self, action, *_args):
+            raise AssertionError(f"tool {action} executed before valid plan")
+
+    reasoner = SequenceReasoner()
+    agent = CoderAgent(tmp_path, reasoner=reasoner, harness=Harness(), close_model_on_run=False)
+    state = agent.run("complete TODO in assignment1.ipynb")
+    assert reasoner.calls == 3
+    assert state.steps[0].action == "PLAN"
+    assert state.plan_confirmed is True
+
+
+def test_coder_agent_passes_user_reply_into_following_decisions(tmp_path):
+    class SequenceReasoner:
+        model = None
+        def __init__(self): self.calls = 0; self.seen_responses = []
+        def decide(self, state, _tools):
+            self.calls += 1
+            self.seen_responses.append(list(state.user_responses))
+            if self.calls == 1:
+                return {"action": "PLAN", "arguments": {}, "goal": {
+                    "scope_files": ["main.py"], "milestones": ["inspect", "implement"],
+                    "success_criteria": ["preserve behavior"], "must_pass_tests": False,
+                }}
+            if self.calls == 2:
+                return {"action": "ASK_USER", "arguments": {"question": "Should public APIs stay compatible?"}}
+            return {"action": "STOP", "arguments": {}, "reasoning_summary": "test complete"}
+
+    class Harness:
+        sandbox = SimpleNamespace()
+        backup = None
+        def tool_specs(self): return []
+        def execute(self, *_args): raise AssertionError("no file action expected")
+
+    reasoner = SequenceReasoner()
+    agent = CoderAgent(tmp_path, reasoner=reasoner, harness=Harness(), close_model_on_run=False)
+    questions = []
+    state = agent.run('preserve public API behavior', user_interaction=lambda question: questions.append(question) or 'Yes, preserve compatibility')
+    assert questions == ["Should public APIs stay compatible?"]
+    assert state.user_responses[-1]["response"] == "Yes, preserve compatibility"
+    assert reasoner.seen_responses[-1][-1]["response"] == "Yes, preserve compatibility"
