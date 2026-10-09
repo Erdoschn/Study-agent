@@ -72,6 +72,7 @@ class CoderReasoner:
             "step": state.step_count,
             "current_milestone": state.current_milestone,
             "completed_milestones": list(state.completed_milestones),
+            "verified_success_criteria": list(state.verified_success_criteria),
             "asked_user_questions": list(state.asked_user_questions[-8:]),
             "user_responses": state.user_responses[-5:],
             "recent_steps": [
