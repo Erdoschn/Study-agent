@@ -744,6 +744,37 @@ def test_browser_model_falls_back_to_dom_click_when_pointer_click_is_blocked(mon
     ]
 
 
+def test_browser_model_retries_copy_target_after_transient_dom_fallback_failure(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    events = []
+    buttons = []
+
+    class Button:
+        def __init__(self, index):
+            self.index = index
+
+        def click(self, *, timeout):
+            raise RuntimeError("intercepted")
+
+        def evaluate(self, script):
+            events.append(("dom", self.index))
+            if self.index == 1:
+                raise RuntimeError("detached during rerender")
+
+    def find_button(_page):
+        button = Button(len(buttons) + 1)
+        buttons.append(button)
+        return button
+
+    monkeypatch.setattr(model, "_find_copy_button", find_button)
+    monkeypatch.setattr(model, "_clear_browser_clipboard", lambda _page: "__pending__")
+    monkeypatch.setattr(model, "_read_browser_clipboard", lambda _page: "copied markdown")
+
+    assert model._copy_latest_response_markdown(object()) == "copied markdown"
+    assert len(buttons) >= 2
+    assert events[:2] == [("dom", 1), ("dom", 2)]
+
+
 def test_browser_model_copies_and_returns_raw_markdown(monkeypatch):
     model = BrowserModel(timeout=1)
     page = object()
