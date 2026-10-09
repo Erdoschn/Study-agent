@@ -79,6 +79,7 @@ class CoderHarness:
         self._study_agent_calls = 0
         self.knowledge_graph = CoderKnowledgeGraph(self.fs.root.parent)
         self._baseline: dict[str, str | None] = {}
+        self._read_coverage: dict[str, list[tuple[int, int]]] = {}
         self._write_count = 0
         self._test_count = 0
         self.MAX_WRITES = 200
@@ -244,8 +245,6 @@ class CoderHarness:
             self._baseline[path] = self.fs.read_text(path)
         except FileNotFoundError:
             self._baseline[path] = None
-
-        self._read_coverage: dict[str, list[tuple[int, int]]] = {}
 
     def _read_file(self, args, state):
         path = str(args.get("path", "")).strip()
