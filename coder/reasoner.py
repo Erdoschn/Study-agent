@@ -169,7 +169,7 @@ class CoderReasoner:
         allowed = {
             "PLAN", "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE",
             "WRITE_NOTEBOOK", "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
-            "ASK_STUDY_AGENT", "NEW_CHAT",
+            "ASK_STUDY_AGENT", "NEW_CHAT", "STOP",
             "READ_DIFF", "VERIFY_GOAL", "FINISH",
         }
         if action not in allowed:
