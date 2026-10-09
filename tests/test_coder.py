@@ -46,6 +46,32 @@ def test_workspace_rejects_escape_and_absolute_paths(tmp_path):
         fs.read_text(r"C:\Users\secret.py")
 
 
+def test_concurrent_workspace_writes_never_leave_partial_file(tmp_path):
+    import threading
+
+    fs = WorkspaceFS(tmp_path)
+    payloads = ["A" * 100_000, "B" * 100_000]
+    barrier = threading.Barrier(len(payloads))
+    errors = []
+
+    def write(payload):
+        try:
+            barrier.wait(timeout=2)
+            fs.write_text("concurrent.py", payload)
+        except Exception as exc:
+            errors.append(exc)
+
+    workers = [threading.Thread(target=write, args=(payload,)) for payload in payloads]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=3)
+
+    assert not errors
+    assert all(not worker.is_alive() for worker in workers)
+    assert fs.read_text("concurrent.py") in payloads
+
+
 def test_workspace_rejects_internal_coder_backup_directory(tmp_path):
     backup = tmp_path / ".coder-backup"
     backup.mkdir()
