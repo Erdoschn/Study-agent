@@ -510,3 +510,57 @@ def test_harness_rejects_python_execution_outside_workspace(tmp_path):
             {"script_path": "../outside.py"},
             state,
         )
+
+
+
+def test_coder_plan_cannot_escalate_test_policy(tmp_path):
+    from types import SimpleNamespace
+    from coder.agent import CoderAgent
+    from coder.state import CoderGoal, CoderState
+
+    state = CoderState(
+        request="fill TODO cells in a notebook",
+        goal=CoderGoal(
+            "fill TODO cells in a notebook",
+            must_create_tests=False,
+            must_pass_tests=False,
+        ),
+    )
+    CoderAgent._apply_plan(state, {
+        "description": "fill TODO cells",
+        "required_tests": ["tests/test_assignment1.py"],
+    })
+
+    assert state.goal.must_create_tests is False
+    assert state.goal.must_pass_tests is False
+
+
+def test_harness_blocks_unrequested_new_test_files(tmp_path):
+    from types import SimpleNamespace
+    from coder.harness import CoderHarness
+    from coder.filesystem import WorkspaceFS
+    from coder.state import CoderGoal, CoderState
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState(
+        request="fill TODO cells in a notebook",
+        goal=CoderGoal(
+            "fill TODO cells in a notebook",
+            must_create_tests=False,
+            must_pass_tests=False,
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="未要求新增测试文件"):
+        harness.execute(
+            "CREATE_TEST",
+            {"path": "tests/test_assignment1.py", "content": "def test_x(): assert True"},
+            state,
+        )
+    with pytest.raises(PermissionError, match="禁止通过 WRITE_FILE 绕过"):
+        harness.execute(
+            "WRITE_FILE",
+            {"path": "tests/test_assignment1.py", "content": "def test_x(): assert True"},
+            state,
+        )
+    assert not (tmp_path / "tests" / "test_assignment1.py").exists()
