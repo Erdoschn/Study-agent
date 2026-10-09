@@ -18,7 +18,13 @@ class CoderBrowserSession:
     small model interface CoderReasoner needs.
     """
 
-    def __init__(self, **model_kwargs: Any):
+    def __init__(
+        self,
+        *,
+        startup_timeout_seconds: float = 60.0,
+        **model_kwargs: Any,
+    ):
+        self._startup_timeout_seconds = max(0.1, float(startup_timeout_seconds))
         self._tasks: queue.Queue[tuple[Callable[[], Any] | None, queue.Queue]] = queue.Queue()
         self._ready = threading.Event()
         self._state_lock = threading.RLock()
@@ -56,7 +62,17 @@ class CoderBrowserSession:
             daemon=True,
         )
         self._thread.start()
-        self._ready.wait()
+        if not self._ready.wait(timeout=self._startup_timeout_seconds):
+            # Do not leave the API request blocked forever if Playwright hangs
+            # while launching a local browser. Queue shutdown so the daemon
+            # worker closes the browser if startup eventually returns.
+            self._cancellation_event.set()
+            with self._state_lock:
+                self._closed = True
+                self._tasks.put((None, queue.Queue(maxsize=1)))
+            raise RuntimeError(
+                f"Coder 浏览器线程初始化超时：{self._startup_timeout_seconds:.1f}s"
+            )
         if self._init_error is not None:
             error = self._init_error
             raise RuntimeError(
@@ -76,6 +92,11 @@ class CoderBrowserSession:
             browser.prepare_browser()
         except BaseException as exc:
             self._init_error = exc
+            if browser is not None:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
             self._ready.set()
             if self._debug_sink is not None:
                 debug.clear_thread_binding()
