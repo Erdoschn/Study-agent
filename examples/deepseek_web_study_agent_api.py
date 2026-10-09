@@ -299,7 +299,17 @@ class Handler(BaseHTTPRequestHandler):
         cancellation_event = cancellation_event or threading.Event()
 
         def log_hook(module: str, message: str) -> None:
-            print(f"[{module}] {message}", flush=True)
+            # DebugTracer prints the complete trace to the terminal when debug
+            # is enabled. Avoid printing the same line twice through this sink.
+            # With debug disabled, keep only operationally important failures.
+            important = (
+                "ERROR", "FAILED", "FAIL →", "CANCEL", "RATE LIMIT",
+                "WINDOW BACK FAILED", "WINDOW ENUM SKIP",
+            )
+            if not debug.enabled and any(token in message.upper() for token in important):
+                print(f"[{module}] {message}", flush=True)
+
+            # These are user-facing progress events, not raw debug output.
             if module == "AgentReasoner" and message.startswith("ACTION →"):
                 emit("🧠 " + message.split("→", 1)[1].strip())
             elif module == "ToolExecutor" and message.startswith("ARGS →"):
