@@ -8,8 +8,8 @@ class CoderGoal:
     required_files: list[str] = field(default_factory=list)
     required_tests: list[str] = field(default_factory=list)
     must_modify: bool = True
-    must_create_tests: bool = False
-    must_pass_tests: bool = False
+    must_create_tests: bool = True
+    must_pass_tests: bool = True
 
 
 @dataclass
