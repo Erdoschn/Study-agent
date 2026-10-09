@@ -402,23 +402,55 @@ class BrowserModel(ModelClient):
             "BrowserModel",
             f"JSON RECOVERY → previous_chars={len(str(previous_answer or ''))}",
         )
-        before_snapshot = self._response_snapshot(page)
-        self._pending_prompt = recovery_prompt
-        self._send_prompt(page, recovery_prompt)
-        answer = self._wait_for_response(page, before_snapshot)
-        markdown = self._copy_latest_response_markdown(page)
-        if markdown:
-            extracted = self._extract_json_object(markdown)
-            if extracted:
-                answer = extracted
-        if self._needs_json_recovery(answer):
-            preview = " ".join(str(answer or "")[:160].split())
-            raise RuntimeError(
-                "DeepSeek Web JSON 恢复失败：仍未返回合法 Agent JSON。"
-                f" 原始恢复输出：{preview}"
+        try:
+            before_snapshot = self._response_snapshot(page)
+            self._pending_prompt = recovery_prompt
+            self._send_prompt(page, recovery_prompt)
+            answer = self._wait_for_response(page, before_snapshot)
+            markdown = self._copy_latest_response_markdown(page)
+            if markdown:
+                extracted = self._extract_json_object(markdown)
+                if extracted:
+                    answer = extracted
+            if self._needs_json_recovery(answer):
+                preview = " ".join(str(answer or "")[:240].split())
+                debug.log(
+                    "BrowserModel",
+                    "JSON RECOVERY → invalid response; failing closed with STOP",
+                )
+                return self._json_stop_response(
+                    "DeepSeek Web 的原始响应和一次 JSON 修复响应都不完整或无效；"
+                    "为避免执行猜测出来的文件操作，本轮已安全停止。"
+                    + (f" 响应片段：{preview}" if preview else "")
+                )
+        except RunCancelled:
+            raise
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"JSON RECOVERY → failed ({type(exc).__name__}); failing closed with STOP",
+            )
+            return self._json_stop_response(
+                f"DeepSeek Web 的 JSON 修复失败（{type(exc).__name__}）；"
+                "为避免执行猜测出来的操作，本轮已安全停止。"
             )
         debug.log("BrowserModel", "JSON RECOVERY → success")
         return answer
+
+    @staticmethod
+    def _json_stop_response(reason: str) -> str:
+        import json
+
+        return json.dumps(
+            {
+                "action": "STOP",
+                "arguments": {},
+                "reasoning_summary": str(reason or "结构化输出无效，已安全停止。")[:500],
+                "answer": "",
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
     def close(self) -> None:
         """Close the browser context owned by this client, even after failures."""
