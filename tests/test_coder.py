@@ -564,3 +564,19 @@ def test_harness_blocks_unrequested_new_test_files(tmp_path):
             state,
         )
     assert not (tmp_path / "tests" / "test_assignment1.py").exists()
+
+
+
+def test_coder_test_policy_does_not_match_words_containing_test():
+    from coder.agent import CoderAgent
+
+    assert CoderAgent._request_requires_tests("complete latest notebook TODO cells") is False
+    assert CoderAgent._request_requires_tests("please run pytest") is True
+    assert CoderAgent._request_requires_tests("补充单元测试") is True
+
+
+def test_coder_only_creates_tests_when_user_requests_creation():
+    from coder.agent import CoderAgent
+
+    assert CoderAgent._request_requires_test_creation("补充测试用例") is True
+    assert CoderAgent._request_requires_test_creation("修复 notebook 中的 TODO") is False
