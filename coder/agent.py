@@ -164,8 +164,9 @@ class CoderAgent:
             return state
 
         existing_tests = self._workspace_has_tests()
-        explicitly_requests_tests = any(token in request.casefold() for token in (
-            "test", "pytest", "测试", "回归", "单元测试",
+        explicitly_requests_tests = bool(re.search(
+            r"(?i)\btests?\b|\bpytest\b|测试|回归|单元测试",
+            request,
         ))
         explicitly_requests_test_creation = any(token in request.casefold() for token in (
             "create tests", "add tests", "write tests", "新增测试", "增加测试",
