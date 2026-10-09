@@ -74,7 +74,7 @@ class CoderAgent:
     @staticmethod
     def _request_requires_tests(request: str) -> bool:
         return bool(re.search(
-            r"(?i)\\btests?\\b|\\bpytest\\b|测试|回归|单元测试",
+            r"(?i)\btests?\b|\bpytest\b|测试|回归|单元测试",
             str(request or ""),
         ))
 
