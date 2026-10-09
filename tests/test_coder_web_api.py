@@ -696,6 +696,8 @@ def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refre
 
 def test_coder_web_frontend_shows_and_follows_step_scrollbar():
     source = _frontend_path("/").read_text(encoding="utf-8")
+    assert ".side{height:100%;min-height:0;overflow:hidden;" in source
+    assert ".files{flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;" in source
     assert ".timeline{max-width:920px;width:100%;flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;" in source
     assert "scrollbar-gutter:stable" in source
     assert ".timeline::-webkit-scrollbar{width:10px}" in source
