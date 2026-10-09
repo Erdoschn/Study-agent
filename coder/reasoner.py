@@ -54,17 +54,38 @@ class CoderReasoner:
     def decide(self, state: CoderState, tool_specs: list[dict[str, Any]]) -> dict[str, Any]:
         payload = {
             "request": state.request,
+            "long_term_goal": state.request,
+            "plan_confirmed": bool(state.plan_confirmed),
             "goal": (
                 state.goal.__dict__ if state.goal else {
                     "description": state.request,
                     "required_files": [],
                     "required_tests": [],
+                    "scope_files": [],
+                    "milestones": [],
+                    "success_criteria": [],
                     "must_modify": True,
-                    "must_create_tests": True,
+                    "must_create_tests": False,
                     "must_pass_tests": True,
                 }
             ),
             "step": state.step_count,
+            "current_milestone": state.current_milestone,
+            "completed_milestones": list(state.completed_milestones),
+            "asked_user_questions": list(state.asked_user_questions[-8:]),
+            "user_responses": state.user_responses[-5:],
+            "recent_steps": [
+                {
+                    "step_id": step.step_id,
+                    "action": step.action,
+                    "path": str(step.arguments.get("path", ""))[:240]
+                    if isinstance(step.arguments, dict) else "",
+                    "success": bool(step.success),
+                    "error": str(step.error or "")[:300],
+                    "outcome": str(step.observation if step.observation is not None else "")[:500],
+                }
+                for step in state.steps[-12:]
+            ],
             "modified_files": sorted(state.modified_files),
             "created_tests": sorted(state.created_tests),
             "last_test_result_untrusted": self._untrusted(state.last_test_result),
@@ -169,7 +190,7 @@ class CoderReasoner:
         allowed = {
             "PLAN", "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE",
             "WRITE_NOTEBOOK", "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
-            "ASK_STUDY_AGENT", "NEW_CHAT", "STOP",
+            "ASK_STUDY_AGENT", "NEW_CHAT", "STOP", "ASK_USER",
             "READ_DIFF", "VERIFY_GOAL", "FINISH",
         }
         if action not in allowed:
