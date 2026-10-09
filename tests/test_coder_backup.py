@@ -51,10 +51,10 @@ def test_backup_does_not_regress_to_an_older_generation(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     store = CoderBackupStore(workspace)
-    (workspace / "main.py").write_text("value = 1\n", encoding="utf-8")
+    (workspace / "main.py").write_bytes(b"value = 1\n")
     store.snapshot(6)
 
-    (workspace / "main.py").write_text("value = 2\n", encoding="utf-8")
+    (workspace / "main.py").write_bytes(b"value = 2\n")
     result = store.snapshot(5)
 
     assert result.generation == 6
