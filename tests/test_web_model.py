@@ -579,6 +579,16 @@ def test_browser_model_finds_copy_button_inside_latest_message_item():
     assert button is not page.old_item.copy_button
 
 
+def test_browser_model_new_chat_labels_cover_deepseek_localizations():
+    labels = {label.casefold() for label in BrowserModel.DEFAULT_NEW_CHAT_LABELS}
+
+    assert "new chat" in labels
+    assert "new conversation" in labels
+    assert "新建聊天" in BrowserModel.DEFAULT_NEW_CHAT_LABELS
+    assert "新建会话" in BrowserModel.DEFAULT_NEW_CHAT_LABELS
+    assert "新建对话" in BrowserModel.DEFAULT_NEW_CHAT_LABELS
+
+
 def test_browser_model_accepts_existing_blank_chat_as_fresh():
     class Page:
         def __init__(self):
