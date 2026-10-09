@@ -372,9 +372,95 @@ class CoderRunControl:
         self.worker_started = False
         self._lock_release_guard = threading.Lock()
         self._owns_run_lock = True
+        self._user_response_condition = threading.Condition()
+        self._pending_user_question: dict | None = None
 
     def cancel(self) -> None:
         self.cancel_event.set()
+        with self._user_response_condition:
+            self._user_response_condition.notify_all()
+
+    def wait_for_user_response(
+        self,
+        question: str,
+        emit_event,
+        *,
+        open_timeout_seconds: float = 10.0,
+        response_timeout_seconds: float = 180.0,
+    ) -> str | None:
+        question_id = uuid.uuid4().hex
+        pending = {
+            "question_id": question_id,
+            "question": str(question or "")[:2000],
+            "response_requested": False,
+            "response": None,
+            "open_deadline": time.monotonic() + max(0.1, open_timeout_seconds),
+            "response_deadline": None,
+        }
+        with self._user_response_condition:
+            self._pending_user_question = pending
+        emit_event({
+            "type": "ask_user",
+            "question_id": question_id,
+            "question": pending["question"],
+            "timeout_seconds": max(1, int(open_timeout_seconds)),
+        })
+
+        with self._user_response_condition:
+            while self._pending_user_question is pending:
+                if self.cancel_event.is_set():
+                    self._pending_user_question = None
+                    self._user_response_condition.notify_all()
+                    return None
+                if pending["response"] is not None:
+                    answer = str(pending["response"]).strip()
+                    self._pending_user_question = None
+                    self._user_response_condition.notify_all()
+                    return answer or None
+                deadline = (
+                    pending["response_deadline"]
+                    if pending["response_requested"]
+                    else pending["open_deadline"]
+                )
+                remaining = float(deadline) - time.monotonic()
+                if remaining <= 0:
+                    self._pending_user_question = None
+                    self._user_response_condition.notify_all()
+                    return None
+                self._user_response_condition.wait(timeout=min(remaining, 0.25))
+        return None
+
+    def respond_to_user_question(
+        self,
+        question_id: str,
+        action: str,
+        response: str = "",
+        *,
+        response_timeout_seconds: float = 180.0,
+    ) -> bool:
+        action = str(action or "").strip().casefold()
+        with self._user_response_condition:
+            pending = self._pending_user_question
+            if not pending or pending["question_id"] != str(question_id or ""):
+                return False
+            if action == "open":
+                if pending["response_requested"]:
+                    return True
+                if time.monotonic() > pending["open_deadline"]:
+                    return False
+                pending["response_requested"] = True
+                pending["response_deadline"] = time.monotonic() + response_timeout_seconds
+                self._user_response_condition.notify_all()
+                return True
+            if action == "submit":
+                if not pending["response_requested"] or not str(response or "").strip():
+                    return False
+                if len(str(response).encode("utf-8")) > 12_000:
+                    return False
+                pending["response"] = str(response).strip()
+                self._user_response_condition.notify_all()
+                return True
+            return False
 
     def release_run_lock_once(self) -> bool:
         """Release this run lock at most once across competing cleanup paths."""
@@ -623,6 +709,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"status": "saved", "feedback": saved}, 201)
                 return
 
+            if path == "/v1/coder/respond":
+                request = self._body_json()
+                run_id = str(request.get("run_id", "")).strip()
+                question_id = str(request.get("question_id", "")).strip()
+                action = str(request.get("action", "")).strip().casefold()
+                response = str(request.get("response", "") or "").strip()
+                if not run_id or not question_id:
+                    raise ValueError("缺少 run_id 或 question_id。")
+                if action not in {"open", "submit"}:
+                    raise ValueError("action 必须是 open 或 submit。")
+                if action == "submit" and not response:
+                    raise ValueError("回应内容不能为空。")
+                if len(response.encode("utf-8")) > 12_000:
+                    raise WorkspaceSecurityError("用户回应超过 12 KB。")
+                with RUNS_LOCK:
+                    control = ACTIVE_RUNS.get(run_id)
+                if control is None:
+                    self._json({"error": {"message": "任务已结束或不存在。"}}, 404)
+                    return
+                accepted = control.respond_to_user_question(question_id, action, response)
+                if not accepted:
+                    self._json({
+                        "error": {"message": "回应窗口已结束，或该问题尚未开放输入。"}
+                    }, 409)
+                    return
+                self._json({"status": "opened" if action == "open" else "submitted"}, 202)
+                return
+
             if path == "/v1/coder/cancel":
                 request = self._body_json()
                 run_id = str(request.get("run_id", "")).strip()
@@ -777,7 +891,19 @@ class Handler(BaseHTTPRequestHandler):
                         if event.get("type") != "started":
                             emit(event)
 
-                    result_state = agent.run(task, event_hook=agent_event_hook)
+                    def ask_user(question: str) -> str | None:
+                        return control.wait_for_user_response(
+                            question,
+                            events.put,
+                            open_timeout_seconds=10.0,
+                            response_timeout_seconds=180.0,
+                        )
+
+                    result_state = agent.run(
+                        task,
+                        event_hook=agent_event_hook,
+                        user_interaction=ask_user,
+                    )
                     entry = memory.record_run(project=actual_project, state=result_state)
                     events.put({"type": "result", "state": result_state, "memory": entry})
                 finally:
@@ -861,6 +987,15 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "preparing",
                         "message": event.get("message", "正在准备…"),
+                    }))
+                    self.wfile.flush()
+                elif kind == "ask_user":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "ask_user",
+                        "question_id": event.get("question_id", ""),
+                        "question": event.get("question", ""),
+                        "timeout_seconds": event.get("timeout_seconds", 10),
                     }))
                     self.wfile.flush()
                 elif kind == "named":
