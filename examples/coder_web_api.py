@@ -546,26 +546,36 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/v1/coder/projects":
-                if RUN_LOCK.locked():
+                request = self._body_json()
+                if not RUN_LOCK.acquire(blocking=False):
                     self._json({"error": {"message": "Coder 正在运行，暂时不能创建项目。"}}, 409)
                     return
-                request = self._body_json()
-                unique = bool(request.get("unique", False))
-                name = _ensure_project(
-                    request.get("name"),
-                    unique_if_requested=unique,
-                )
+                try:
+                    unique = bool(request.get("unique", False))
+                    name = _ensure_project(
+                        request.get("name"),
+                        unique_if_requested=unique,
+                    )
+                finally:
+                    RUN_LOCK.release()
                 self._json({"status": "created", "project": name}, 201)
                 return
 
             if path == "/v1/coder/files":
-                if RUN_LOCK.locked():
+                # The lock acquisition must be atomic with task startup. A
+                # locked() check alone has a TOCTOU window: a task can start
+                # immediately after the check and race this workspace write.
+                if not RUN_LOCK.acquire(blocking=False):
                     self._json(
                         {"error": {"message": "Coder 正在运行，暂时不能修改 workspace。"}},
                         409,
                     )
                     return
-                self._json(self._upload(), 201)
+                try:
+                    result = self._upload()
+                finally:
+                    RUN_LOCK.release()
+                self._json(result, 201)
                 return
 
             if path == "/v1/coder/feedback":
