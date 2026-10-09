@@ -2063,3 +2063,9 @@ def test_browser_model_json_recovery_fails_closed_to_stop(monkeypatch):
     parsed = json.loads(result)
     assert parsed["action"] == "STOP"
     assert "安全停止" in parsed["reasoning_summary"]
+
+
+def test_browser_model_accepts_ask_user_action_in_json_mode():
+    response = '{"action":"ASK_USER","arguments":{"question":"Which API should be preserved?"}}'
+    assert BrowserModel._extract_json_object(response) == response
+    assert BrowserModel._needs_json_recovery(response) is False
