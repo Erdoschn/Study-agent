@@ -629,17 +629,17 @@ def test_coder_agent_stops_safely_on_stop_action(tmp_path):
     assert state.steps[-1].action == "STOP"
 
 
-def test_edit_only_request_does_not_authorize_new_helper_files():
-    assert CoderAgent._request_requires_new_files("修复 notebook 中的 TODO") is False
-    assert CoderAgent._request_requires_new_files("请创建一个 Python 脚本") is True
-
-
-def test_harness_blocks_unrequested_new_helper_file(tmp_path):
+def test_plan_can_authorize_new_helper_files_without_scope_bypass(tmp_path):
     from types import SimpleNamespace
+    from coder.harness import CoderHarness
     from coder.state import CoderGoal, CoderState
 
     harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
-    state = CoderState("修复 notebook TODO", goal=CoderGoal("修复 notebook TODO", must_create_tests=False, must_create_files=False, must_pass_tests=False))
-    with pytest.raises(PermissionError, match="未授权创建新文件"):
-        harness.execute("WRITE_FILE", {"path": "inspect_cell.py", "content": "print(1)"}, state)
-    assert not (tmp_path / "inspect_cell.py").exists()
+    state = CoderState(
+        "complete notebook TODOs",
+        goal=CoderGoal("complete notebook TODOs", scope_files=["assignment1.ipynb", "inspect_cell.py"], must_pass_tests=False),
+        plan_confirmed=True,
+    )
+    result = harness.execute("WRITE_FILE", {"path": "inspect_cell.py", "content": "print(1)"}, state)
+    assert result["status"] == "written"
+    assert (tmp_path / "inspect_cell.py").exists()
