@@ -369,6 +369,7 @@ class CoderRunControl:
         self.run_id = run_id
         self.cancel_event = cancellation_event or threading.Event()
         self.finished = False
+        self.worker_started = False
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -668,7 +669,10 @@ class Handler(BaseHTTPRequestHandler):
                     with RUNS_LOCK:
                         ACTIVE_RUNS.pop(control.run_id, None)
                     control.finished = True
-                RUN_LOCK.release()
+                # The worker owns RUN_LOCK after its thread starts. An
+                # unexpected SSE exception must not release that lock twice.
+                if not (control is not None and control.worker_started):
+                    RUN_LOCK.release()
                 raise
         except Exception as exc:
             self._json({
@@ -815,7 +819,13 @@ class Handler(BaseHTTPRequestHandler):
                 ),
             }))
             self.wfile.flush()
-            threading.Thread(target=worker, daemon=True).start()
+            worker_thread = threading.Thread(target=worker, daemon=True)
+            control.worker_started = True
+            try:
+                worker_thread.start()
+            except Exception:
+                control.worker_started = False
+                raise
             worker_started = True
             while True:
                 try:
