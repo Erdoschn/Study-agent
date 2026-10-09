@@ -8,9 +8,13 @@ class CoderGoal:
     required_files: list[str] = field(default_factory=list)
     required_tests: list[str] = field(default_factory=list)
     must_modify: bool = True
-    must_create_tests: bool = True
+    must_create_tests: bool = False
     must_pass_tests: bool = True
-    must_create_files: bool = True
+    # Exact paths or glob patterns approved by the Coder planning action.
+    # New files are allowed when the planner adds them to this scope.
+    scope_files: list[str] = field(default_factory=list)
+    milestones: list[str] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -44,6 +48,11 @@ class CoderState:
     backup_generation: int = -1
     initial_backup_generation: int = -1
     metrics: dict[str, Any] = field(default_factory=dict)
+    plan_confirmed: bool = False
+    current_milestone: str = ""
+    completed_milestones: list[str] = field(default_factory=list)
+    asked_user_questions: list[str] = field(default_factory=list)
+    user_responses: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def step_count(self) -> int:
