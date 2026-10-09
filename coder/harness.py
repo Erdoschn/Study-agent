@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import fnmatch
 import re
 import unicodedata
 from pathlib import Path
@@ -90,10 +91,10 @@ class CoderHarness:
             {"name": "SEARCH", "description": "Search configured sources.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
             {"name": "LIST_FILES", "description": "List readable files under the workspace.", "parameters": {"type": "object", "properties": {}}},
             {"name": "READ_FILE", "description": "Read a complete file when it fits; for larger files, read it in consecutive line ranges. The response includes total_lines and next_start_line so the model can scroll through the entire file. Do not assume an omitted range means only the beginning is available.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}}, "required": ["path"]}},
-            {"name": "WRITE_FILE", "description": "Create a new allowed source/text file or replace a whole file when a complete rewrite is genuinely required. For existing files, prefer READ_FILE + PATCH_FILE to preserve unrelated code.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-            {"name": "WRITE_NOTEBOOK", "description": "Create or replace one valid Jupyter Notebook (.ipynb). For existing notebooks, preserve the existing cell structure; prefer PATCH_NOTEBOOK for changing one cell.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-            {"name": "PATCH_FILE", "description": "Replace exactly one matching Python fragment.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-            {"name": "PATCH_NOTEBOOK", "description": "Safely patch one existing notebook cell while preserving other cells, outputs, metadata, and execution state. old_source may be the full current cell source or a snippet that occurs exactly once; prefer the full source. Line-ending differences are normalized. If matching fails, READ_FILE again and retry with the current source; never guess cell contents.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "cell_index": {"type": "integer", "minimum": 0}, "old_source": {"type": "string"}, "new_source": {"type": "string"}}, "required": ["path", "cell_index", "old_source", "new_source"]}},
+            {"name": "WRITE_FILE", "description": "Create a planned new file or update an existing file. Every path must be listed in the current PLAN goal.scope_files (exact path or glob); if another file becomes necessary, return PLAN to extend the scope first. For existing files, prefer READ_FILE + PATCH_FILE.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "WRITE_NOTEBOOK", "description": "Create a planned new notebook or replace one existing notebook. Path must be listed in the current PLAN goal.scope_files; extend via PLAN before touching an out-of-scope path. For existing notebooks, prefer PATCH_NOTEBOOK for one cell.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+            {"name": "PATCH_FILE", "description": "Replace exactly one matching fragment in a file listed in the current PLAN goal.scope_files. If another path is needed, extend the plan before editing.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+            {"name": "PATCH_NOTEBOOK", "description": "Safely patch one cell in a notebook listed in PLAN goal.scope_files, preserving other cells, outputs, metadata, and execution state. If another path is needed, use PLAN to extend scope. old_source may be a full cell or a unique snippet; if matching fails, READ_FILE again and retry with current source.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "cell_index": {"type": "integer", "minimum": 0}, "old_source": {"type": "string"}, "new_source": {"type": "string"}}, "required": ["path", "cell_index", "old_source", "new_source"]}},
             {"name": "CREATE_TEST", "description": "Create one pytest file under workspace/tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
             {"name": "ASK_STUDY_AGENT", "description": "Ask the independently running Study Agent for conceptual or learning guidance. Use this when reasoning is blocked by a knowledge question, not for ordinary file operations.", "parameters": {"type": "object", "properties": {"question": {"type": "string", "maxLength": 8000}}, "required": ["question"]}},
             {"name": "RUN_PYTHON", "description": "Run one Python script inside the isolated sandbox.", "parameters": {"type": "object", "properties": {"script_path": {"type": "string"}}, "required": ["script_path"]}},
@@ -370,32 +371,39 @@ class CoderHarness:
             state.created_tests.add(path)
 
     @staticmethod
-    def _is_test_artifact_path(path: str) -> bool:
-        normalized = str(path or "").replace("\\", "/").casefold()
-        return "/tests/" in "/" + normalized or normalized.rsplit("/", 1)[-1].startswith("test_")
+    def _normalize_scope_path(path: str) -> str:
+        normalized = str(path or "").replace("\\", "/").strip()
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        return normalized.casefold()
 
-    def _assert_test_write_allowed(self, path: str, state, action: str) -> None:
-        if not self._is_test_artifact_path(path):
-            return
+    def _assert_planned_scope(self, path: str, state, action: str) -> None:
         goal = getattr(state, "goal", None)
-        if goal is not None and not getattr(goal, "must_create_tests", False):
-            raise PermissionError(
-                f"当前任务未要求新增或修改测试文件；禁止通过 {action} 修改测试文件以偏离任务范围。"
-            )
-
-    def _assert_new_file_allowed(self, path: str, state, action: str) -> None:
-        if self.fs.exists(path) or self._is_test_artifact_path(path):
+        # Older direct Harness clients without an Agent goal remain compatible;
+        # every real CoderAgent run creates a goal before any tool call.
+        if goal is None:
             return
-        goal = getattr(state, "goal", None)
-        if goal is not None and not getattr(goal, "must_create_files", True):
+        if not getattr(state, "plan_confirmed", False):
             raise PermissionError(
-                f"当前任务未授权创建新文件；禁止通过 {action} 创建辅助文件以偏离任务范围。"
+                f"{action} 被 Harness 拦截：必须先完成 PLAN，明确长期目标、里程碑和 scope_files。"
             )
+        normalized = self._normalize_scope_path(path)
+        patterns = list(getattr(goal, "scope_files", []) or [])
+        if any(
+            normalized == self._normalize_scope_path(pattern)
+            or fnmatch.fnmatchcase(normalized, self._normalize_scope_path(pattern))
+            for pattern in patterns
+            if str(pattern or "").strip()
+        ):
+            return
+        raise PermissionError(
+            f"{action} 路径 {path!r} 不在当前计划范围；"
+            "请先返回 PLAN，将此文件加入 goal.scope_files，再执行文件操作。"
+        )
 
     def _write_file(self, args, state):
         path = str(args.get("path", "")).strip()
-        self._assert_test_write_allowed(path, state, "WRITE_FILE")
-        self._assert_new_file_allowed(path, state, "WRITE_FILE")
+        self._assert_planned_scope(path, state, "WRITE_FILE")
         content = str(args.get("content", ""))
         self._remember_baseline(path)
         if path.casefold().endswith(".ipynb"):
@@ -409,8 +417,7 @@ class CoderHarness:
 
     def _write_notebook(self, args, state):
         path = str(args.get("path", "")).strip()
-        self._assert_test_write_allowed(path, state, "WRITE_NOTEBOOK")
-        self._assert_new_file_allowed(path, state, "WRITE_NOTEBOOK")
+        self._assert_planned_scope(path, state, "WRITE_NOTEBOOK")
         content = str(args.get("content", ""))
         self._remember_baseline(path)
         self._validate_notebook_write_safety(path, content)
@@ -420,7 +427,7 @@ class CoderHarness:
 
     def _patch_file(self, args, state):
         path = str(args.get("path", "")).strip()
-        self._assert_test_write_allowed(path, state, "PATCH_FILE")
+        self._assert_planned_scope(path, state, "PATCH_FILE")
         if path.casefold().endswith(".ipynb"):
             raise WorkspaceSecurityError(
                 "PATCH_FILE 不直接修改 .ipynb；请使用 WRITE_NOTEBOOK 保持 Notebook 结构有效。"
@@ -432,7 +439,7 @@ class CoderHarness:
 
     def _patch_notebook(self, args, state):
         path = str(args.get("path", "")).strip()
-        self._assert_test_write_allowed(path, state, "PATCH_NOTEBOOK")
+        self._assert_planned_scope(path, state, "PATCH_NOTEBOOK")
         self._remember_baseline(path)
         self.fs.patch_notebook(
             path,
@@ -448,12 +455,8 @@ class CoderHarness:
         }
 
     def _create_test(self, args, state):
-        goal = getattr(state, "goal", None)
-        if goal is not None and not getattr(goal, "must_create_tests", False):
-            raise PermissionError(
-                "当前任务未要求新增测试文件。请直接验证目标文件，或确认用户明确要求创建测试。"
-            )
         path = str(args.get("path", "")).strip()
+        self._assert_planned_scope(path, state, "CREATE_TEST")
         if not path.casefold().endswith(".py"):
             raise WorkspaceSecurityError("CREATE_TEST 目标必须是 .py pytest 文件。")
         self._remember_baseline(path)
@@ -581,6 +584,32 @@ class CoderHarness:
     def _verify_goal(self, _args, state: CoderState):
         goal = state.goal or CoderGoal(state.request)
         checks = []
+        checks.append({
+            "check": "first_step_planning",
+            "ok": bool(getattr(state, "plan_confirmed", False)),
+        })
+        checks.append({
+            "check": "planned_file_scope",
+            "ok": bool(goal.scope_files),
+        })
+        checks.append({
+            "check": "planned_milestones",
+            "ok": bool(goal.milestones),
+        })
+        checks.append({
+            "check": "planned_success_criteria",
+            "ok": bool(goal.success_criteria),
+        })
+        normalized_scope = [self._normalize_scope_path(x) for x in goal.scope_files]
+        changes_in_scope = all(
+            any(
+                self._normalize_scope_path(path) == pattern
+                or fnmatch.fnmatchcase(self._normalize_scope_path(path), pattern)
+                for pattern in normalized_scope
+            )
+            for path in state.modified_files
+        )
+        checks.append({"check": "all_changes_in_plan_scope", "ok": changes_in_scope})
         required_files = goal.required_files
         for path in required_files:
             checks.append({"check": f"required_file:{path}", "ok": self.fs.exists(path)})
