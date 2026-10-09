@@ -883,6 +883,23 @@ def test_browser_model_dismisses_cookie_banner_before_browser_actions():
     assert page.banner.button.clicked is True
 
 
+
+def test_browser_model_does_not_accept_stable_non_json_while_still_loading(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        poll_interval=0.01,
+        stable_seconds=0.03,
+    )
+    monkeypatch.setattr(model, "_latest_response", lambda _page, _snapshot: "partial answer")
+    monkeypatch.setattr(model, "_loading_visible", lambda _page: True)
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: None)
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="回答完成超时"):
+        model._wait_for_response(object(), [(0, "")])
+    assert time.monotonic() - started >= 0.8
+
+
 def test_browser_model_waits_until_loading_indicator_disappears(monkeypatch):
     class Page:
         def __init__(self):
