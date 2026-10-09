@@ -204,7 +204,9 @@ class BrowserModel(ModelClient):
         self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
         self._response_binding_fallback_logged = False
-        self._minimize_browser_window(page)
+        # Do not minimize Edge before Playwright interactions. Chromium's
+        # actionability checks can never stabilize controls in a minimized
+        # window, so the New Chat button times out even when correctly found.
         if not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
@@ -588,7 +590,8 @@ class BrowserModel(ModelClient):
         self._ensure_logged_in(page)
         self._check_cancelled()
         self._json_mode_active = False
-        self._minimize_browser_window(page)
+        # Keep the page restored while clicking/confirming the New Chat control.
+        # The normal generation cleanup may minimize the window after UI work.
         self._start_fresh_chat(page)
         self._chat_initialized = True
         self._chat_reset_count += 1
