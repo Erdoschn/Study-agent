@@ -71,6 +71,21 @@ class CoderAgent:
             self.reasoner = CoderReasoner(**reasoner_kwargs)
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
 
+    @staticmethod
+    def _request_requires_tests(request: str) -> bool:
+        return bool(re.search(
+            r"(?i)\\btests?\\b|\\bpytest\\b|测试|回归|单元测试",
+            str(request or ""),
+        ))
+
+    @staticmethod
+    def _request_requires_test_creation(request: str) -> bool:
+        text = str(request or "").casefold()
+        return any(token in text for token in (
+            "create tests", "add tests", "write tests", "新增测试", "增加测试",
+            "补充测试", "创建测试", "编写测试",
+        ))
+
     def _workspace_has_tests(self) -> bool:
         list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
         if not callable(list_files):
@@ -164,14 +179,8 @@ class CoderAgent:
             return state
 
         existing_tests = self._workspace_has_tests()
-        explicitly_requests_tests = bool(re.search(
-            r"(?i)\btests?\b|\bpytest\b|测试|回归|单元测试",
-            request,
-        ))
-        explicitly_requests_test_creation = any(token in request.casefold() for token in (
-            "create tests", "add tests", "write tests", "新增测试", "增加测试",
-            "补充测试", "创建测试", "编写测试",
-        ))
+        explicitly_requests_tests = self._request_requires_tests(request)
+        explicitly_requests_test_creation = self._request_requires_test_creation(request)
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
