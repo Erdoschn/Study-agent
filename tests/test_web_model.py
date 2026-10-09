@@ -1593,7 +1593,7 @@ def test_browser_model_sends_tracked_window_to_bottom_and_logs_attempt(monkeypat
         web_model_module.debug.set_enabled(old_debug)
 
     assert fake_ctypes.windll.user32.calls[0] == ("restore", 5678, 4)
-    assert fake_ctypes.windll.user32.calls[1][0:3] == ("position", 5678, -2)
+    assert fake_ctypes.windll.user32.calls[1][0:3] == ("position", 5678, 1)
     assert "WINDOW BACK ATTEMPT" in output
     assert "WINDOW BACK SUCCESS" in output
 
