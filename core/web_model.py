@@ -176,11 +176,15 @@ class BrowserModel(ModelClient):
         self._check_cancelled()
         page = self._ensure_page()
         self._dismiss_cookie_banner(page)
-        # A logged-in browser is already ready for work: move it behind other
-        # windows instead of leaving it in the foreground. If login is needed,
-        # keep it visible so the user can complete authentication manually.
-        if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+        # DeepSeek renders its chat input asynchronously after DOMContentLoaded.
+        # Poll briefly instead of misclassifying a logged-in session as logged out.
+        if self._wait_for_chat_input(page, timeout=8.0):
             self._send_browser_window_to_back(page)
+        else:
+            debug.log(
+                "BrowserModel",
+                "PREWARM LOGIN → chat input not detected within 8s; keeping window visible",
+            )
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}",
@@ -486,9 +490,22 @@ class BrowserModel(ModelClient):
                 wait_until="domcontentloaded",
                 timeout=self.timeout * 1000,
             )
-            self._created_edge_window_handles = self._find_new_edge_window_handles(
-                edge_windows_before
-            )
+            # Edge may create its top-level HWND slightly after Playwright returns.
+            # Poll for it so prewarming can reliably move the correct window behind
+            # other applications rather than silently skipping the operation.
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                self._created_edge_window_handles = self._find_new_edge_window_handles(
+                    edge_windows_before
+                )
+                if self._created_edge_window_handles:
+                    break
+                self._sleep(0.1)
+            if not self._created_edge_window_handles:
+                debug.log(
+                    "BrowserModel",
+                    "WINDOW HANDLE → no new Edge HWND detected after 3s",
+                )
             return self._page
         except Exception:
             # Navigation can fail after Playwright and the persistent context
@@ -654,6 +671,21 @@ class BrowserModel(ModelClient):
         self._chat_initialized = True
         self._chat_reset_count += 1
         debug.log("BrowserModel", f"NEW CHAT → reset_count={self._chat_reset_count}")
+
+    def _wait_for_chat_input(self, page, *, timeout: float = 8.0) -> bool:
+        """Wait for the web app to render a usable chat input during prewarm."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while True:
+            self._check_cancelled()
+            if self._find_visible(
+                page, ("textarea", '[contenteditable="true"]')
+            ) is not None:
+                debug.log("BrowserModel", "PREWARM LOGIN → chat input detected")
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._sleep(min(0.25, remaining))
 
     def _dismiss_cookie_banner(self, page) -> bool:
         """Dismiss a visible cookie-consent overlay without bypassing security checks."""
