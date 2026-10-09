@@ -369,21 +369,24 @@ class CoderHarness:
         if created_test:
             state.created_tests.add(path)
 
+    @staticmethod
+    def _is_test_artifact_path(path: str) -> bool:
+        normalized = str(path or "").replace("\\", "/").casefold()
+        return "/tests/" in "/" + normalized or normalized.rsplit("/", 1)[-1].startswith("test_")
+
+    def _assert_test_write_allowed(self, path: str, state, action: str) -> None:
+        if not self._is_test_artifact_path(path):
+            return
+        goal = getattr(state, "goal", None)
+        if goal is not None and not getattr(goal, "must_create_tests", False):
+            raise PermissionError(
+                f"当前任务未要求新增或修改测试文件；禁止通过 {action} 修改测试文件以偏离任务范围。"
+            )
+
     def _write_file(self, args, state):
         path = str(args.get("path", "")).strip()
+        self._assert_test_write_allowed(path, state, "WRITE_FILE")
         content = str(args.get("content", ""))
-        normalized = path.replace("\\", "/").casefold()
-        is_test_path = "/tests/" in "/" + normalized or normalized.rsplit("/", 1)[-1].startswith("test_")
-        goal = getattr(state, "goal", None)
-        if (
-            is_test_path
-            and not self.fs.exists(path)
-            and goal is not None
-            and not getattr(goal, "must_create_tests", False)
-        ):
-            raise PermissionError(
-                "当前任务未要求新增测试文件；禁止通过 WRITE_FILE 绕过 CREATE_TEST 的范围限制。"
-            )
         self._remember_baseline(path)
         if path.casefold().endswith(".ipynb"):
             self._validate_notebook_write_safety(path, content)
@@ -406,6 +409,7 @@ class CoderHarness:
 
     def _patch_file(self, args, state):
         path = str(args.get("path", "")).strip()
+        self._assert_test_write_allowed(path, state, "PATCH_FILE")
         if path.casefold().endswith(".ipynb"):
             raise WorkspaceSecurityError(
                 "PATCH_FILE 不直接修改 .ipynb；请使用 WRITE_NOTEBOOK 保持 Notebook 结构有效。"
@@ -417,6 +421,7 @@ class CoderHarness:
 
     def _patch_notebook(self, args, state):
         path = str(args.get("path", "")).strip()
+        self._assert_test_write_allowed(path, state, "PATCH_NOTEBOOK")
         self._remember_baseline(path)
         self.fs.patch_notebook(
             path,
