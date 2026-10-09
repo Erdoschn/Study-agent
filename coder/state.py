@@ -51,6 +51,7 @@ class CoderState:
     plan_confirmed: bool = False
     current_milestone: str = ""
     completed_milestones: list[str] = field(default_factory=list)
+    verified_success_criteria: list[str] = field(default_factory=list)
     asked_user_questions: list[str] = field(default_factory=list)
     user_responses: list[dict[str, str]] = field(default_factory=list)
 
