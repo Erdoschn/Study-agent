@@ -652,9 +652,11 @@ class BrowserModel(ModelClient):
                 f"WINDOW BACK SET POSITION → hwnd={target}, z_order=HWND_BOTTOM, "
                 f"flags={flags:#x}, restore_previous_state={restored}",
             )
-            positioned = user32.SetWindowPos(target, -2, 0, 0, 0, 0, flags)
+            # Win32 constants: HWND_BOTTOM = 1, HWND_NOTOPMOST = -2.
+            # -2 only removes topmost status; it does NOT place the window at the bottom.
+            positioned = user32.SetWindowPos(target, 1, 0, 0, 0, 0, flags)
             if positioned:
-                debug.log("BrowserModel", f"WINDOW BACK SUCCESS → hwnd={target}")
+                debug.log("BrowserModel", f"WINDOW BACK SUCCESS → hwnd={target}, z_order=HWND_BOTTOM")
             else:
                 error_code = getattr(ctypes, "get_last_error", lambda: 0)()
                 debug.log(
