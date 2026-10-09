@@ -499,6 +499,52 @@ def test_browser_model_click_helpers_use_bounded_timeout():
     assert button.clicked is True
     assert button.timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
 
+def test_browser_model_retries_new_chat_click_after_stale_locator():
+    class Button:
+        def __init__(self):
+            self.click_attempts = 0
+            self.scroll_attempts = 0
+
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def scroll_into_view_if_needed(self, *, timeout):
+            assert timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
+            self.scroll_attempts += 1
+
+        def click(self, *, timeout):
+            assert timeout == BrowserModel.CLICK_ACTION_TIMEOUT_MS
+            self.click_attempts += 1
+            if self.click_attempts == 1:
+                raise RuntimeError("element detached during sidebar rerender")
+
+    button = Button()
+
+    class Page:
+        def get_by_role(self, role, name=None):
+            assert role == "button"
+            return button
+
+        def get_by_text(self, pattern):
+            return FakeLocator([], visible=False)
+
+        def locator(self, selector):
+            if selector == "button, [role='button']":
+                return FakeLocator([], visible=False)
+            raise AssertionError(f"unexpected selector: {selector}")
+
+    assert BrowserModel._click_first_visible(Page(), ("New chat",), role="button") is True
+    assert button.click_attempts == 2
+    assert button.scroll_attempts == 2
+
+
 def test_browser_model_finds_copy_button_inside_latest_message_item():
     class Button:
         def __init__(self, name):
