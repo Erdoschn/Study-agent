@@ -1135,19 +1135,54 @@ class BrowserModel(ModelClient):
         if not self._rate_limit_visible(page):
             return False
         self._wait_for_send_slot()
-        if not self._click_first_visible(page, self.DEFAULT_RESEND_LABELS, role="button"):
-            if not self._click_first_visible(page, self.DEFAULT_RESEND_LABELS):
-                debug.log("BrowserModel", "RATE LIMIT → retry button not found")
-                return False
+        if not self._click_button_with_matching_label(page, self.DEFAULT_RESEND_LABELS):
+            debug.log("BrowserModel", "RATE LIMIT → retry button not found")
+            return False
         debug.log("BrowserModel", "RATE LIMIT → resend requested")
         return True
 
+    def _click_button_with_matching_label(self, page, labels: tuple[str, ...]) -> bool:
+        """Click only a button whose rendered label actually matches the requested action."""
+        import re as _re
+        patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in labels]
+        try:
+            buttons = page.locator("button, [role='button']")
+            for index in range(buttons.count() - 1, -1, -1):
+                button = buttons.nth(index)
+                if not button.is_visible():
+                    continue
+                label = " ".join(str(value or "") for value in (
+                    button.inner_text(),
+                    button.get_attribute("aria-label"),
+                    button.get_attribute("title"),
+                )).strip()
+                if any(pattern.search(label) for pattern in patterns):
+                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    return True
+        except Exception as exc:
+            debug.log("BrowserModel", f"BUTTON LABEL SCAN SKIP → {type(exc).__name__}: {exc}")
+        for pattern in patterns:
+            try:
+                locator = page.get_by_role("button", name=pattern)
+                for index in range(locator.count() - 1, -1, -1):
+                    button = locator.nth(index)
+                    if not button.is_visible():
+                        continue
+                    label = " ".join(str(value or "") for value in (
+                        button.inner_text(),
+                        button.get_attribute("aria-label"),
+                        button.get_attribute("title"),
+                    )).strip()
+                    if pattern.search(label):
+                        button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        return True
+            except Exception:
+                continue
+        return False
+
     def _continue_generation_if_available(self, page) -> bool:
         try:
-            return (
-                self._click_first_visible(page, self.DEFAULT_CONTINUE_LABELS, role="button")
-                or self._click_first_visible(page, self.DEFAULT_CONTINUE_LABELS)
-            )
+            return self._click_button_with_matching_label(page, self.DEFAULT_CONTINUE_LABELS)
         except Exception as exc:
             debug.log("BrowserModel", f"CONTINUE LOOKUP SKIP → {type(exc).__name__}: {exc}")
             return False
