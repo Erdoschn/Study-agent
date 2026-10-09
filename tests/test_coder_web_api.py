@@ -774,3 +774,27 @@ def test_coder_web_frontend_distinguishes_active_cancel_id_from_memory_run_id():
     assert 'const runId=state.memoryRunId;' in source
 
 
+
+
+
+def test_coder_run_lock_is_not_released_after_worker_owns_it():
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("test-worker")
+    assert api.RUN_LOCK.acquire(blocking=False)
+    try:
+        control.worker_started = True
+        api._release_run_lock_if_unowned(control)
+        assert api.RUN_LOCK.locked()
+    finally:
+        if api.RUN_LOCK.locked():
+            api.RUN_LOCK.release()
+
+
+def test_coder_run_lock_is_released_before_worker_ownership():
+    import examples.coder_web_api as api
+
+    control = api.CoderRunControl("test-not-started")
+    assert api.RUN_LOCK.acquire(blocking=False)
+    api._release_run_lock_if_unowned(control)
+    assert not api.RUN_LOCK.locked()
