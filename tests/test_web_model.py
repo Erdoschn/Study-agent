@@ -1792,9 +1792,12 @@ def test_browser_model_marks_recovery_failure_as_request_failure(monkeypatch):
     monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
     monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append("cleanup"))
 
-    with pytest.raises(RuntimeError, match="JSON 恢复失败"):
-        model.generate("", "choose an action", json_mode=True)
+    import json
 
+    result = model.generate("", "choose an action", json_mode=True)
+    parsed = json.loads(result)
+    assert parsed["action"] == "STOP"
+    assert "安全停止" in parsed["reasoning_summary"]
     assert events == ["cleanup"]
 
 
