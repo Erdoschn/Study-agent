@@ -372,6 +372,18 @@ class CoderHarness:
     def _write_file(self, args, state):
         path = str(args.get("path", "")).strip()
         content = str(args.get("content", ""))
+        normalized = path.replace("\\", "/").casefold()
+        is_test_path = "/tests/" in "/" + normalized or normalized.rsplit("/", 1)[-1].startswith("test_")
+        goal = getattr(state, "goal", None)
+        if (
+            is_test_path
+            and not self.fs.exists(path)
+            and goal is not None
+            and not getattr(goal, "must_create_tests", False)
+        ):
+            raise PermissionError(
+                "当前任务未要求新增测试文件；禁止通过 WRITE_FILE 绕过 CREATE_TEST 的范围限制。"
+            )
         self._remember_baseline(path)
         if path.casefold().endswith(".ipynb"):
             self._validate_notebook_write_safety(path, content)
@@ -419,6 +431,11 @@ class CoderHarness:
         }
 
     def _create_test(self, args, state):
+        goal = getattr(state, "goal", None)
+        if goal is not None and not getattr(goal, "must_create_tests", False):
+            raise PermissionError(
+                "当前任务未要求新增测试文件。请直接验证目标文件，或确认用户明确要求创建测试。"
+            )
         path = str(args.get("path", "")).strip()
         if not path.casefold().endswith(".py"):
             raise WorkspaceSecurityError("CREATE_TEST 目标必须是 .py pytest 文件。")
