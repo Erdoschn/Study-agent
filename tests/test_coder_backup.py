@@ -205,6 +205,7 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
     )
     state.plan_confirmed = True
     state.completed_milestones = list(state.goal.milestones)
+    state.verified_success_criteria = list(state.goal.success_criteria)
     harness.execute(
         "WRITE_FILE",
         {"path": "a.py", "content": "print(1)\n"},
