@@ -47,6 +47,21 @@ def test_backup_snapshot_contains_only_python_code_and_manifest(tmp_path):
     assert not backup.contains_text(".env", "SECRET=x")
 
 
+def test_backup_does_not_regress_to_an_older_generation(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = CoderBackupStore(workspace)
+    (workspace / "main.py").write_text("value = 1\n", encoding="utf-8")
+    store.snapshot(6)
+
+    (workspace / "main.py").write_text("value = 2\n", encoding="utf-8")
+    result = store.snapshot(5)
+
+    assert result.generation == 6
+    assert store.read_manifest()["generation"] == 6
+    assert store.contains_text("main.py", "value = 1\n")
+
+
 def test_backup_is_inside_workspace_but_hidden_from_workspacefs(tmp_path):
     backup = CoderBackupStore(tmp_path)
     backup.snapshot(0)
