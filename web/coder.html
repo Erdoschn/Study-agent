@@ -7,15 +7,15 @@
 <style>
 :root{color-scheme:dark;--bg:#0e1014;--panel:#151821;--panel2:#1b2029;--panel3:#232936;--border:#303643;--text:#edf0f4;--muted:#8e96a5;--ok:#83c58d;--bad:#e57578;--accent:#e9ebef;--accentText:#111318}
 *{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--text);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,textarea{font:inherit}button{cursor:pointer;color:var(--text);border:1px solid var(--border);background:var(--panel2);border-radius:10px}button:hover{background:var(--panel3)}
-.shell{height:100%;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr) 360px;overflow:hidden}.side,.right{background:#11141a;border-color:var(--border)}.side{height:100%;min-height:0;overflow:hidden;border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px}.right{border-left:1px solid var(--border);padding:16px;overflow:auto}.brand{display:flex;align-items:center;gap:10px}.mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:var(--accentText);display:grid;place-items:center;font-weight:800}.brand small{display:block;color:var(--muted);font-size:11px}.workspace{padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel)}.workspace b{display:block;font-size:12px}.workspace span{display:block;color:var(--muted);font-size:11px;word-break:break-all;margin-top:3px}.history-list{margin-top:8px;display:grid;gap:5px;max-height:190px;overflow:auto}.history-item{width:100%;padding:7px 8px;border:1px solid var(--border);background:#101319;border-radius:8px;text-align:left;color:var(--text)}.history-item:hover{background:var(--panel2)}.history-item b{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-item span{font-size:10px}.memory-line{margin:4px 0;color:var(--muted);font-size:10px;line-height:1.45}
-.drop{border:1px dashed #586171;border-radius:14px;padding:18px;text-align:center;color:var(--muted);background:#15181f;transition:.15s}.drop.hot{border-color:#b7becb;background:#1a1e27;color:var(--text)}.drop strong{display:block;color:var(--text);margin-bottom:4px}.drop input{display:none}.drop label{display:inline-block;margin-top:8px;padding:7px 10px;border:1px solid var(--border);border-radius:9px;color:var(--text);cursor:pointer}
-.files{flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#586171 #11141a}.files::-webkit-scrollbar{width:10px}.files::-webkit-scrollbar-track{background:#11141a}.files::-webkit-scrollbar-thumb{background:#586171;border-radius:8px;border:2px solid #11141a}.files::-webkit-scrollbar-thumb:hover{background:#70798a}.file{display:flex;align-items:center;gap:7px;width:100%;padding:7px 8px;border:0;background:transparent;text-align:left;border-radius:8px}.file:hover{background:var(--panel2)}.file .ext{font-size:10px;color:var(--muted);width:42px}.side-note{color:var(--muted);font-size:10px}
+.shell{height:100%;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr) 360px;overflow:hidden}.side,.right{background:#11141a;border-color:var(--border)}.side{height:100%;min-height:0;overflow:hidden;border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px}.right{border-left:1px solid var(--border);padding:16px;overflow:auto}.brand{display:flex;align-items:center;gap:10px}.mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:var(--accentText);display:grid;place-items:center;font-weight:800}.brand small{display:block;color:var(--muted);font-size:11px}.workspace{padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel)}.workspace b{display:block;font-size:12px}.workspace span{display:block;color:var(--muted);font-size:11px;word-break:break-all;margin-top:3px}.history-list{margin-top:8px;display:grid;gap:6px;min-height:100px;overflow:auto}.history-item{width:100%;padding:9px 10px;border:1px solid var(--border);background:#101319;border-radius:9px;text-align:left;color:var(--text)}.history-item:hover{background:var(--panel2)}.history-item.current{border-color:#8f9bad;background:#202632;box-shadow:inset 3px 0 0 #c4ccd8}.history-item b{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-item span{display:block;font-size:10px;color:var(--muted);overflow-wrap:anywhere}.history-item .current-tag{display:inline-block;margin-right:5px;color:#111318;background:#d8dee8;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:800}.memory-line{margin:4px 0;color:var(--muted);font-size:10px;line-height:1.45}
+.drop{border:1px dashed #586171;border-radius:10px;padding:5px 8px;text-align:center;color:var(--muted);background:#101319;transition:.15s;cursor:pointer}.drop.hot{border-color:#b7becb;background:#1a1e27;color:var(--text)}.drop strong{display:inline;color:var(--text);margin-right:5px;font-size:11px}.drop input{display:none}.drop label{display:inline-block;padding:3px 5px;border:1px solid var(--border);border-radius:7px;color:var(--text);cursor:pointer;font-size:11px}
+.files{min-height:70px;max-height:35vh;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#586171 #11141a}.files::-webkit-scrollbar{width:10px}.files::-webkit-scrollbar-track{background:#11141a}.files::-webkit-scrollbar-thumb{background:#586171;border-radius:8px;border:2px solid #11141a}.files::-webkit-scrollbar-thumb:hover{background:#70798a}.file{display:flex;align-items:center;gap:7px;width:100%;padding:7px 8px;border:0;background:transparent;text-align:left;border-radius:8px}.file:hover{background:var(--panel2)}.file .ext{font-size:10px;color:var(--muted);width:42px}.side-note{color:var(--muted);font-size:10px}
 .main{min-width:0;min-height:0;display:flex;flex-direction:column}.top{height:62px;flex:none;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 18px}.top span{display:block;color:var(--muted);font-size:11px}.health{display:flex;gap:7px;align-items:center;font-size:11px;color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;background:#687080}.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}
-.body{flex:1 1 0;min-width:0;min-height:0;overflow:hidden;padding:18px;display:flex;flex-direction:column}.hero{max-width:920px;margin:3vh auto 18px;width:100%;flex:none}.hero h1{margin:0;font-size:28px}.hero p{margin:6px 0;color:var(--muted)}.task{margin-top:15px;border:1px solid var(--border);background:var(--panel);border-radius:14px;padding:12px}.task textarea{width:100%;min-height:110px;resize:vertical;border:0;outline:0;background:transparent;color:var(--text)}.taskbar{display:flex;justify-content:space-between;align-items:center;margin-top:8px;color:var(--muted);font-size:11px}.run{padding:8px 15px;background:var(--accent);color:var(--accentText);border-color:transparent;font-weight:700}.run.stop{background:#39252a;color:#efc4c6}
+.body{flex:1 1 0;min-width:0;min-height:0;overflow:hidden;padding:18px;display:flex;flex-direction:column}.hero{max-width:920px;margin:3vh auto 18px;width:100%;flex:none}.hero h1{margin:0;font-size:28px}.hero p{margin:6px 0;color:var(--muted)}.task{margin-top:15px;border:1px solid var(--border);background:var(--panel);border-radius:14px;padding:12px;transition:border-color .15s}.task.drag-hot{border-color:#b7becb;background:#1b2029}.task textarea{width:100%;min-height:110px;max-height:40vh;resize:vertical;border:0;outline:0;background:transparent;color:var(--text)}.composer-hint{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;color:var(--muted);font-size:10px}.taskbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:9px;color:var(--muted);font-size:11px}.run{padding:8px 15px;background:var(--accent);color:var(--accentText);border-color:transparent;font-weight:700}.run.stop{background:#39252a;color:#efc4c6}
 .timeline{max-width:920px;width:100%;flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 4px 30px;margin:0 auto;scrollbar-width:thin;scrollbar-color:#586171 #11141a}.timeline::-webkit-scrollbar{width:10px}.timeline::-webkit-scrollbar-track{background:#11141a}.timeline::-webkit-scrollbar-thumb{background:#586171;border-radius:8px;border:2px solid #11141a}.timeline::-webkit-scrollbar-thumb:hover{background:#70798a}.step{border-left:2px solid #313845;padding:0 0 14px 14px;margin-left:5px}.step-head{display:flex;gap:8px;align-items:center}.num{font-size:10px;color:var(--muted);min-width:28px}.action{font-weight:800}.ok{color:var(--ok)}.bad{color:var(--bad)}.meta{color:var(--muted);font-size:11px}.obs{margin-top:6px;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;white-space:pre-wrap;overflow:auto;max-height:180px}.empty{padding:28px;text-align:center;color:var(--muted)}
 .panel{border:1px solid var(--border);background:var(--panel);border-radius:13px;padding:12px;margin-bottom:12px}.panel h3{margin:0 0 9px;font-size:13px}.kv{display:grid;grid-template-columns:110px 1fr;gap:5px;font-size:11px}.kv span{color:var(--muted)}.chip{display:inline-block;margin:3px 4px 0 0;padding:3px 7px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:#b8bfca}.pre{white-space:pre-wrap;word-break:break-word;max-height:300px;overflow:auto;font:11px/1.5 ui-monospace,Consolas,monospace;color:#c4cbd5}.hidden{display:none!important}.feedback textarea{width:100%;min-height:88px;resize:vertical;border:1px solid var(--border);background:#101319;color:var(--text);border-radius:9px;padding:8px 9px;outline:0}.feedback-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}.feedback-actions button{padding:7px 10px}.feedback-status{color:var(--muted);font-size:10px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;padding:20px}.modal.hidden{display:none}.card{width:min(460px,100%);background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px}.field{display:grid;gap:6px;margin-top:10px}.field span{color:var(--muted);font-size:11px}.field input{padding:9px 10px;border:1px solid var(--border);background:#101319;color:var(--text);border-radius:9px;outline:0}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:15px}
-@media(max-width:1100px){.shell{grid-template-columns:270px 1fr}.right{display:none}}@media(max-width:720px){.shell{grid-template-columns:1fr}.side{display:none}.hero,.timeline{max-width:none}.body{padding:12px}.top{padding:0 12px}}
+@media(max-width:1200px){.shell{grid-template-columns:250px minmax(0,1fr) 300px}.side,.right{padding:12px}}@media(max-width:900px){.shell{grid-template-columns:230px minmax(0,1fr)}.right{display:none}}@media(max-width:640px){.shell{grid-template-columns:1fr}.side{display:none}.hero,.timeline{max-width:none}.body{padding:12px}.top{padding:0 12px}}
 </style>
 </head>
 <body>
@@ -30,17 +30,11 @@
     </select>
     <span id="projectHint">没有项目也可以直接输入要求，Coder 会自动创建独立目录。</span>
   </div>
-  <div class="workspace">
+  <div class="workspace" style="flex:1;min-height:0;display:flex;flex-direction:column">
     <b>最近任务</b>
     <div class="history-list" id="history"><div class="empty">暂无历史记录</div></div>
   </div>
-  <div class="drop" id="drop">
-    <strong>把已有工程文件拖到这里</strong>
-    没选项目时会自动创建一个新项目，并保留拖入的目录结构
-    <label>选择文件<input id="fileInput" type="file" multiple></label>
-  </div>
-  <div class="files" id="files"></div>
-  <div class="side-note">支持 UTF-8 Python / 文本文件与 .ipynb；单文件读取安全上限 16 MiB。</div>
+  <div class="side-note">当前任务固定显示在列表首位；点击历史任务可查看其最终状态。</div>
 </aside>
 <main class="main">
   <header class="top">
@@ -51,19 +45,22 @@
     <div class="hero">
       <h1>直接告诉 Coder 你要做什么</h1>
       <p>可以直接创建新项目，也可以先把已有工程框架拖进来，再让 Coder 在原框架上补全代码。</p>
-      <div class="task">
-        <textarea id="task" maxlength="100000" placeholder="例如：检查 score_utils.py 的平均分计算问题，修复它，并补充 pytest 回归测试。"></textarea>
-        <div class="taskbar"><span id="timer">未运行</span><button class="run" id="run">运行 Coder</button></div>
+      <div class="task" id="taskDrop">
+        <textarea id="task" maxlength="100000" placeholder="输入任务要求，或把文件/文件夹直接拖到这里。Enter 发送，Shift + Enter 换行。"></textarea>
+        <div class="composer-hint">
+          <span>可直接拖入文件/文件夹，也可点击添加</span>
+          <div class="drop" id="drop"><strong>＋ 添加文件</strong><label>选择文件<input id="fileInput" type="file" multiple webkitdirectory></label></div>
+        </div>
+        <div class="taskbar"><span id="timer">未运行</span><button class="run" id="run">发送任务 ↵</button></div>
       </div>
     </div>
     <div class="timeline" id="timeline"><div class="empty">等待任务…</div></div>
   </section>
 </main>
 <aside class="right">
-  <div class="panel"><h3>当前任务</h3><div class="pre" id="request">暂无</div></div>
+  <div class="panel"><h3>文件列表</h3><div class="meta" id="fileProject">选择项目后显示可读文件</div><div class="files" id="files"><div class="empty">尚未选择项目</div></div><div class="side-note">点击文件名可查看内容。支持文本文件与 .ipynb。</div></div>
   <div class="panel"><h3>修改文件</h3><div id="modified">暂无</div></div>
-  <div class="panel"><h3>测试</h3><div id="tests">暂无</div></div>
-  <div class="panel"><h3>最终状态</h3><div class="kv"><span>finished</span><b id="finished">-</b><span>verified</span><b id="verified">-</b><span>steps</span><b id="steps">-</b></div></div>
+  <div class="panel"><h3>最终状态</h3><div class="kv"><span>finished</span><b id="finished">-</b><span>verified</span><b id="verified">-</b><span>steps</span><b id="steps">-</b></div><div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><h3 style="margin-bottom:7px">测试结果</h3><div id="tests">暂无测试结果</div></div></div>
   <div class="panel"><h3>执行总结</h3><div id="summary" class="obs">任务尚未结束。</div></div>
   <div class="panel feedback hidden" id="feedbackPanel">
     <h3>用户评价（可选）</h3>
@@ -98,7 +95,7 @@ window.addEventListener("unhandledrejection", function(e) {
 </script>
 <script>
 const UI_IDS=[
-  "workspace","project","projectHint","drop","fileInput","files","history",
+  "workspace","project","projectHint","drop","fileInput","files","history","taskDrop","fileProject",
   "dot","health","task","timer","run","timeline","request",
   "modified","tests","finished","verified","steps","summary","feedbackPanel","feedback",
   "feedbackStatus","submitFeedback","memory"
@@ -108,7 +105,7 @@ let projectsLoadSeq=0;
 let filesLoadSeq=0;
 const state={
   running:false,startedAt:0,timer:null,project:"",runProject:"",
-  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:"",finalState:null
+  failed:false,cancelling:false,cancelRequested:false,activeRunId:"",memoryRunId:"",finalState:null,currentTask:""
 };
 function $(selector){
   const id=selector.startsWith("#")?selector.slice(1):selector;
@@ -170,47 +167,27 @@ async function health(){
   }
 }
 function ext(path){const m=/\.([^.]+)$/.exec(path);return m?"."+m[1].toLowerCase():""}
-function renderFiles(files){const box=$("files");box.textContent="";if(!files.length){box.innerHTML='<div class="empty">workspace 里还没有可读文件</div>';return}for(const path of files){const b=document.createElement("button");b.className="file";b.textContent=path;b.title="查看 "+path;b.onclick=()=>openFile(path);box.append(b)}}
+function renderFiles(files){const box=$("files");box.textContent="";if(!files.length){box.innerHTML='<div class="empty">项目里还没有可读文件</div>';return}for(const path of files){const b=document.createElement("button");b.className="file";const e=document.createElement("span");e.className="ext";e.textContent=ext(path);const label=document.createElement("span");label.textContent=path;label.style.overflowWrap="anywhere";b.append(e,label);b.title="查看 "+path;b.onclick=()=>openFile(path);box.append(b)}}
 function renderHistory(runs){
-  const box=$("history");
-  box.textContent="";
-  if(!runs.length){
-    box.innerHTML='<div class="empty">暂无历史记录</div>';
-    return;
-  }
-  for(const item of runs){
-    const b=document.createElement("button");
-    b.className="history-item";
+  const box=$("history");box.textContent="";
+  const items=Array.isArray(runs)?[...runs]:[];
+  if(state.running&&state.currentTask)items.unshift({current:true,project:state.runProject||state.project||"当前任务",request:state.currentTask});
+  if(!items.length){box.innerHTML='<div class="empty">暂无历史记录</div>';return}
+  for(const item of items){
+    const b=document.createElement("button");b.className="history-item"+(item.current?" current":"");
     const title=document.createElement("b");
-    title.textContent=item.project||"未命名项目";
+    if(item.current){const tag=document.createElement("span");tag.className="current-tag";tag.textContent="当前";title.append(tag,document.createTextNode(item.project||"当前任务"))}
+    else title.textContent=item.project||"未命名项目";
     const meta=document.createElement("span");
-    const status=item.cancelled?"⏹ 已中止":(item.verified?"✓ 已验证":(item.error?"✕ 失败":"运行结束"));
-    meta.textContent=status+" · "+String(item.request||"").slice(0,48);
-    b.append(title,meta);
-    b.title=item.request||"";
+    const status=item.current?"⏳ 执行中":(item.cancelled?"⏹ 已中止":(item.verified?"✓ 已验证":(item.error?"✕ 失败":"运行结束")));
+    meta.textContent=status+" · "+String(item.request||"").slice(0,72);b.append(title,meta);b.title=item.request||"";
     b.onclick=async()=>{
-      if(state.running)return;
+      if(item.current||state.running)return;
       try{
-        if(item.project)setProject(item.project);
-        await loadFiles(state.project);
-        const historyState={
-          request:item.request||"",
-          finished:Boolean(item.finished),
-          goal_verified:Boolean(item.verified),
-          error:item.error||null,
-          summary:item.summary||item.error||"历史任务无总结。",
-          step_count:Number(item.step_count||0),
-          modified_files:Array.isArray(item.modified_files)?item.modified_files:[],
-          created_tests:Array.isArray(item.created_tests)?item.created_tests:[],
-          chat_resets:Number(item.chat_resets||0),
-          cancelled:Boolean(item.cancelled),
-          last_test_result:item.last_test_result||null,
-        };
-        state.finalState=historyState;
-        updateSummary(historyState);
-      }catch(e){
-        console.error("Coder history selection failed",e);
-      }
+        if(item.project)setProject(item.project);await loadFiles(state.project);
+        const historyState={request:item.request||"",finished:Boolean(item.finished),goal_verified:Boolean(item.verified),error:item.error||null,summary:item.summary||item.error||"历史任务无总结。",step_count:Number(item.step_count||0),modified_files:Array.isArray(item.modified_files)?item.modified_files:[],created_tests:Array.isArray(item.created_tests)?item.created_tests:[],chat_resets:Number(item.chat_resets||0),cancelled:Boolean(item.cancelled),last_test_result:item.last_test_result||null};
+        state.finalState=historyState;updateSummary(historyState);
+      }catch(e){console.error("Coder history selection failed",e)}
     };
     box.append(b);
   }
@@ -336,6 +313,7 @@ async function loadProjects(){
 async function loadFiles(project=selectedProject()){
   project=String(project||"").trim();
   const requestSeq=++filesLoadSeq;
+  $("fileProject").textContent=project?"项目："+project:"选择项目后显示可读文件";
   if(!project){renderFiles([]);return}
   try{
     const r=await fetchTimeout(API+"/files?project="+encodeURIComponent(project),{cache:"no-store"},3000);
@@ -502,6 +480,7 @@ async function run(){
 
   resetFeedback();
   state.running=true;
+  state.currentTask=request;
   state.failed=false;
   state.cancelling=false;
   state.cancelRequested=false;
@@ -669,6 +648,7 @@ async function run(){
     }finally{
       if(finalState)updateSummary(finalState);
       state.runProject="";
+      state.currentTask="";
       state.cancelling=false;
       state.cancelRequested=false;
       state.activeRunId="";
@@ -708,15 +688,14 @@ function initCoderUI(attempt=0){
     $("run").onclick=()=>state.running?void requestCancel():run();
     $("submitFeedback").onclick=()=>void submitFeedback();
     $("task").onkeydown=e=>{
-      if(e.key==="Enter"&&e.shiftKey&&!e.isComposing){
-        e.preventDefault();
-        void run();
-      }
+      if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!state.running)void run()}
     };
-    $("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("hot")};
-    $("drop").ondragleave=()=>$("drop").classList.remove("hot");
-    $("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("hot");uploadMany([...e.dataTransfer.files])};
-    $("fileInput").onchange=e=>uploadMany([...e.target.files]);
+    const composer=$("taskDrop");
+    composer.ondragover=e=>{e.preventDefault();composer.classList.add("drag-hot");$("drop").classList.add("hot")};
+    composer.ondragleave=e=>{if(e.relatedTarget&&composer.contains(e.relatedTarget))return;composer.classList.remove("drag-hot");$("drop").classList.remove("hot")};
+    composer.ondrop=e=>{e.preventDefault();composer.classList.remove("drag-hot");$("drop").classList.remove("hot");uploadMany([...e.dataTransfer.files])};
+    $("drop").onclick=()=> $("fileInput").click();
+    $("fileInput").onchange=e=>{uploadMany([...e.target.files]);e.target.value=""};
     window.onbeforeunload=()=>state.running?"Coder 仍在后台执行，确定离开？":undefined;
     void loadProjects();
     void loadHistory();
