@@ -214,6 +214,52 @@ class CoderAgent:
                     }
                     continue
 
+                # Do not execute an identical action again after it failed
+                # under the current plan. The model must change strategy or
+                # explicitly re-plan; scope violations have their own user-flow
+                # below, so keep those eligible for the scope escalation path.
+                if action not in {"PLAN", "STOP", "ASK_USER", "NEW_CHAT"}:
+                    latest_plan_index = max(
+                        (index for index, step in enumerate(state.steps) if step.action == "PLAN"),
+                        default=-1,
+                    )
+                    previous_identical_failures = [
+                        step for step in state.steps[latest_plan_index + 1:]
+                        if (
+                            step.action == action
+                            and step.arguments == arguments
+                            and not step.success
+                            and not any(
+                                marker in str(step.error or "")
+                                for marker in (
+                                    "不在当前计划范围",
+                                    "必须先完成 PLAN",
+                                    "必须先执行 PLAN",
+                                )
+                            )
+                        )
+                    ]
+                    if previous_identical_failures:
+                        message = (
+                            f"{action} 使用完全相同的参数此前已失败；Harness 阻止无变化重试。"
+                            "请读取最新状态、修改参数/工具，或先 PLAN 重新组织下一步。"
+                        )
+                        state.add_step(CoderStep(
+                            state.step_count + 1,
+                            action,
+                            arguments,
+                            {"status": "repeat_blocked", "error": message},
+                            success=False,
+                            error=message,
+                        ))
+                        state.last_observation = state.steps[-1].observation
+                        state.plan_confirmed = False
+                        state.metrics["repeated_failed_action_blocked"] = (
+                            int(state.metrics.get("repeated_failed_action_blocked", 0)) + 1
+                        )
+                        emit({"type": "step", "step": state.steps[-1]})
+                        continue
+
                 if action == "STOP":
                     reason = (
                         str(decision.get("reasoning_summary", "")).strip()
