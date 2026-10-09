@@ -213,6 +213,52 @@ def test_workspace_patch_notebook_requires_exact_source(tmp_path):
         fs.patch_notebook("demo.ipynb", 0, "x = 2\n", "x = 3\n")
 
 
+def test_workspace_patch_notebook_accepts_unique_source_snippet(tmp_path):
+    import json
+
+    fs = WorkspaceFS(tmp_path)
+    fs.write_notebook(
+        "demo.ipynb",
+        json.dumps({
+            "cells": [{
+                "cell_type": "code",
+                "metadata": {},
+                "source": ["first = 1\n", "target = 2\n", "last = 3\n"],
+            }],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }),
+    )
+
+    fs.patch_notebook("demo.ipynb", 0, "target = 2\r\n", "target = 20\n")
+
+    cell = json.loads(fs.read_text("demo.ipynb"))["cells"][0]
+    assert cell["source"] == "first = 1\ntarget = 20\nlast = 3\n"
+
+
+def test_workspace_patch_notebook_rejects_ambiguous_snippet(tmp_path):
+    import json
+
+    fs = WorkspaceFS(tmp_path)
+    fs.write_notebook(
+        "demo.ipynb",
+        json.dumps({
+            "cells": [{
+                "cell_type": "code",
+                "metadata": {},
+                "source": ["value = 1\n", "value = 1\n"],
+            }],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }),
+    )
+
+    with pytest.raises(WorkspaceSecurityError, match="唯一出现"):
+        fs.patch_notebook("demo.ipynb", 0, "value = 1\n", "value = 2\n")
+
+
 def test_workspace_rejects_invalid_notebook(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError, match="Notebook JSON 无效"):
