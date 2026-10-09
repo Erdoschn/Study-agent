@@ -65,7 +65,13 @@ class StudyAgent:
         except (TypeError, ValueError):
             return True
 
-    def run(self, question: str, student_state=None) -> AgentState:
+    def run(
+        self,
+        question: str,
+        student_state=None,
+        *,
+        cancellation_event=None,
+    ) -> AgentState:
         """Every request enters the same Observe → Decide → Act agent loop."""
         import time
 
@@ -130,7 +136,11 @@ class StudyAgent:
 
             if state.error is None:
                 try:
-                    state = AgentToolLoop(self.reasoner, executor).run(state)
+                    state = AgentToolLoop(
+                        self.reasoner,
+                        executor,
+                        cancellation_event=cancellation_event,
+                    ).run(state)
                     if state.pending_assessment:
                         self.pending_assessment_state = state
                         debug.log(
