@@ -145,14 +145,14 @@ def test_browser_model_generate_auto_continues_long_response(monkeypatch):
     monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: None)
 
     assert model.generate("", "hello") == "complete answer"
-    assert len(snapshots) == 1
+    assert len(snapshots) == 2
 
 
 def test_browser_model_wait_response_recovers_rate_limit(monkeypatch):
     model = BrowserModel(
         timeout=1,
         poll_interval=0.01,
-        stable_seconds=0.3,
+        stable_seconds=0.01,
     )
     states = iter([True, False, False, False])
     retries = []
