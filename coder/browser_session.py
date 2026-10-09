@@ -21,8 +21,9 @@ class CoderBrowserSession:
     def __init__(self, **model_kwargs: Any):
         self._tasks: queue.Queue[tuple[Callable[[], Any] | None, queue.Queue]] = queue.Queue()
         self._ready = threading.Event()
-        self._state_lock = threading.Lock()
+        self._state_lock = threading.RLock()
         self._close_complete = threading.Event()
+        self._bound_cancellation_event: Event | None = None
         self._closed = False
         self._init_error: BaseException | None = None
         self._cancellation_event = Event()
@@ -126,7 +127,11 @@ class CoderBrowserSession:
 
     def bind_cancellation_event(self, event: Event | None) -> None:
         """Bind a caller-owned event to the worker-owned BrowserModel."""
-        self._call(lambda browser: setattr(browser, "cancellation_event", event))
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("Coder 浏览器会话已经关闭。")
+            self._bound_cancellation_event = event
+            self._call(lambda browser: setattr(browser, "cancellation_event", event))
 
     def begin_run(self) -> None:
         with self._state_lock:
@@ -170,6 +175,8 @@ class CoderBrowserSession:
                 already_closing = False
                 self._closed = True
                 self._cancellation_event.set()
+                if self._bound_cancellation_event is not None:
+                    self._bound_cancellation_event.set()
                 response_queue = queue.Queue(maxsize=1)
                 # The sentinel is inserted under the same lock as _call(),
                 # so every accepted operation is guaranteed to precede it.
