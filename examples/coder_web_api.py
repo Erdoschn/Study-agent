@@ -398,7 +398,11 @@ class Handler(BaseHTTPRequestHandler):
         _cors_headers(self)
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Ignore a client that closed a stale polling/navigation request.
+            return
 
     def _body_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
