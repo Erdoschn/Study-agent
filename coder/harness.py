@@ -296,8 +296,6 @@ class CoderHarness:
         if baseline is None:
             return
         current = self.fs.read_text(path)
-        if str(content) == current:
-            return
         total_lines = current.count("\n") + (1 if current and not current.endswith("\n") else 0)
         if not self._coverage_is_complete(path, total_lines):
             raise WorkspaceSecurityError(
