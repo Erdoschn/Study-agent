@@ -396,6 +396,7 @@ class CoderHarness:
 
     def _write_notebook(self, args, state):
         path = str(args.get("path", "")).strip()
+        self._assert_test_write_allowed(path, state, "WRITE_NOTEBOOK")
         content = str(args.get("content", ""))
         self._remember_baseline(path)
         self._validate_notebook_write_safety(path, content)
