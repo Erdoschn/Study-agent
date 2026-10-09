@@ -178,16 +178,20 @@ class BrowserModel(ModelClient):
         self._dismiss_cookie_banner(page)
         # DeepSeek renders its chat input asynchronously after DOMContentLoaded.
         # Poll briefly instead of misclassifying a logged-in session as logged out.
-        if self._wait_for_chat_input(page, timeout=8.0):
-            self._send_browser_window_to_back(page)
-        else:
+        input_ready = self._wait_for_chat_input(page, timeout=8.0)
+        if not input_ready:
             debug.log(
                 "BrowserModel",
-                "PREWARM LOGIN → chat input not detected within 8s; keeping window visible",
+                "PREWARM LOGIN → chat input not detected within 8s",
             )
+        # The user explicitly wants the browser kept out of the foreground even
+        # while login/input detection is incomplete. Do not confuse "not logged
+        # in" with "do not attempt window placement".
+        self._send_browser_window_to_back(page)
         debug.log(
             "BrowserModel",
-            f"BROWSER READY → profile={self.user_data_dir}, url={self.url}",
+            f"BROWSER READY → profile={self.user_data_dir}, url={self.url}, "
+            f"chat_input_ready={input_ready}",
         )
 
     def generate(
@@ -579,47 +583,89 @@ class BrowserModel(ModelClient):
         to Playwright's actionability checks while avoiding a foreground window
         that blocks the user's other work.
         """
+        debug.log(
+            "BrowserModel",
+            f"WINDOW BACK ATTEMPT → platform={os.name}, "
+            f"tracked_handles={sorted(self._created_edge_window_handles)}",
+        )
         if os.name != "nt":
+            debug.log("BrowserModel", "WINDOW BACK SKIP → automatic placement is Windows-only")
             return
         try:
             import ctypes
             user32 = ctypes.windll.user32
             handles = set(self._created_edge_window_handles)
             if not handles:
-                debug.log("BrowserModel", "WINDOW BACK SKIP → new Edge window not identified")
+                debug.log(
+                    "BrowserModel",
+                    "WINDOW BACK FAILED → no newly-created Edge window handle was tracked",
+                )
                 return
 
             target = None
             try:
                 page_title = str(page.title() or "").strip().casefold()
-            except Exception:
+            except Exception as exc:
                 page_title = ""
+                debug.log(
+                    "BrowserModel",
+                    f"WINDOW BACK TITLE READ FAILED → {type(exc).__name__}: {exc}",
+                )
+            debug.log(
+                "BrowserModel",
+                f"WINDOW BACK MATCH → page_title={page_title!r}, candidates={len(handles)}",
+            )
             if page_title:
                 for hwnd in handles:
                     buffer = ctypes.create_unicode_buffer(1024)
                     user32.GetWindowTextW(hwnd, buffer, 1024)
                     title = str(buffer.value).strip().casefold()
-                    if page_title in title:
+                    debug.log(
+                        "BrowserModel",
+                        f"WINDOW BACK CANDIDATE → hwnd={hwnd}, title={title!r}",
+                    )
+                    if page_title in title or title in page_title:
                         target = hwnd
                         break
             if target is None:
                 if len(handles) != 1:
                     debug.log(
                         "BrowserModel",
-                        "WINDOW BACK SKIP → multiple new Edge windows and no title match",
+                        "WINDOW BACK FAILED → multiple new Edge windows and no title match",
                     )
                     return
                 target = next(iter(handles))
 
-            if user32.IsWindow(target):
-                # SW_RESTORE makes a minimized window actionable; SetWindowPos
-                # then immediately sends it behind other windows without focus.
-                user32.ShowWindow(target, 4)
-                flags = 0x0001 | 0x0002 | 0x0010 | 0x0040  # NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW
-                if user32.SetWindowPos(target, -2, 0, 0, 0, 0, flags):
-                    debug.log("BrowserModel", f"WINDOW → sent to back hwnd={target}")
+            if not user32.IsWindow(target):
+                debug.log(
+                    "BrowserModel",
+                    f"WINDOW BACK FAILED → hwnd={target} is not a valid window",
+                )
+                return
+
+            # Restore a minimized window, then put it at HWND_BOTTOM without
+            # activating it. Log each OS operation so a failed attempt is visible.
+            restored = user32.ShowWindow(target, 4)
+            flags = 0x0001 | 0x0002 | 0x0010 | 0x0040  # NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW
+            debug.log(
+                "BrowserModel",
+                f"WINDOW BACK SET POSITION → hwnd={target}, z_order=HWND_BOTTOM, "
+                f"flags={flags:#x}, restore_previous_state={restored}",
+            )
+            positioned = user32.SetWindowPos(target, -2, 0, 0, 0, 0, flags)
+            if positioned:
+                debug.log("BrowserModel", f"WINDOW BACK SUCCESS → hwnd={target}")
+            else:
+                error_code = getattr(ctypes, "get_last_error", lambda: 0)()
+                debug.log(
+                    "BrowserModel",
+                    f"WINDOW BACK FAILED → SetWindowPos returned false, last_error={error_code}",
+                )
         except Exception as exc:
-            debug.log("BrowserModel", f"WINDOW BACK SKIP → {type(exc).__name__}: {exc}")
+            debug.log(
+                "BrowserModel",
+                f"WINDOW BACK FAILED → {type(exc).__name__}: {exc}",
+            )
 
     def _minimize_browser_window(self, page) -> None:
         """Minimize only Edge windows created by this BrowserModel instance."""
