@@ -595,3 +595,47 @@ def test_coder_only_creates_tests_when_user_requests_creation():
 
     assert CoderAgent._request_requires_test_creation("补充测试用例") is True
     assert CoderAgent._request_requires_test_creation("修复 notebook 中的 TODO") is False
+
+
+def test_coder_reasoner_accepts_stop_from_json_recovery():
+    decision = CoderReasoner._parse('{"action":"STOP","arguments":{},"reasoning_summary":"malformed output"}')
+    assert decision["action"] == "STOP"
+    assert decision["reasoning_summary"] == "malformed output"
+
+
+def test_coder_agent_stops_safely_on_stop_action(tmp_path):
+    class StopReasoner:
+        model = None
+        def decide(self, _state, _tools):
+            return {"action": "STOP", "arguments": {}, "reasoning_summary": "invalid JSON after repair"}
+
+    class Harness:
+        sandbox = SimpleNamespace()
+        backup = None
+        def tool_specs(self):
+            return []
+        def execute(self, *_args, **_kwargs):
+            raise AssertionError("STOP must not execute a tool")
+
+    agent = CoderAgent(tmp_path, reasoner=StopReasoner(), harness=Harness(), close_model_on_run=False)
+    state = agent.run("修改现有 notebook TODO")
+    assert state.finished is True
+    assert state.goal_verified is False
+    assert "invalid JSON after repair" in state.error
+    assert state.steps[-1].action == "STOP"
+
+
+def test_edit_only_request_does_not_authorize_new_helper_files():
+    assert CoderAgent._request_requires_new_files("修复 notebook 中的 TODO") is False
+    assert CoderAgent._request_requires_new_files("请创建一个 Python 脚本") is True
+
+
+def test_harness_blocks_unrequested_new_helper_file(tmp_path):
+    from types import SimpleNamespace
+    from coder.state import CoderGoal, CoderState
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState("修复 notebook TODO", goal=CoderGoal("修复 notebook TODO", must_create_tests=False, must_create_files=False, must_pass_tests=False))
+    with pytest.raises(PermissionError, match="未授权创建新文件"):
+        harness.execute("WRITE_FILE", {"path": "inspect_cell.py", "content": "print(1)"}, state)
+    assert not (tmp_path / "inspect_cell.py").exists()
