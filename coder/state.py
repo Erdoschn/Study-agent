@@ -10,6 +10,7 @@ class CoderGoal:
     must_modify: bool = True
     must_create_tests: bool = True
     must_pass_tests: bool = True
+    must_create_files: bool = True
 
 
 @dataclass
