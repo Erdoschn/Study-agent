@@ -296,11 +296,30 @@ class WorkspaceFS:
                 f"PATCH_NOTEBOOK.cell_index 超出范围：{index}，当前只有 {len(cells)} 个 cell。"
             )
         current = self._cell_source(cells[index])
-        if current != old:
-            raise WorkspaceSecurityError(
-                "PATCH_NOTEBOOK 要求目标 cell 的 source 与 old_source 完全一致。"
+        # Models sometimes serialize notebook source with CRLF while the
+        # notebook stores LF, or provide only the exact snippet to change.
+        # Normalize line endings first; preserve strict stale-write protection
+        # by allowing a partial patch only when the snippet occurs once.
+        normalize = lambda text: str(text).replace("\r\n", "\n").replace("\r", "\n")
+        current_normalized = normalize(current)
+        old_normalized = normalize(old)
+        replacement = str(new_source)
+        if current == old:
+            cells[index]["source"] = replacement
+        elif current_normalized == old_normalized:
+            cells[index]["source"] = replacement
+        elif old_normalized and current_normalized.count(old_normalized) == 1:
+            cells[index]["source"] = current_normalized.replace(
+                old_normalized, normalize(replacement), 1
             )
-        cells[index]["source"] = str(new_source)
+        else:
+            preview = current[:1200]
+            raise WorkspaceSecurityError(
+                "PATCH_NOTEBOOK 无法安全匹配 old_source：它既不是目标 cell 的完整 source，"
+                "也不是其中唯一出现的片段。请先 READ_FILE 重新读取该 cell，再重试。"
+                f" cell_index={index}, current_source_length={len(current)}, "
+                f"current_source_preview={preview!r}"
+            )
         self.write_notebook(path, json.dumps(value, ensure_ascii=False, indent=1))
 
     def exists(self, path: str) -> bool:
