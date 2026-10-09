@@ -1216,7 +1216,23 @@ def test_browser_model_raises_when_response_does_not_arrive(monkeypatch):
         model.generate("", "hello")
 
 
-def test_factory_caches_browser_client():
+def test_factory_caches_browser_client(monkeypatch):
+    from coder import browser_session as browser_session_module
+
+    class FakeBrowserSession:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.model = kwargs["model"]
+            self.cancellation_event = None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        browser_session_module,
+        "CoderBrowserSession",
+        FakeBrowserSession,
+    )
     config = {
         "providers": {
             "deepseek_web": {
@@ -1242,13 +1258,30 @@ def test_factory_caches_browser_client():
     first = factory.create(info)
     second = factory.create(info)
 
-    assert isinstance(first, BrowserModel)
+    assert isinstance(first, FakeBrowserSession)
     assert first is second
     assert first.url == "https://chat.deepseek.com/"
     assert first.browser_channel == "msedge"
 
 
-def test_factory_closes_cached_browser_clients():
+def test_factory_closes_cached_browser_clients(monkeypatch):
+    from coder import browser_session as browser_session_module
+
+    class FakeBrowserSession:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.model = kwargs["model"]
+            self.cancellation_event = None
+
+        def close(self):
+            closed.append(True)
+
+    closed = []
+    monkeypatch.setattr(
+        browser_session_module,
+        "CoderBrowserSession",
+        FakeBrowserSession,
+    )
     config = {
         "providers": {"web": {"type": "browser", "enabled": True}},
         "models": {
@@ -1262,16 +1295,12 @@ def test_factory_closes_cached_browser_clients():
     }
     registry = ModelRegistry(config)
     factory = ModelClientFactory(config)
-    client = factory.create(registry.get("web-model"))
-
-    closed = []
-    client.close = lambda: closed.append(True)
+    factory.create(registry.get("web-model"))
 
     factory.close()
 
     assert closed == [True]
     assert factory._browser_clients == {}
-
 
 def test_browser_provider_does_not_require_api_endpoint():
     config = {
