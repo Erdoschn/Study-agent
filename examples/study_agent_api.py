@@ -312,7 +312,11 @@ class Handler(BaseHTTPRequestHandler):
             if graph is not None:
                 context_for = getattr(graph, "context_for", None)
                 if callable(context_for):
-                    graph_context = context_for(question, limit=10)
+                    # _run_agent releases the global lock before returning;
+                    # protect this shared-graph read from the next request's
+                    # in-place graph mutation.
+                    with _RUN_LOCK:
+                        graph_context = context_for(question, limit=10)
 
             evidence = []
             for item in list(getattr(result, "evidence", []) or [])[:8]:
