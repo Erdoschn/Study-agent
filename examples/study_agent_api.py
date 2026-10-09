@@ -35,6 +35,7 @@ KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
+from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 
@@ -472,8 +473,14 @@ class Handler(BaseHTTPRequestHandler):
             }],
         }
 
-    def _run_agent(self, question: str, emit) -> Any:
+    def _run_agent(
+        self,
+        question: str,
+        emit,
+        cancellation_event: threading.Event | None = None,
+    ) -> Any:
         events: list[str] = []
+        cancellation_event = cancellation_event or threading.Event()
 
         def log_hook(module: str, message: str) -> None:
             # Full DebugTracer output is terminal-only. The frontend receives
@@ -517,7 +524,12 @@ class Handler(BaseHTTPRequestHandler):
         emit(status)
 
         with _RUN_LOCK:
+            if cancellation_event.is_set():
+                raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
             original_log = debug.log
+            factory = getattr(self.server, "model_factory", None)
+            if factory is not None:
+                factory.begin_run(cancellation_event)
             debug.log = log_hook
             try:
                 emit("🔄 Agent 已开始执行，正在分析 / 搜索 / 推理...")
@@ -531,6 +543,8 @@ class Handler(BaseHTTPRequestHandler):
                 return result
             finally:
                 debug.log = original_log
+                if factory is not None:
+                    factory.end_run(cancellation_event)
 
     def _write_sse(self, payload: bytes) -> None:
         """Write one raw SSE frame and flush it immediately.
@@ -556,6 +570,7 @@ class Handler(BaseHTTPRequestHandler):
 
         events: queue.Queue[tuple[str, Any]] = queue.Queue()
         sentinel = object()
+        cancellation_event = threading.Event()
         completion_id = "chatcmpl-" + uuid.uuid4().hex
 
         # _run_agent emits the initial status exactly once, before acquiring
@@ -568,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             try:
-                result = self._run_agent(question, emit)
+                result = self._run_agent(question, emit, cancellation_event)
                 events.put(("result", result))
             except Exception as exc:
                 print(f"❌ Agent 执行失败：{type(exc).__name__}: {exc}", flush=True)
@@ -617,9 +632,13 @@ class Handler(BaseHTTPRequestHandler):
                     self._write_sse(b"data: [DONE]\n\n")
                 elif kind == "done" and value is sentinel:
                     break
-        except (BrokenPipeError, ConnectionResetError):
-            print("⚠️ SSE 客户端已断开连接", flush=True)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            cancellation_event.set()
+            print("⚠️ SSE 客户端已断开连接，已请求取消当前浏览器模型调用", flush=True)
         finally:
+            if not cancellation_event.is_set():
+                # A normal stream completion should not mark the run cancelled.
+                pass
             self.close_connection = True
 
 
