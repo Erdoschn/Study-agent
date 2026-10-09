@@ -325,6 +325,9 @@ class CoderAgent:
                     continue
 
                 if action == "FINISH":
+                    # Treat FINISH as the planner's explicit final progress report.
+                    # Harness still decides whether objective-independent gates pass.
+                    self._apply_plan(state, decision.get("goal", {}))
                     observation = self.harness.execute("VERIFY_GOAL", {}, state)
                     ok = bool(observation.get("verified"))
                     state.add_step(CoderStep(
@@ -524,6 +527,11 @@ class CoderAgent:
             completed,
             limit=20,
         )
+        state.verified_success_criteria = merge_strings(
+            state.verified_success_criteria,
+            raw.get("verified_success_criteria", []),
+            limit=20,
+        )
         description = str(raw.get("description", "")).strip()
         if description:
             goal.description = description[:2000]
@@ -531,7 +539,7 @@ class CoderAgent:
         # The planner may choose whether dedicated tests are needed. Existing
         # test-suite requirements inferred by the agent cannot be weakened.
         if isinstance(raw.get("must_create_tests"), bool):
-            goal.must_create_tests = raw["must_create_tests"]
+            goal.must_create_tests = goal.must_create_tests or raw["must_create_tests"]
         goal.must_pass_tests = goal.must_pass_tests or raw.get("must_pass_tests") is True
         goal.must_modify = True
         state.goal = goal
