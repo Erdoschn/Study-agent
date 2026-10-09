@@ -15,11 +15,14 @@ class DebugTracer:
 
     def log(self, module: str, message: str) -> None:
         sink = getattr(self._local, "sink", None)
-        enabled = getattr(self._local, "enabled", self.enabled)
+        # API sinks translate selected internal events into user-facing status
+        # updates. They must not replace terminal logging when debug is ON.
         if sink is not None:
             sink(module, message)
-            return
-        if not enabled:
+
+        # Global config controls terminal verbosity consistently in every
+        # worker thread, including Playwright's dedicated browser thread.
+        if not self.enabled:
             return
 
         timestamp = datetime.now().strftime(
@@ -30,7 +33,8 @@ class DebugTracer:
 
         print(
             f"{indent}[DEBUG {timestamp}] "
-            f"[{module}] {message}"
+            f"[{module}] {message}",
+            flush=True,
         )
 
     @contextmanager
