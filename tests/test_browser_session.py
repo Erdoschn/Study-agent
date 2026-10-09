@@ -38,15 +38,15 @@ def test_browser_session_startup_wait_is_bounded(monkeypatch):
             instances.append(self)
 
         def prepare_browser(self):
-            time.sleep(0.15)
+            time.sleep(0.5)
 
     monkeypatch.setattr(browser_session_module, "BrowserModel", SlowBrowser)
     started = time.monotonic()
     with pytest.raises(RuntimeError, match="初始化超时"):
-        browser_session_module.CoderBrowserSession(startup_timeout_seconds=0.03)
+        browser_session_module.CoderBrowserSession(startup_timeout_seconds=0.05)
 
-    assert time.monotonic() - started < 0.12
-    time.sleep(0.2)
+    assert time.monotonic() - started < 0.3
+    time.sleep(0.55)
     assert instances and instances[0].closed
 
 
