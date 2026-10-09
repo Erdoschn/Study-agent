@@ -21,6 +21,8 @@ class CoderBrowserSession:
     def __init__(self, **model_kwargs: Any):
         self._tasks: queue.Queue[tuple[Callable[[], Any] | None, queue.Queue]] = queue.Queue()
         self._ready = threading.Event()
+        self._state_lock = threading.Lock()
+        self._close_complete = threading.Event()
         self._closed = False
         self._init_error: BaseException | None = None
         self._cancellation_event = Event()
@@ -86,11 +88,24 @@ class CoderBrowserSession:
                 response_queue.put((False, exc))
 
     def _call(self, func: Callable[[BrowserModel], Any]) -> Any:
-        if self._closed:
-            raise RuntimeError("Coder 浏览器会话已经关闭。")
         response_queue: queue.Queue = queue.Queue(maxsize=1)
-        self._tasks.put((lambda: func(self._browser), response_queue))
-        ok, value = response_queue.get()
+        # Serialize the closed check with queue insertion. Otherwise close()
+        # can enqueue its sentinel between these two operations, leaving this
+        # request forever behind a worker that has already exited.
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("Coder 浏览器会话已经关闭。")
+            if not self._thread.is_alive():
+                raise RuntimeError("Coder 浏览器线程已经退出。")
+            self._tasks.put((lambda: func(self._browser), response_queue))
+
+        while True:
+            try:
+                ok, value = response_queue.get(timeout=0.5)
+                break
+            except queue.Empty:
+                if not self._thread.is_alive():
+                    raise RuntimeError("Coder 浏览器线程意外退出，操作未返回结果。")
         if ok:
             return value
         raise value
@@ -100,9 +115,12 @@ class CoderBrowserSession:
         return self._cancellation_event
 
     def begin_run(self) -> None:
-        if self._closed:
-            raise RuntimeError("Coder 浏览器会话已经关闭。")
-        self._cancellation_event.clear()
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("Coder 浏览器会话已经关闭。")
+            if not self._thread.is_alive():
+                raise RuntimeError("Coder 浏览器线程已经退出。")
+            self._cancellation_event.clear()
 
     def cancel(self) -> None:
         self._cancellation_event.set()
@@ -130,14 +148,33 @@ class CoderBrowserSession:
         self._call(lambda browser: browser.prepare_browser())
 
     def close(self) -> None:
-        if self._closed:
+        response_queue: queue.Queue | None = None
+        with self._state_lock:
+            if self._closed:
+                already_closing = True
+            else:
+                already_closing = False
+                self._closed = True
+                self._cancellation_event.set()
+                response_queue = queue.Queue(maxsize=1)
+                # The sentinel is inserted under the same lock as _call(),
+                # so every accepted operation is guaranteed to precede it.
+                if self._thread.is_alive():
+                    self._tasks.put((None, response_queue))
+                else:
+                    self._close_complete.set()
+
+        if already_closing:
+            self._close_complete.wait(timeout=10)
             return
-        self._cancellation_event.set()
-        self._closed = True
-        response_queue: queue.Queue = queue.Queue(maxsize=1)
-        self._tasks.put((None, response_queue))
-        try:
-            response_queue.get(timeout=10)
-        except queue.Empty:
-            pass
+
+        if response_queue is not None:
+            try:
+                response_queue.get(timeout=10)
+            except queue.Empty:
+                debug.log("CoderBrowserSession", "CLOSE TIMEOUT → browser worker did not acknowledge shutdown")
         self._thread.join(timeout=10)
+        if self._thread.is_alive():
+            debug.log("CoderBrowserSession", "CLOSE TIMEOUT → browser worker thread is still alive")
+        else:
+            self._close_complete.set()
