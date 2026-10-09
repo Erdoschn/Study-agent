@@ -375,6 +375,12 @@ class CoderRunControl:
         self.cancel_event.set()
 
 
+def _release_run_lock_if_unowned(control) -> None:
+    """Release the global run lock only before ownership transfers to a worker."""
+    if control is None or not control.worker_started:
+        RUN_LOCK.release()
+
+
 class CoderServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
@@ -671,8 +677,7 @@ class Handler(BaseHTTPRequestHandler):
                     control.finished = True
                 # The worker owns RUN_LOCK after its thread starts. An
                 # unexpected SSE exception must not release that lock twice.
-                if not (control is not None and control.worker_started):
-                    RUN_LOCK.release()
+                _release_run_lock_if_unowned(control)
                 raise
         except Exception as exc:
             self._json({
