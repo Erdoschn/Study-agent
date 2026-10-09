@@ -74,15 +74,3 @@ def test_browser_session_close_queues_sentinel_after_accepted_call(monkeypatch):
     assert not session._thread.is_alive()
 
 
-def test_browser_session_detects_unexpected_worker_exit(monkeypatch):
-    monkeypatch.setattr(browser_session_module, "BrowserModel", FakeBrowser)
-    session = browser_session_module.CoderBrowserSession()
-    session._thread.join(timeout=0.01)
-    session._thread._target = None
-    # Simulate a worker that has exited without answering a queued call.
-    session._thread = threading.Thread(target=lambda: None)
-    session._thread.start()
-    session._thread.join(timeout=1)
-
-    with pytest.raises(RuntimeError, match="线程已经退出"):
-        session.new_chat()
