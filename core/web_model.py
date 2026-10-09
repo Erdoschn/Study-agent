@@ -562,7 +562,7 @@ class BrowserModel(ModelClient):
         to Playwright's actionability checks while avoiding a foreground window
         that blocks the user's other work.
         """
-        if self.debug_mode or os.name != "nt":
+        if os.name != "nt":
             return
         try:
             import ctypes
