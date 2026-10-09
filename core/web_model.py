@@ -383,16 +383,23 @@ class BrowserModel(ModelClient):
         return answer
 
     def close(self) -> None:
-        """Close the browser context owned by this client."""
-        if self._context is not None:
-            self._context.close()
-        self._context = None
+        """Close the browser context owned by this client, even after failures."""
+        context, self._context = self._context, None
+        playwright, self._playwright = self._playwright, None
         self._page = None
         self._chat_initialized = False
         self._last_send_monotonic = None
-        if self._playwright is not None:
-            self._playwright.stop()
-        self._playwright = None
+        try:
+            if context is not None:
+                context.close()
+        except Exception as exc:
+            debug.log("BrowserModel", f"CONTEXT CLOSE SKIP → {type(exc).__name__}: {exc}")
+        finally:
+            if playwright is not None:
+                try:
+                    playwright.stop()
+                except Exception as exc:
+                    debug.log("BrowserModel", f"PLAYWRIGHT STOP SKIP → {type(exc).__name__}: {exc}")
 
     @staticmethod
     def _build_prompt(
