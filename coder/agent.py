@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 import time
 from threading import Event
 from pathlib import Path
@@ -69,6 +70,22 @@ class CoderAgent:
                 reasoner_kwargs["cancellation_event"] = cancellation_event
             self.reasoner = CoderReasoner(**reasoner_kwargs)
         self.max_runtime_seconds = max(30.0, float(max_runtime_seconds))
+
+    def _workspace_has_tests(self) -> bool:
+        list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
+        if not callable(list_files):
+            return False
+        try:
+            paths = list_files()
+        except Exception:
+            return False
+        for item in paths:
+            path = str(item).replace("\\", "/").casefold()
+            if path.endswith(".py") and (
+                "/tests/" in "/" + path or Path(path).name.startswith("test_")
+            ):
+                return True
+        return False
 
     def _validate_workspace_boundary(self) -> None:
         """Prevent Coder from operating on or above its own runtime source tree."""
@@ -146,11 +163,21 @@ class CoderAgent:
             emit({"type": "error", "state": state})
             return state
 
+        existing_tests = self._workspace_has_tests()
+        explicitly_requests_tests = any(token in request.casefold() for token in (
+            "test", "pytest", "测试", "回归", "单元测试",
+        ))
+        explicitly_requests_test_creation = any(token in request.casefold() for token in (
+            "create tests", "add tests", "write tests", "新增测试", "增加测试",
+            "补充测试", "创建测试", "编写测试",
+        ))
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
-            must_create_tests=True,
-            must_pass_tests=True,
+            # Only create new test modules when the user asks for them.
+            # Existing project tests remain mandatory when present.
+            must_create_tests=explicitly_requests_test_creation,
+            must_pass_tests=existing_tests or explicitly_requests_tests,
         )
         started = time.monotonic()
         try:
@@ -325,6 +352,6 @@ class CoderAgent:
         goal.description = str(raw.get("description", goal.description)).strip() or goal.description
         # Security policy: a model cannot weaken mandatory coding verification.
         goal.must_modify = True
-        goal.must_create_tests = True
-        goal.must_pass_tests = True
+        # Do not let a model-generated PLAN override the test policy inferred
+        # from the user's request and the project's existing test suite.
         state.goal = goal
