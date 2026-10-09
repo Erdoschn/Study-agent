@@ -590,7 +590,7 @@ def test_browser_model_sends_logged_in_prewarmed_browser_to_back(monkeypatch):
     assert events == ["back"]
 
 
-def test_browser_model_keeps_login_window_visible_until_authenticated(monkeypatch):
+def test_browser_model_attempts_background_placement_even_before_login(monkeypatch):
     model = BrowserModel(debug_mode=False)
     page = object()
     events = []
@@ -1553,6 +1553,49 @@ def test_browser_model_uses_current_deepseek_history_action_xpath():
     assert model._click_session_more(object(), row) is True
     assert row.requested == ["xpath=./div[3]/div"]
     assert row.button.clicked is True
+
+
+def test_browser_model_sends_tracked_window_to_bottom_and_logs_attempt(monkeypatch, capsys):
+    class User32:
+        def __init__(self):
+            self.calls = []
+
+        def IsWindow(self, hwnd):
+            return hwnd == 5678
+
+        def ShowWindow(self, hwnd, command):
+            self.calls.append(("restore", hwnd, command))
+            return 1
+
+        def SetWindowPos(self, hwnd, insert_after, x, y, cx, cy, flags):
+            self.calls.append(("position", hwnd, insert_after, flags))
+            return 1
+
+    class FakeCtypes:
+        def __init__(self):
+            self.windll = type("Windll", (), {"user32": User32()})()
+
+    fake_ctypes = FakeCtypes()
+    monkeypatch.setattr(
+        web_model_module,
+        "os",
+        type("FakeOS", (), {"name": "nt", "getenv": staticmethod(os.getenv)})(),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "ctypes", fake_ctypes)
+    old_debug = web_model_module.debug.enabled
+    web_model_module.debug.set_enabled(True)
+    try:
+        model = BrowserModel()
+        model._created_edge_window_handles = {5678}
+        model._send_browser_window_to_back(object())
+        output = capsys.readouterr().out
+    finally:
+        web_model_module.debug.set_enabled(old_debug)
+
+    assert fake_ctypes.windll.user32.calls[0] == ("restore", 5678, 4)
+    assert fake_ctypes.windll.user32.calls[1][0:3] == ("position", 5678, -2)
+    assert "WINDOW BACK ATTEMPT" in output
+    assert "WINDOW BACK SUCCESS" in output
 
 
 def test_browser_model_minimizes_only_new_edge_window_on_windows(monkeypatch):
