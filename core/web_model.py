@@ -176,6 +176,11 @@ class BrowserModel(ModelClient):
         self._check_cancelled()
         page = self._ensure_page()
         self._dismiss_cookie_banner(page)
+        # A logged-in browser is already ready for work: move it behind other
+        # windows instead of leaving it in the foreground. If login is needed,
+        # keep it visible so the user can complete authentication manually.
+        if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+            self._send_browser_window_to_back(page)
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}",
@@ -204,9 +209,10 @@ class BrowserModel(ModelClient):
         self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
         self._response_binding_fallback_logged = False
-        # Do not minimize Edge before Playwright interactions. Chromium's
-        # actionability checks can never stabilize controls in a minimized
-        # window, so the New Chat button times out even when correctly found.
+        # Restore a previously minimized browser if necessary, then keep it
+        # behind other windows. Playwright can interact with a normal window
+        # in the background, but not reliably with a minimized one.
+        self._send_browser_window_to_back(page)
         if not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
@@ -265,6 +271,9 @@ class BrowserModel(ModelClient):
             if completed and self.cleanup_after_generate:
                 self._cleanup_current_chat(page)
                 self._chat_initialized = False
+            # Leave the browser out of the user's way after UI work, including
+            # failed requests, without minimizing it and breaking the next run.
+            self._send_browser_window_to_back(page)
 
     @classmethod
     def _extract_json_object(cls, answer: str) -> str:
@@ -546,6 +555,55 @@ class BrowserModel(ModelClient):
     def _find_new_edge_window_handles(cls, before: set[int]) -> set[int]:
         return cls._edge_window_handles() - set(before)
 
+    def _send_browser_window_to_back(self, page) -> None:
+        """Restore this model's Edge window if minimized and put it behind others.
+
+        Unlike SW_MINIMIZE, placing the window at HWND_BOTTOM keeps it visible
+        to Playwright's actionability checks while avoiding a foreground window
+        that blocks the user's other work.
+        """
+        if self.debug_mode or os.name != "nt":
+            return
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            handles = set(self._created_edge_window_handles)
+            if not handles:
+                debug.log("BrowserModel", "WINDOW BACK SKIP → new Edge window not identified")
+                return
+
+            target = None
+            try:
+                page_title = str(page.title() or "").strip().casefold()
+            except Exception:
+                page_title = ""
+            if page_title:
+                for hwnd in handles:
+                    buffer = ctypes.create_unicode_buffer(1024)
+                    user32.GetWindowTextW(hwnd, buffer, 1024)
+                    title = str(buffer.value).strip().casefold()
+                    if page_title in title:
+                        target = hwnd
+                        break
+            if target is None:
+                if len(handles) != 1:
+                    debug.log(
+                        "BrowserModel",
+                        "WINDOW BACK SKIP → multiple new Edge windows and no title match",
+                    )
+                    return
+                target = next(iter(handles))
+
+            if user32.IsWindow(target):
+                # SW_RESTORE makes a minimized window actionable; SetWindowPos
+                # then immediately sends it behind other windows without focus.
+                user32.ShowWindow(target, 9)
+                flags = 0x0001 | 0x0002 | 0x0010 | 0x0040  # NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW
+                if user32.SetWindowPos(target, -2, 0, 0, 0, 0, flags):
+                    debug.log("BrowserModel", f"WINDOW → sent to back hwnd={target}")
+        except Exception as exc:
+            debug.log("BrowserModel", f"WINDOW BACK SKIP → {type(exc).__name__}: {exc}")
+
     def _minimize_browser_window(self, page) -> None:
         """Minimize only Edge windows created by this BrowserModel instance."""
         if self.debug_mode or os.name != "nt":
@@ -590,9 +648,9 @@ class BrowserModel(ModelClient):
         self._ensure_logged_in(page)
         self._check_cancelled()
         self._json_mode_active = False
-        # Keep the page restored while clicking/confirming the New Chat control.
-        # The normal generation cleanup may minimize the window after UI work.
+        self._send_browser_window_to_back(page)
         self._start_fresh_chat(page)
+        self._send_browser_window_to_back(page)
         self._chat_initialized = True
         self._chat_reset_count += 1
         debug.log("BrowserModel", f"NEW CHAT → reset_count={self._chat_reset_count}")
