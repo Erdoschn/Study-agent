@@ -545,11 +545,12 @@ class Handler(BaseHTTPRequestHandler):
         with _RUN_LOCK:
             if cancellation_event.is_set():
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
-            original_log = debug.log
             factory = getattr(self.server, "model_factory", None)
             if factory is not None:
                 factory.begin_run(cancellation_event)
-            debug.log = log_hook
+            # DebugTracer supports thread-local sinks; never replace the shared
+            # bound method because unrelated threads may be logging concurrently.
+            debug.bind_thread(log_hook)
             try:
                 emit("🔄 Agent 已开始执行，正在分析 / 搜索 / 推理...")
                 result = _run_agent_with_cancellation(self.server.agent, question, cancellation_event)
@@ -561,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
                 emit(status)
                 return result
             finally:
-                debug.log = original_log
+                debug.clear_thread_binding()
                 if factory is not None:
                     factory.end_run(cancellation_event)
 
