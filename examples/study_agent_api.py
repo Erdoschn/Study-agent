@@ -620,7 +620,7 @@ class Handler(BaseHTTPRequestHandler):
                 except queue.Empty:
                     # Keep long model/search phases from looking like a dead
                     # connection to browser clients and reverse proxies.
-                    self._write_sse(b": ping\\n\\n")
+                    self._write_sse(b": ping\n\n")
                     continue
 
                 if kind == "status":
