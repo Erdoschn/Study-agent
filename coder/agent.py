@@ -86,24 +86,6 @@ class CoderAgent:
             "补充测试", "创建测试", "编写测试",
         ))
 
-    @staticmethod
-    def _request_requires_new_files(request: str) -> bool:
-        text = str(request or "").casefold()
-        explicit_phrases = (
-            "create a file", "create new file", "new file", "write a script",
-            "create a script", "scaffold", "from scratch", "new project",
-            "create a project", "build an app", "create an app",
-            "创建文件", "新建文件", "新增文件", "写一个脚本", "新建脚本",
-            "创建脚本", "新建项目", "创建项目", "从零搭建", "从头搭建",
-            "搭建一个应用", "开发一个新应用",
-        )
-        if any(phrase in text for phrase in explicit_phrases):
-            return True
-        return bool(re.search(
-            r"(创建|新建|写一个|编写).{0,24}(脚本|程序|项目|应用|模块)",
-            text,
-        ))
-
     def _workspace_has_tests(self) -> bool:
         list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
         if not callable(list_files):
@@ -134,7 +116,7 @@ class CoderAgent:
             "请使用独立的目标项目 workspace。"
         )
 
-    def run(self, request: str, *, event_hook=None) -> CoderState:
+    def run(self, request: str, *, event_hook=None, user_interaction=None) -> CoderState:
         request = str(request or "").strip()
         if not request:
             raise ValueError("Coder 请求不能为空。")
@@ -198,14 +180,12 @@ class CoderAgent:
 
         existing_tests = self._workspace_has_tests()
         explicitly_requests_tests = self._request_requires_tests(request)
-        explicitly_requests_test_creation = self._request_requires_test_creation(request)
+        # The planner decides which files/tests are needed. The user's original
+        # request remains immutable in state.request and is carried to every turn.
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
-            # Only create new test modules when the user asks for them.
-            # Existing project tests remain mandatory when present.
-            must_create_tests=explicitly_requests_test_creation,
-            must_create_files=self._request_requires_new_files(request),
+            must_create_tests=False,
             must_pass_tests=existing_tests or explicitly_requests_tests,
         )
         started = time.monotonic()
@@ -219,6 +199,25 @@ class CoderAgent:
                 raise_if_cancelled(self.cancellation_event)
                 action = decision["action"]
                 arguments = decision["arguments"]
+
+                # No tool may run before the first planning decision. Keep
+                # returning the invariant to the model instead of executing an
+                # opportunistic first action.
+                if not state.plan_confirmed and action not in {"PLAN", "STOP"}:
+                    message = (
+                        "PLAN_REQUIRED：第一步必须规划长期目标、成功标准、里程碑和初始文件范围；"
+                        "当前动作未执行。请先返回 PLAN。"
+                    )
+                    state.add_step(CoderStep(
+                        state.step_count + 1,
+                        "PLAN_REQUIRED",
+                        {},
+                        {"error": message, "attempted_action": action},
+                        success=False,
+                        error=message,
+                    ))
+                    emit({"type": "step", "step": state.steps[-1]})
+                    continue
 
                 if action == "STOP":
                     reason = (
@@ -242,9 +241,63 @@ class CoderAgent:
                     emit({"type": "error", "state": state})
                     return state
 
+                if action == "ASK_USER":
+                    question = str(
+                        arguments.get("question", "")
+                        or decision.get("reasoning_summary", "")
+                    ).strip()[:2000]
+                    if not question:
+                        question = "Coder 遇到阻塞。请提供建议，或等待 10 秒由 Coder 自主规划下一步。"
+                    normalized_question = " ".join(question.casefold().split())
+                    if normalized_question in {
+                        " ".join(item.casefold().split())
+                        for item in state.asked_user_questions
+                    }:
+                        answer = None
+                        observation = {
+                            "status": "already_asked",
+                            "question": question,
+                            "response": None,
+                            "next": "该问题之前已询问且无回复；不要重复询问，继续自主规划。",
+                        }
+                    else:
+                        state.asked_user_questions.append(question)
+                        answer = user_interaction(question) if callable(user_interaction) else None
+                        if answer and str(answer).strip():
+                            answer = str(answer).strip()[:12_000]
+                            state.user_responses.append({
+                                "question": question,
+                                "response": answer,
+                            })
+                            observation = {
+                                "status": "answered",
+                                "question": question,
+                                "response": answer,
+                                "next": "将用户回应纳入原始目标约束，重新规划下一步。",
+                            }
+                        else:
+                            observation = {
+                                "status": "timeout",
+                                "question": question,
+                                "response": None,
+                                "next": "用户未在 10 秒内点击回应按钮；自主规划下一步，不要重复询问同一问题。",
+                            }
+                    state.add_step(CoderStep(
+                        state.step_count + 1, action, arguments, observation,
+                        success=bool(answer),
+                    ))
+                    emit({"type": "step", "step": state.steps[-1]})
+                    continue
+
                 if action == "PLAN":
                     self._apply_plan(state, decision.get("goal", {}))
-                    observation = {"status": "PLAN_SET", "goal": state.goal.__dict__}
+                    observation = {
+                        "status": "PLAN_SET",
+                        "long_term_goal": state.request,
+                        "goal": state.goal.__dict__,
+                        "current_milestone": state.current_milestone,
+                        "completed_milestones": state.completed_milestones,
+                    }
                     state.add_step(CoderStep(state.step_count + 1, action, arguments, observation))
                     emit({"type": "step", "step": state.steps[-1]})
                     continue
@@ -303,9 +356,9 @@ class CoderAgent:
                         raise RunCancelled("Coder 任务已被用户中止。") from exc
                     message = str(exc)
                     if any(marker in message for marker in (
-                        "未要求新增或修改测试文件",
-                        "未要求新增测试文件",
-                        "未授权创建新文件",
+                        "不在当前计划范围",
+                        "必须先完成 PLAN",
+                        "必须先执行 PLAN",
                     )):
                         observation = {"error": f"{type(exc).__name__}: {exc}"}
                         state.add_step(CoderStep(
@@ -315,16 +368,34 @@ class CoderAgent:
                         emit({"type": "step", "step": state.steps[-1]})
                         scope_failures = int(state.metrics.get("scope_write_failures", 0)) + 1
                         state.metrics["scope_write_failures"] = scope_failures
-                        if scope_failures >= 2:
-                            state.finished = True
-                            state.goal_verified = False
-                            state.error = (
-                                "Coder 连续尝试越过任务范围创建或修改文件，"
-                                "Harness 已阻止操作并终止本轮。"
+                        # One scope rejection should trigger a PLAN update. If
+                        # the model ignores it twice, offer the user a 10-second
+                        # response window; timeout means autonomous replanning.
+                        if scope_failures == 2 and callable(user_interaction):
+                            path = str(arguments.get("path", "")).strip()
+                            question = (
+                                f"Coder 两次尝试操作计划范围外的文件 {path or '(未指定路径)'}。"
+                                "如果确有必要，请说明应扩展到哪些文件；10 秒内点击“回应”可输入，"
+                                "否则 Coder 会根据原始目标自行重规划。"
                             )
-                            state.summary = state.error
-                            emit({"type": "error", "state": state})
-                            return state
+                            answer = user_interaction(question)
+                            if answer and str(answer).strip():
+                                state.user_responses.append({
+                                    "question": question,
+                                    "response": str(answer).strip()[:12_000],
+                                })
+                            state.add_step(CoderStep(
+                                state.step_count + 1,
+                                "ASK_USER",
+                                {"question": question},
+                                {
+                                    "status": "answered" if answer else "timeout",
+                                    "response": str(answer).strip()[:12_000] if answer else None,
+                                    "next": "请根据原始目标和用户回应/超时结果重新规划文件范围。",
+                                },
+                                success=bool(answer),
+                            ))
+                            emit({"type": "step", "step": state.steps[-1]})
                         continue
                     observation = {"error": f"{type(exc).__name__}: {exc}"}
                     state.add_step(CoderStep(
@@ -418,20 +489,59 @@ class CoderAgent:
 
     @staticmethod
     def _apply_plan(state: CoderState, raw: dict) -> None:
+        """Apply/extend the explicit task plan without mutating the user's request."""
         goal = state.goal or CoderGoal(state.request)
-        files = raw.get("required_files", [])
-        tests = raw.get("required_tests", [])
-        if isinstance(files, list):
-            goal.required_files = [str(x).strip() for x in files if str(x).strip()][:20]
-        if isinstance(tests, list) and goal.must_pass_tests:
-            goal.required_tests = [str(x).strip() for x in tests if str(x).strip()][:20]
-        elif not goal.must_pass_tests:
-            # A model-generated plan must not invent mandatory test artifacts
-            # for a task whose scope does not require tests.
-            goal.required_tests = []
-        goal.description = str(raw.get("description", goal.description)).strip() or goal.description
-        # Security policy: a model cannot weaken mandatory coding verification.
+        if not isinstance(raw, dict):
+            raw = {}
+
+        def merge_strings(existing, incoming, limit=40):
+            result = list(existing or [])
+            seen = {str(item).replace("\\", "/").casefold() for item in result}
+            if isinstance(incoming, list):
+                for item in incoming:
+                    value = str(item or "").strip()
+                    if not value:
+                        continue
+                    key = value.replace("\\", "/").casefold()
+                    if key not in seen:
+                        result.append(value)
+                        seen.add(key)
+                    if len(result) >= limit:
+                        break
+            return result[:limit]
+
+        goal.required_files = merge_strings(goal.required_files, raw.get("required_files", []))
+        goal.required_tests = merge_strings(goal.required_tests, raw.get("required_tests", []))
+        goal.scope_files = merge_strings(
+            goal.scope_files,
+            raw.get("scope_files", raw.get("allowed_files", [])),
+        )
+        new_milestones = raw.get("milestones", [])
+        if isinstance(new_milestones, list) and new_milestones:
+            goal.milestones = merge_strings(goal.milestones, new_milestones, limit=20)
+        new_criteria = raw.get("success_criteria", [])
+        if isinstance(new_criteria, list) and new_criteria:
+            goal.success_criteria = merge_strings(goal.success_criteria, new_criteria, limit=20)
+
+        completed = raw.get("completed_milestones", [])
+        state.completed_milestones = merge_strings(
+            state.completed_milestones,
+            completed,
+            limit=20,
+        )
+        description = str(raw.get("description", "")).strip()
+        if description:
+            goal.description = description[:2000]
+
+        # The planner may choose whether dedicated tests are needed. Existing
+        # test-suite requirements inferred by the agent cannot be weakened.
+        if isinstance(raw.get("must_create_tests"), bool):
+            goal.must_create_tests = raw["must_create_tests"]
+        goal.must_pass_tests = goal.must_pass_tests or raw.get("must_pass_tests") is True
         goal.must_modify = True
-        # Do not let a model-generated PLAN override the test policy inferred
-        # from the user's request and the project's existing test suite.
         state.goal = goal
+        state.plan_confirmed = True
+        state.current_milestone = next(
+            (item for item in goal.milestones if item not in state.completed_milestones),
+            "",
+        )
