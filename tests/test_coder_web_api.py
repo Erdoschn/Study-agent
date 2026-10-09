@@ -798,3 +798,12 @@ def test_coder_run_lock_is_released_before_worker_ownership():
     assert api.RUN_LOCK.acquire(blocking=False)
     api._release_run_lock_if_unowned(control)
     assert not api.RUN_LOCK.locked()
+
+
+def test_coder_run_lock_release_is_idempotent_across_cleanup_paths():
+    import examples.coder_web_api as api
+    control = api.CoderRunControl("test-idempotent-release")
+    assert api.RUN_LOCK.acquire(blocking=False)
+    assert control.release_run_lock_once() is True
+    assert control.release_run_lock_once() is False
+    assert not api.RUN_LOCK.locked()
