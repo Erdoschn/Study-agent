@@ -6,6 +6,7 @@ import pytest
 from coder.agent import CoderAgent
 from coder.filesystem import WorkspaceFS, WorkspaceSecurityError
 from coder.harness import CoderHarness
+from coder.reasoner import CoderReasoner
 from coder.sandbox import DockerPythonSandbox, SandboxResult
 
 
