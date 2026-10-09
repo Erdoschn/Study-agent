@@ -140,7 +140,9 @@ def test_coder_web_frontend_handles_sse_errors_and_shift_enter():
     assert 'state.failed=true' in source
     assert 'if(e.state?.error)' in source
     assert 'Coder SSE 连接在收到完成信号前就结束了。' in source
-    assert 'e.key==="Enter"&&e.shiftKey' in source
+    assert 'e.key==="Enter"&&!e.shiftKey&&!e.isComposing' in source
+    assert 'e.preventDefault();if(!state.running)void run()' in source
+    assert "Enter 发送，Shift + Enter 换行" in source
     assert 'void run();' in source
 
 
@@ -154,9 +156,22 @@ def test_coder_web_frontend_keeps_output_position_and_compacts_memory():
     assert 'startsWith("最终通过验证：")' in source
 
 
+def test_coder_web_frontend_layout_keeps_current_task_with_history_and_files_on_right():
+    source = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'items.unshift({current:true,project:state.runProject||state.project||"当前任务",request:state.currentTask})' in source
+    assert 'className="history-item"+(item.current?" current":"")' in source
+    assert '<div class="files" id="files">' in source
+    assert '<div id="modified">暂无</div>' in source
+    assert '<h3 style="margin-bottom:7px">测试结果</h3><div id="tests">暂无测试结果</div>' in source
+    assert 'id="taskDrop"' in source
+    assert 'composer.ondrop' in source
+    assert 'e.key==="Enter"&&!e.shiftKey&&!e.isComposing' in source
+
+
 def test_coder_web_frontend_has_drag_drop_and_timeouts():
     source = _frontend_path("/").read_text(encoding="utf-8")
-    assert "拖到这里" in source
+    assert "直接拖入文件/文件夹" in source
+    assert 'composer.ondrop=e=>{e.preventDefault();composer.classList.remove("drag-hot")' in source
     assert "dataTransfer.files" in source
     assert ".ipynb" in source
     assert "fetchTimeout" in source
@@ -697,7 +712,7 @@ def test_coder_web_frontend_has_independent_scrollable_step_area_and_final_refre
 def test_coder_web_frontend_shows_and_follows_step_scrollbar():
     source = _frontend_path("/").read_text(encoding="utf-8")
     assert ".side{height:100%;min-height:0;overflow:hidden;" in source
-    assert ".files{flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;" in source
+    assert ".files{min-height:70px;max-height:35vh;overflow-y:auto;overflow-x:hidden;" in source
     assert ".timeline{max-width:920px;width:100%;flex:1 1 0;height:0;min-height:0;overflow-y:scroll;overflow-x:hidden;" in source
     assert "scrollbar-gutter:stable" in source
     assert ".timeline::-webkit-scrollbar{width:10px}" in source
