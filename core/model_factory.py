@@ -21,14 +21,21 @@ class ModelClientFactory:
         """Bind one request's cancellation event to browser clients on this thread."""
         self._run_context.cancellation_event = cancellation_event
         for client in tuple(self._browser_clients.values()):
-            client.cancellation_event = cancellation_event
+            bind = getattr(client, "bind_cancellation_event", None)
+            if callable(bind):
+                bind(cancellation_event)
+            else:
+                client.cancellation_event = cancellation_event
 
     def end_run(self, cancellation_event: Event) -> None:
         """Detach a completed request's event so it cannot poison the next run."""
         if getattr(self._run_context, "cancellation_event", None) is cancellation_event:
             del self._run_context.cancellation_event
         for client in tuple(self._browser_clients.values()):
-            if getattr(client, "cancellation_event", None) is cancellation_event:
+            bind = getattr(client, "bind_cancellation_event", None)
+            if callable(bind):
+                bind(None)
+            elif getattr(client, "cancellation_event", None) is cancellation_event:
                 client.cancellation_event = None
 
     def create(
@@ -109,7 +116,11 @@ class ModelClientFactory:
             cached.cancellation_event = cancellation_event
             return cached
 
-        from .web_model import BrowserModel
+        # Playwright's synchronous API is thread-bound. Browser-backed
+        # models used by the threaded HTTP servers must live on a dedicated
+        # worker thread instead of being created during prewarm and later
+        # invoked from unrelated request-handler threads.
+        from coder.browser_session import CoderBrowserSession
 
         response_selectors = provider.get("response_selectors")
         if isinstance(response_selectors, list):
@@ -121,18 +132,25 @@ class ModelClientFactory:
         else:
             response_selectors = None
 
-        client = BrowserModel(
+        client = CoderBrowserSession(
             model=model.model,
             url=provider.get("url"),
             user_data_dir=provider.get("user_data_dir"),
             browser_channel=provider.get("browser_channel"),
             timeout=int(provider.get("timeout", 180)),
             response_selectors=response_selectors,
+            loading_selectors=provider.get("loading_selectors"),
+            session_pause_seconds=float(provider.get("session_pause_seconds", 1.5)),
+            cleanup_pause_seconds=float(provider.get("cleanup_pause_seconds", 3.0)),
+            post_cleanup_pause_seconds=float(provider.get("post_cleanup_pause_seconds", 1.5)),
+            cleanup_after_generate=bool(provider.get("cleanup_after_generate", True)),
             reuse_chat=bool(provider.get("reuse_chat", False)),
             min_send_interval_seconds=float(
                 provider.get("min_send_interval_seconds", 5.0)
             ),
-            cancellation_event=cancellation_event,
+            debug_mode=False,
         )
+        if cancellation_event is not None:
+            client.bind_cancellation_event(cancellation_event)
         self._browser_clients[model.name] = client
         return client
