@@ -615,7 +615,13 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             while True:
-                kind, value = events.get()
+                try:
+                    kind, value = events.get(timeout=15)
+                except queue.Empty:
+                    # Keep long model/search phases from looking like a dead
+                    # connection to browser clients and reverse proxies.
+                    self._write_sse(b": ping\\n\\n")
+                    continue
 
                 if kind == "status":
                     self._write_sse(sse_event(chunk(
