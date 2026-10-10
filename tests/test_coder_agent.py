@@ -335,3 +335,13 @@ def test_coder_agent_does_not_stop_on_ambiguous_or_missing_confirmation(tmp_path
             and step.observation.get("status") == "confirmation_unanswered"
             for step in state.steps
         )
+
+
+
+def test_stop_confirmation_accepts_clear_natural_language_and_rejects_negation():
+    confirm = agent_module._is_explicit_stop_confirmation
+    assert confirm("那不改了，取消任务") is True
+    assert confirm("请终止任务") is True
+    assert confirm("我不想取消任务") is False
+    assert confirm("不要结束任务，继续") is False
+    assert confirm("我还没想好") is False
