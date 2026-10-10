@@ -20,6 +20,38 @@ DEFAULT_WORKSPACE = os.getenv("CODER_WORKSPACE", r"D:\Coder_workspace")
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _is_explicit_stop_confirmation(response: object) -> bool:
+    """Return True only for an affirmative reply to the STOP confirmation prompt."""
+    normalized = "".join(
+        str(response or "").casefold().split()
+    )
+    for punctuation in "，。,.!！?？、:：;；\\\"“”'‘’（）()":
+        normalized = normalized.replace(punctuation, "")
+    if not normalized:
+        return False
+
+    # A negative phrase wins even if an affirmative-looking word is also present.
+    if any(token in normalized for token in (
+        "继续", "不要终止", "不终止", "不要取消", "不取消",
+        "不确认", "否", "no", "continue",
+    )):
+        return False
+
+    explicit_markers = (
+        "确认终止", "确认取消", "确认停止", "确认结束",
+        "确定终止", "确定取消", "确定停止",
+    )
+    if any(token in normalized for token in explicit_markers):
+        return True
+
+    # The prompt is binary. Common short affirmative responses are accepted;
+    # ambiguous replies are treated as not confirmed.
+    return normalized in {
+        "是", "是的", "对", "好的", "可以", "确定", "确认",
+        "yes", "y", "ok", "okay", "confirm",
+    }
+
+
 class CoderAgent:
     """Autonomous Python coding agent with a fail-closed Harness."""
 
@@ -346,7 +378,11 @@ class CoderAgent:
                         emit({"type": "cancelled", "state": state})
                         return state
 
-                    status = "confirmation_declined" if confirmation_text else "confirmation_unanswered"
+                    normalized_confirmation = "".join(confirmation_text.casefold().split())
+                    explicitly_declined = any(token in normalized_confirmation for token in (
+                        "继续", "不要终止", "不终止", "不要取消", "不取消", "否", "no", "continue",
+                    ))
+                    status = "confirmation_declined" if explicitly_declined else "confirmation_unanswered"
                     observation = {
                         "status": status,
                         "reason": reason,
