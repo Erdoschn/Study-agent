@@ -32,14 +32,17 @@ def _is_explicit_stop_confirmation(response: object) -> bool:
 
     # A negative phrase wins even if an affirmative-looking word is also present.
     if any(token in normalized for token in (
-        "继续", "不要终止", "不终止", "不要取消", "不取消",
-        "不确认", "否", "no", "continue",
+        "继续", "不要终止", "不终止", "不想终止", "别终止",
+        "不要取消", "不取消", "不想取消", "别取消", "不要结束",
+        "不结束", "不想结束", "不要停止", "不停止", "不确认",
+        "否", "no", "continue",
     )):
         return False
 
     explicit_markers = (
         "确认终止", "确认取消", "确认停止", "确认结束",
         "确定终止", "确定取消", "确定停止",
+        "取消任务", "终止任务", "停止任务", "结束任务",
     )
     if any(token in normalized for token in explicit_markers):
         return True
