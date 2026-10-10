@@ -25,7 +25,7 @@ def main() -> int:
     debug.set_enabled(args.debug)
     request = " ".join(args.request).strip()
     def confirm_stop(question: str) -> str | None:
-        print(f"\\n[Coder] {question}")
+        print(f"\n[Coder] {question}")
         try:
             return input("请确认（确认终止 / 继续任务）: ").strip() or None
         except (EOFError, KeyboardInterrupt):
