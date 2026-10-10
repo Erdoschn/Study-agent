@@ -222,3 +222,116 @@ def test_coder_agent_stops_when_cancellation_event_is_set(tmp_path):
     assert state.error is None
     assert state.summary == "任务已被用户中止。"
     assert calls == [0]
+
+
+
+def _stop_test_agent(tmp_path, actions):
+    class FakeReasoner:
+        model = None
+
+        def decide(self, state, tools):
+            return next(actions)
+
+    class FakeHarness:
+        sandbox = object()
+        backup = object()
+
+        def tool_specs(self):
+            return []
+
+        def execute(self, action, arguments, state):
+            assert action == "VERIFY_GOAL"
+            return {"verified": True}
+
+    return agent_module.CoderAgent(
+        workspace=tmp_path,
+        reasoner=FakeReasoner(),
+        harness=FakeHarness(),
+        max_runtime_seconds=30,
+    )
+
+
+def _stop_test_plan():
+    return {
+        "action": "PLAN",
+        "arguments": {},
+        "goal": {
+            "description": "处理当前任务",
+            "scope_files": ["task.py"],
+            "milestones": ["inspect", "implement", "verify"],
+            "success_criteria": ["task completed"],
+            "must_create_tests": False,
+            "must_pass_tests": False,
+        },
+    }
+
+
+def test_coder_agent_requires_explicit_confirmation_before_stopping(tmp_path):
+    actions = iter([
+        _stop_test_plan(),
+        {"action": "STOP", "arguments": {}, "reasoning_summary": "需要停止"},
+    ])
+    questions = []
+    agent = _stop_test_agent(tmp_path, actions)
+
+    state = agent.run(
+        "完成当前任务",
+        user_interaction=lambda question: questions.append(question) or "确认终止",
+    )
+
+    assert len(questions) == 1
+    assert "确认终止" in questions[0]
+    assert state.finished is True
+    assert state.cancelled is True
+    assert state.goal_verified is False
+    assert state.error is None
+    assert state.summary == "任务已根据用户二次确认终止。"
+    assert state.steps[-1].observation["status"] == "confirmed_stopped"
+
+
+def test_coder_agent_continues_when_stop_confirmation_is_declined(tmp_path):
+    actions = iter([
+        _stop_test_plan(),
+        {"action": "STOP", "arguments": {}, "reasoning_summary": "当前无法继续"},
+        # A repeated STOP must not override the user's explicit choice to continue.
+        {"action": "STOP", "arguments": {}, "reasoning_summary": "重复请求停止"},
+        {"action": "FINISH", "arguments": {}},
+    ])
+    questions = []
+    agent = _stop_test_agent(tmp_path, actions)
+
+    state = agent.run(
+        "完成当前任务",
+        user_interaction=lambda question: questions.append(question) or "继续任务",
+    )
+
+    assert len(questions) == 1
+    assert state.finished is True
+    assert state.goal_verified is True
+    assert state.cancelled is False
+    assert [step.observation.get("status") for step in state.steps if step.action == "STOP"] == [
+        "confirmation_declined",
+        "stop_blocked_after_user_declined",
+    ]
+
+
+def test_coder_agent_does_not_stop_on_ambiguous_or_missing_confirmation(tmp_path):
+    for response in (None, "我还没想好"):
+        actions = iter([
+            _stop_test_plan(),
+            {"action": "STOP", "arguments": {}, "reasoning_summary": "需要停止"},
+            {"action": "FINISH", "arguments": {}},
+        ])
+        agent = _stop_test_agent(tmp_path, actions)
+        state = agent.run(
+            "完成当前任务",
+            user_interaction=lambda _question, value=response: value,
+        )
+        assert state.finished is True
+        assert state.goal_verified is True
+        assert state.cancelled is False
+        assert any(
+            step.action == "STOP"
+            and step.observation.get("status") == "confirmation_unanswered"
+            for step in state.steps
+        )
