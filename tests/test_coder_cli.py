@@ -19,7 +19,7 @@ def test_coder_cli_defaults_to_normal_mode(monkeypatch):
         def __init__(self, **kwargs):
             calls.append(kwargs)
 
-        def run(self, request):
+        def run(self, request, *, stop_confirmation=None):
             calls.append(request)
             return FakeResult()
 
@@ -50,7 +50,7 @@ def test_coder_cli_explicit_debug_keeps_debug_mode(monkeypatch):
         def __init__(self, **kwargs):
             calls.append(kwargs)
 
-        def run(self, request):
+        def run(self, request, *, stop_confirmation=None):
             calls.append(request)
             return FakeResult()
 
@@ -84,7 +84,7 @@ def test_coder_cli_prints_completion_summary(monkeypatch, capsys):
         def __init__(self, **kwargs):
             pass
 
-        def run(self, request):
+        def run(self, request, *, stop_confirmation=None):
             return FakeResult()
 
     monkeypatch.setattr(cli, "CoderAgent", FakeAgent)
