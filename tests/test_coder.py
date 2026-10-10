@@ -622,11 +622,17 @@ def test_coder_agent_stops_safely_on_stop_action(tmp_path):
             raise AssertionError("STOP must not execute a tool")
 
     agent = CoderAgent(tmp_path, reasoner=StopReasoner(), harness=Harness(), close_model_on_run=False)
-    state = agent.run("修改现有 notebook TODO")
+    state = agent.run(
+        "修改现有 notebook TODO",
+        user_interaction=lambda _question: "确认终止",
+    )
     assert state.finished is True
+    assert state.cancelled is True
     assert state.goal_verified is False
-    assert "invalid JSON after repair" in state.error
+    assert state.error is None
+    assert state.summary == "任务已根据用户二次确认终止。"
     assert state.steps[-1].action == "STOP"
+    assert state.steps[-1].observation["status"] == "confirmed_stopped"
 
 
 def test_plan_can_authorize_new_helper_files_without_scope_bypass(tmp_path):
@@ -675,7 +681,10 @@ def test_coder_agent_requires_plan_before_any_tool_execution(tmp_path):
 
     reasoner = SequenceReasoner()
     agent = CoderAgent(tmp_path, reasoner=reasoner, harness=Harness(), close_model_on_run=False)
-    state = agent.run("complete TODO in assignment1.ipynb")
+    state = agent.run(
+        "complete TODO in assignment1.ipynb",
+        user_interaction=lambda _question: "确认终止",
+    )
     assert reasoner.calls == 3
     assert state.steps[0].action == "PLAN"
     assert state.plan_confirmed is True
@@ -706,10 +715,19 @@ def test_coder_agent_passes_user_reply_into_following_decisions(tmp_path):
     reasoner = SequenceReasoner()
     agent = CoderAgent(tmp_path, reasoner=reasoner, harness=Harness(), close_model_on_run=False)
     questions = []
-    state = agent.run('preserve public API behavior', user_interaction=lambda question: questions.append(question) or 'Yes, preserve compatibility')
-    assert questions == ["Should public APIs stay compatible?"]
-    assert state.user_responses[-1]["response"] == "Yes, preserve compatibility"
+    responses = iter(["Yes, preserve compatibility", "确认终止"])
+
+    def respond(question):
+        questions.append(question)
+        return next(responses)
+
+    state = agent.run('preserve public API behavior', user_interaction=respond)
+    assert questions[0] == "Should public APIs stay compatible?"
+    assert len(questions) == 2
+    assert "确认终止" in questions[1]
+    assert state.user_responses[0]["response"] == "Yes, preserve compatibility"
     assert reasoner.seen_responses[-1][-1]["response"] == "Yes, preserve compatibility"
+    assert state.cancelled is True
 
 
 
