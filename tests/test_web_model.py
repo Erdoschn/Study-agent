@@ -1558,7 +1558,7 @@ def test_browser_provider_does_not_require_api_endpoint():
     assert registry.available(allow_paid=False)[0].name == "web-model"
 
 
-def test_browser_model_uses_current_deepseek_history_action_xpath():
+def test_browser_model_uses_history_action_xpath_as_fallback():
     class Button:
         def __init__(self):
             self.clicked = False
@@ -1587,7 +1587,45 @@ def test_browser_model_uses_current_deepseek_history_action_xpath():
     row = Row()
 
     assert model._click_session_more(object(), row) is True
-    assert row.requested == ["xpath=./div[3]/div"]
+    assert row.requested == [
+        '[role="button"]:has(svg path[d^="M4.55146 8.00001"])',
+        "xpath=./div[3]/div",
+    ]
+    assert row.button.clicked is True
+
+
+def test_browser_model_prefers_observed_three_dot_svg_for_history_menu():
+    class Button:
+        def __init__(self):
+            self.clicked = False
+
+        def count(self):
+            return 1
+
+        def is_visible(self):
+            return True
+
+        def click(self, timeout=None):
+            self.clicked = True
+
+    class Row:
+        def __init__(self):
+            self.button = Button()
+            self.requested = []
+
+        def locator(self, selector):
+            self.requested.append(selector)
+            if selector == '[role="button"]:has(svg path[d^="M4.55146 8.00001"])':
+                return self.button
+            return FakeLocator([])
+
+    model = BrowserModel()
+    row = Row()
+
+    assert model._click_session_more(object(), row) is True
+    assert row.requested == [
+        '[role="button"]:has(svg path[d^="M4.55146 8.00001"])'
+    ]
     assert row.button.clicked is True
 
 
