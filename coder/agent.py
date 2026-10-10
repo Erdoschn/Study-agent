@@ -25,7 +25,7 @@ def _is_explicit_stop_confirmation(response: object) -> bool:
     normalized = "".join(
         str(response or "").casefold().split()
     )
-    for punctuation in ("，", "。", ",", ".", "!", "！", "?", "？", "、", ":", "：", ";", "；", '"", "“", "”", "'", "‘", "’", "（", "）", "(", ")"):
+    for punctuation in ("，", "。", ",", ".", "!", "！", "?", "？", "、", ":", "：", ";", "；", "（", "）", "(", ")"):
         normalized = normalized.replace(punctuation, "")
     if not normalized:
         return False
