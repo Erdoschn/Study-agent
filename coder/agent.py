@@ -25,7 +25,7 @@ def _is_explicit_stop_confirmation(response: object) -> bool:
     normalized = "".join(
         str(response or "").casefold().split()
     )
-    for punctuation in "，。,.!！?？、:：;；\\\"“”'‘’（）()":
+    for punctuation in ("，", "。", ",", ".", "!", "！", "?", "？", "、", ":", "：", ";", "；", '"", "“", "”", "'", "‘", "’", "（", "）", "(", ")"):
         normalized = normalized.replace(punctuation, "")
     if not normalized:
         return False
@@ -148,7 +148,14 @@ class CoderAgent:
             "请使用独立的目标项目 workspace。"
         )
 
-    def run(\n        self,\n        request: str,\n        *,\n        event_hook=None,\n        user_interaction=None,\n        stop_confirmation=None,\n    ) -> CoderState:
+    def run(
+        self,
+        request: str,
+        *,
+        event_hook=None,
+        user_interaction=None,
+        stop_confirmation=None,
+    ) -> CoderState:
         request = str(request or "").strip()
         if not request:
             raise ValueError("Coder 请求不能为空。")
@@ -334,7 +341,7 @@ class CoderAgent:
                         continue
 
                     question = (
-                        f"Coder 提议结束当前任务。原因：{reason}\\n\\n"
+                        f"Coder 提议结束当前任务。原因：{reason}\n\n"
                         "请确认后再决定：回复“确认终止”则结束任务；"
                         "回复“继续任务”则不结束并继续执行。"
                         "只有明确的肯定回复才会终止，超时或含糊回复都按继续处理。"
