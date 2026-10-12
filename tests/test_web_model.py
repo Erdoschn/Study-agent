@@ -2105,3 +2105,154 @@ def test_browser_model_accepts_ask_user_action_in_json_mode():
     response = '{"action":"ASK_USER","arguments":{"question":"Which API should be preserved?"}}'
     assert BrowserModel._extract_json_object(response) == response
     assert BrowserModel._needs_json_recovery(response) is False
+
+
+
+def test_browser_model_attachment_upload_uses_original_binary_payload():
+    class UploadLocator:
+        def __init__(self, page, selector):
+            self.page = page
+            self.selector = selector
+
+        def count(self):
+            return 1 if self.selector in {'input[type="file"]', "body"} else 0
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def set_input_files(self, files, *, timeout=None):
+            self.page.payloads = list(files)
+            self.page.body_text = " ".join(item["name"] for item in files)
+
+        def inner_text(self):
+            return self.page.body_text
+
+        def is_visible(self):
+            return False
+
+    class UploadPage:
+        def __init__(self):
+            self.payloads = []
+            self.body_text = ""
+
+        def locator(self, selector):
+            return UploadLocator(self, selector)
+
+    model = BrowserModel(poll_interval=0.1)
+    page = UploadPage()
+    files = [
+        {"name": "lecture.pdf", "mimeType": "application/pdf", "buffer": b"\\x00\\xffpdf-bytes"},
+        {"name": "notes.md", "mimeType": "text/markdown", "buffer": b"# Notes"},
+    ]
+
+    model._upload_attachments(page, files)
+
+    assert [item["name"] for item in page.payloads] == ["lecture.pdf", "notes.md"]
+    assert page.payloads[0]["buffer"] == b"\\x00\\xffpdf-bytes"
+    assert page.payloads[1]["buffer"] == b"# Notes"
+
+
+def test_browser_model_keeps_attachment_in_same_deepseek_chat_for_agent_steps(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+        poll_interval=0.1,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: events.append("new_chat"))
+    monkeypatch.setattr(model, "_upload_attachments", lambda _page, _files: events.append("upload"))
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: "answer")
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append("cleanup"))
+
+    model.begin_attachment_session([
+        {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
+    ])
+
+    assert model.generate("", "first step") == "answer"
+    assert model.generate("", "second step") == "answer"
+    assert events.count("new_chat") == 1
+    assert events.count("upload") == 1
+    assert len([event for event in events if isinstance(event, tuple) and event[0] == "send"]) == 2
+    assert "cleanup" not in events
+
+    model.end_attachment_session()
+
+    assert events.count("cleanup") == 1
+    assert model._attachment_session_active is False
+    assert model._attachment_files == ()
+
+
+def test_factory_forwards_original_attachments_to_browser_session(monkeypatch):
+    import threading
+    from coder import browser_session as browser_session_module
+
+    class FakeBrowserSession:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.model = kwargs["model"]
+            self.cancellation_event = None
+            self.received_files = None
+            self.attachment_session_ended = False
+            self.closed = False
+
+        def bind_cancellation_event(self, event):
+            self.cancellation_event = event
+
+        def begin_attachment_session(self, files):
+            self.received_files = tuple(files)
+
+        def end_attachment_session(self):
+            self.attachment_session_ended = True
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        browser_session_module,
+        "CoderBrowserSession",
+        FakeBrowserSession,
+    )
+    config = {
+        "providers": {"deepseek_web": {"type": "browser", "enabled": True}},
+        "models": {
+            "deepseek-web": {
+                "provider": "deepseek_web",
+                "model": "deepseek-web",
+                "enabled": True,
+                "paid": False,
+            }
+        },
+    }
+    registry = ModelRegistry(config)
+    factory = ModelClientFactory(config)
+    event = threading.Event()
+    attachment = {
+        "name": "lecture.pdf",
+        "mimeType": "application/pdf",
+        "buffer": b"original raw payload",
+    }
+
+    factory.begin_run(event, attachments=[attachment])
+    client = factory.create(registry.get("deepseek-web"))
+
+    assert client.received_files[0]["name"] == "lecture.pdf"
+    assert client.received_files[0]["buffer"] == b"original raw payload"
+
+    factory.end_run(event)
+    assert client.attachment_session_ended is True
+    assert client.cancellation_event is None
+    factory.close()
+    assert client.closed is True
