@@ -285,9 +285,6 @@ class Handler(BaseHTTPRequestHandler):
         if len(raw) != length:
             raise ValueError("请求体未完整接收。")
         return parse_chat_request_body(raw or b"{}", self.headers.get("Content-Type", "application/json"))
-        if len(raw) != length:
-            raise ValueError("请求体未完整接收。")
-        return parse_chat_request_body(raw, self.headers.get("Content-Type", "application/json"))
 
     def _body(self) -> dict[str, Any]:
         """Compatibility helper for JSON-only internal/tests."""
