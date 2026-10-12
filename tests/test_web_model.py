@@ -2141,15 +2141,16 @@ def test_browser_model_attachment_upload_uses_original_binary_payload():
 
     model = BrowserModel(poll_interval=0.1)
     page = UploadPage()
+    binary_payload = bytes([0, 255]) + b"pdf-bytes"
     files = [
-        {"name": "lecture.pdf", "mimeType": "application/pdf", "buffer": b"\\x00\\xffpdf-bytes"},
+        {"name": "lecture.pdf", "mimeType": "application/pdf", "buffer": binary_payload},
         {"name": "notes.md", "mimeType": "text/markdown", "buffer": b"# Notes"},
     ]
 
     model._upload_attachments(page, files)
 
     assert [item["name"] for item in page.payloads] == ["lecture.pdf", "notes.md"]
-    assert page.payloads[0]["buffer"] == b"\\x00\\xffpdf-bytes"
+    assert page.payloads[0]["buffer"] == binary_payload
     assert page.payloads[1]["buffer"] == b"# Notes"
 
 
