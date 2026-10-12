@@ -281,7 +281,10 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError(
                 f"请求体大小无效或超过上限（{MAX_REQUEST_BODY_BYTES // (1024 * 1024)} MiB）。"
             )
-        raw = self.rfile.read(length) if length else b"{}"
+        raw = self.rfile.read(length) if length else b""
+        if len(raw) != length:
+            raise ValueError("请求体未完整接收。")
+        return parse_chat_request_body(raw or b"{}", self.headers.get("Content-Type", "application/json"))
         if len(raw) != length:
             raise ValueError("请求体未完整接收。")
         return parse_chat_request_body(raw, self.headers.get("Content-Type", "application/json"))
