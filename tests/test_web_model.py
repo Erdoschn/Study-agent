@@ -2164,6 +2164,7 @@ def test_browser_model_keeps_attachment_in_same_deepseek_chat_for_agent_steps(mo
     )
     page = FakePage()
     page.is_closed = lambda: False
+    model._page = page
     events = []
 
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
