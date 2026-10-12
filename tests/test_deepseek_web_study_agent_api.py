@@ -1,5 +1,12 @@
 from types import SimpleNamespace
-from examples.deepseek_web_study_agent_api import Handler, WEB_ROOT, build_web_only_config, web_asset_path
+from examples.deepseek_web_study_agent_api import (
+    Handler,
+    WEB_ROOT,
+    add_attachment_context,
+    build_web_only_config,
+    parse_chat_request_body,
+    web_asset_path,
+)
 
 
 def test_web_api_extracts_latest_user_message_from_history():
@@ -151,3 +158,77 @@ def test_web_api_exposes_health_under_v1_prefix():
         encoding="utf-8"
     )
     assert 'if path in {"/health", "/v1/health"}:' in source
+
+
+
+def test_web_api_multipart_keeps_original_file_bytes_without_extracting_text():
+    boundary = "study-agent-upload-test"
+    request = b'{"model":"deepseek-web","messages":[{"role":"user","content":"Summarize the attachment"}],"stream":true}'
+    raw_file = b"\\x00\\xffbinary-payload\\nnot-extracted"
+    body = (
+        f"--{boundary}\\r\\n"
+        'Content-Disposition: form-data; name="request"\\r\\n'
+        "Content-Type: application/json\\r\\n\\r\\n"
+    ).encode() + request + (
+        f"\\r\\n--{boundary}\\r\\n"
+        'Content-Disposition: form-data; name="file"; filename="report.pdf"\\r\\n'
+        "Content-Type: application/pdf\\r\\n\\r\\n"
+    ).encode() + raw_file + f"\\r\\n--{boundary}--\\r\\n".encode()
+
+    parsed, attachments = parse_chat_request_body(
+        body,
+        f"multipart/form-data; boundary={boundary}",
+    )
+
+    assert parsed["messages"][0]["content"] == "Summarize the attachment"
+    assert len(attachments) == 1
+    assert attachments[0]["name"] == "report.pdf"
+    assert attachments[0]["mimeType"] == "application/pdf"
+    assert attachments[0]["buffer"] == raw_file
+
+
+def test_attachment_context_adds_only_names_and_not_file_contents():
+    marker = b"SHOULD_NEVER_ENTER_PROMPT_98765"
+    question = add_attachment_context(
+        "Summarize the attached file",
+        [{"name": "paper.pdf", "mimeType": "application/pdf", "buffer": marker}],
+    )
+
+    assert "paper.pdf" in question
+    assert "原始附件" in question
+    assert marker.decode() not in question
+    assert "Study Agent 没有预先解析或提取文件正文" in question
+
+
+def test_web_api_rejects_oversized_attachment(monkeypatch):
+    import examples.deepseek_web_study_agent_api as api
+
+    monkeypatch.setattr(api, "MAX_UPLOAD_FILE_BYTES", 3)
+    boundary = "too-big"
+    request = b'{"messages":[{"role":"user","content":"open"}]}'
+    body = (
+        f"--{boundary}\\r\\n"
+        'Content-Disposition: form-data; name="request"\\r\\n\\r\\n'
+    ).encode() + request + (
+        f"\\r\\n--{boundary}\\r\\n"
+        'Content-Disposition: form-data; name="file"; filename="x.txt"\\r\\n'
+        "Content-Type: text/plain\\r\\n\\r\\n"
+    ).encode() + b"1234" + f"\\r\\n--{boundary}--\\r\\n".encode()
+
+    try:
+        parse_chat_request_body(body, f"multipart/form-data; boundary={boundary}")
+    except ValueError as exc:
+        assert "单文件上限" in str(exc)
+    else:
+        raise AssertionError("expected oversized upload rejection")
+
+
+def test_web_frontend_uses_multipart_and_direct_attachment_upload():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'id="fileInput" type="file" multiple' in source
+    assert 'id="dropOverlay"' in source
+    assert 'dropTarget.addEventListener("drop"' in source
+    assert 'formData.append("file",file,file.name)' in source
+    assert 'headers(true),body:formData' in source
+    assert "filesByConversation:new Map()" in source
+    assert "formData.append(\"request\",JSON.stringify(payload))" in source
