@@ -75,6 +75,11 @@ class BrowserModel(ModelClient):
         "Accept", "Accept all", "Agree", "I agree",
         "同意", "接受", "全部接受", "同意全部",
     )
+    DEFAULT_ATTACHMENT_LABELS = (
+        "Upload file", "Upload files", "Add file", "Add files",
+        "Attach file", "Attach files", "上传文件", "添加文件", "添加附件",
+    )
+    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 30.0
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
     SEND_ACTION_TIMEOUT_MS = 1500
@@ -141,7 +146,74 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
+        self._attachment_session_active = False
+        self._attachment_chat_started = False
+        self._attachment_uploaded = False
+        self._attachment_files: tuple[dict[str, Any], ...] = ()
 
+
+    def begin_attachment_session(self, files) -> None:
+        """Attach original file bytes in the visible DeepSeek chat for one Agent run.
+
+        File payloads use Playwright's {name, mimeType, buffer} form. No document
+        parsing or text extraction occurs in Study Agent.
+        """
+        normalized = []
+        for item in files or ():
+            if not isinstance(item, dict):
+                raise TypeError("附件必须是包含 name/mimeType/buffer 的对象。")
+            name = str(item.get("name") or "").strip()
+            mime_type = str(item.get("mimeType") or "application/octet-stream")
+            content = item.get("buffer")
+            if not name or not isinstance(content, (bytes, bytearray, memoryview)):
+                raise ValueError("附件缺少文件名或原始二进制内容。")
+            normalized.append({
+                "name": name,
+                "mimeType": mime_type,
+                "buffer": bytes(content),
+            })
+        if not normalized:
+            raise ValueError("附件会话至少需要一个文件。")
+        if self._attachment_session_active:
+            raise RuntimeError("当前 DeepSeek Web 会话已有未结束的附件任务。")
+        self._attachment_files = tuple(normalized)
+        self._attachment_session_active = True
+        self._attachment_chat_started = False
+        self._attachment_uploaded = False
+        debug.log(
+            "BrowserModel",
+            "ATTACHMENT SESSION BEGIN → files="
+            + ", ".join(f"{item['name']} ({len(item['buffer'])} bytes)" for item in normalized),
+        )
+
+    def end_attachment_session(self) -> None:
+        """Best-effort delete the temporary DeepSeek chat that contains uploaded files."""
+        if not self._attachment_session_active:
+            return
+        original_event = self.cancellation_event
+        try:
+            # Cleanup must still run if the user cancelled the model request.
+            self.cancellation_event = None
+            page = self._page
+            if (
+                page is not None
+                and not page.is_closed()
+                and self._attachment_chat_started
+            ):
+                self._cleanup_current_chat(page)
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"ATTACHMENT CLEANUP WARNING → {type(exc).__name__}: {exc}",
+            )
+        finally:
+            self.cancellation_event = original_event
+            self._attachment_session_active = False
+            self._attachment_chat_started = False
+            self._attachment_uploaded = False
+            self._attachment_files = ()
+            self._chat_initialized = False
+            debug.log("BrowserModel", "ATTACHMENT SESSION END")
 
     def cancel(self) -> None:
         """Signal the current browser operation to stop as soon as possible."""
@@ -227,7 +299,15 @@ class BrowserModel(ModelClient):
         # behind other windows. Playwright can interact with a normal window
         # in the background, but not reliably with a minimized one.
         self._send_browser_window_to_back(page)
-        if not self.reuse_chat or not self._chat_initialized:
+        if self._attachment_session_active:
+            if not self._attachment_chat_started:
+                self._start_fresh_chat(page)
+                self._chat_initialized = True
+                self._attachment_chat_started = True
+            if not self._attachment_uploaded:
+                self._upload_attachments(page, self._attachment_files)
+                self._attachment_uploaded = True
+        elif not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
         completed = False
@@ -282,7 +362,11 @@ class BrowserModel(ModelClient):
         finally:
             self._pending_prompt = None
             self._json_mode_active = False
-            if completed and self.cleanup_after_generate:
+            if (
+                completed
+                and self.cleanup_after_generate
+                and not self._attachment_session_active
+            ):
                 self._cleanup_current_chat(page)
                 self._chat_initialized = False
             # Leave the browser out of the user's way after UI work, including
@@ -1345,6 +1429,104 @@ class BrowserModel(ModelClient):
                 )
                 self._sleep(remaining)
         self._last_send_monotonic = time.monotonic()
+
+    def _upload_attachments(self, page, files) -> None:
+        """Use DeepSeek's visible file-input control to upload original file bytes."""
+        payloads = [
+            {
+                "name": str(item["name"]),
+                "mimeType": str(item.get("mimeType") or "application/octet-stream"),
+                "buffer": bytes(item["buffer"]),
+            }
+            for item in files
+        ]
+        if not payloads:
+            return
+
+        file_inputs = page.locator('input[type="file"]')
+        if file_inputs.count() <= 0:
+            clicked = self._click_first_visible(
+                page, self.DEFAULT_ATTACHMENT_LABELS, role="button"
+            ) or self._click_first_visible(page, self.DEFAULT_ATTACHMENT_LABELS)
+            if not clicked:
+                raise RuntimeError(
+                    "DeepSeek Web 未找到文件上传控件或 input[type=file]；"
+                    "无法将原始附件交给模型。"
+                )
+            deadline = time.monotonic() + min(
+                5.0, float(self.ATTACHMENT_UPLOAD_TIMEOUT_SECONDS)
+            )
+            while time.monotonic() < deadline:
+                self._check_cancelled()
+                file_inputs = page.locator('input[type="file"]')
+                if file_inputs.count() > 0:
+                    break
+                self._sleep(min(0.1, self.poll_interval))
+        count = file_inputs.count()
+        if count <= 0:
+            raise RuntimeError(
+                "点击 DeepSeek Web 文件上传控件后，仍未找到 input[type=file]。"
+            )
+
+        try:
+            file_inputs.nth(count - 1).set_input_files(
+                payloads,
+                timeout=self.CLICK_ACTION_TIMEOUT_MS,
+            )
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"ATTACHMENT SELECT FAILED → {type(exc).__name__}: {exc}",
+            )
+            raise RuntimeError(
+                "DeepSeek Web 无法接收这些附件；文件未发送给模型。"
+            ) from exc
+
+        expected_names = [item["name"].casefold() for item in payloads]
+        deadline = time.monotonic() + float(self.ATTACHMENT_UPLOAD_TIMEOUT_SECONDS)
+        stable_since = None
+        while time.monotonic() < deadline:
+            self._check_cancelled()
+            try:
+                body = self._compact_text(page.locator("body").inner_text()).casefold()
+            except Exception:
+                body = ""
+            names_visible = all(name in body for name in expected_names)
+            upload_busy = False
+            for selector in (
+                '[role="progressbar"]',
+                '[aria-busy="true"]',
+                '[class*="uploading" i]',
+                '[class*="upload-progress" i]',
+            ):
+                try:
+                    locator = page.locator(selector)
+                    if any(
+                        locator.nth(index).is_visible()
+                        for index in range(locator.count())
+                    ):
+                        upload_busy = True
+                        break
+                except Exception:
+                    continue
+            if names_visible and not upload_busy:
+                if stable_since is None:
+                    stable_since = time.monotonic()
+                elif time.monotonic() - stable_since >= 0.5:
+                    debug.log(
+                        "BrowserModel",
+                        "ATTACHMENT UPLOAD READY → files="
+                        + ", ".join(expected_names),
+                    )
+                    return
+            else:
+                stable_since = None
+            self._sleep(min(0.2, self.poll_interval))
+
+        raise TimeoutError(
+            "DeepSeek Web 附件上传未能在规定时间内确认完成；"
+            "为避免模型在未收到文件时回答，已中止本次请求。"
+        )
 
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(
