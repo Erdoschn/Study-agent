@@ -8,6 +8,8 @@ import queue
 import threading
 import time
 import uuid
+from email import policy
+from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -29,7 +31,111 @@ MODEL_ID = "deepseek-web"
 HOST = os.getenv("STUDY_AGENT_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("STUDY_AGENT_WEB_PORT", "8001"))
 API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", "").strip()
+MAX_UPLOAD_FILES = 8
+MAX_UPLOAD_FILE_BYTES = 20 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 40 * 1024 * 1024
+MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_TOTAL_BYTES + 8 * 1024 * 1024
 _RUN_LOCK = threading.Lock()
+
+
+def parse_chat_request_body(
+    raw: bytes,
+    content_type: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Parse JSON or multipart requests without interpreting file contents."""
+    if len(raw) > MAX_REQUEST_BODY_BYTES:
+        raise ValueError(
+            f"请求体超过上限（{MAX_REQUEST_BODY_BYTES // (1024 * 1024)} MiB）。"
+        )
+
+    media_type = str(content_type or "").split(";", 1)[0].strip().casefold()
+    if media_type != "multipart/form-data":
+        try:
+            request = json.loads(raw.decode("utf-8") if raw else "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"请求 JSON 格式错误：{exc}") from exc
+        if not isinstance(request, dict):
+            raise ValueError("request body must be a JSON object")
+        return request, []
+
+    header = (
+        b"MIME-Version: 1.0\\r\\nContent-Type: "
+        + str(content_type).encode("ascii", errors="strict")
+        + b"\\r\\n\\r\\n"
+        + raw
+    )
+    try:
+        multipart = BytesParser(policy=policy.default).parsebytes(header)
+    except Exception as exc:
+        raise ValueError(f"无法解析 multipart 请求：{type(exc).__name__}: {exc}") from exc
+    if not multipart.is_multipart():
+        raise ValueError("multipart 请求缺少有效 boundary。")
+
+    request = None
+    attachments: list[dict[str, Any]] = []
+    total_bytes = 0
+    for part in multipart.iter_parts():
+        field = part.get_param("name", header="content-disposition")
+        payload = part.get_payload(decode=True) or b""
+        if field == "request":
+            if request is not None:
+                raise ValueError("multipart 请求中 request 字段只能出现一次。")
+            try:
+                parsed = json.loads(payload.decode(part.get_content_charset() or "utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"multipart 的 request JSON 格式错误：{exc}") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("request 字段必须是 JSON 对象。")
+            request = parsed
+            continue
+        if field != "file":
+            continue
+
+        filename = str(part.get_filename() or "").replace("\\\\", "/").rsplit("/", 1)[-1]
+        filename = filename.replace("\\x00", "").strip()
+        if not filename or filename in {".", ".."}:
+            raise ValueError("附件缺少有效文件名。")
+        if len(filename) > 240:
+            raise ValueError(f"附件文件名过长：{filename[:80]}")
+        if len(payload) > MAX_UPLOAD_FILE_BYTES:
+            raise ValueError(
+                f"附件 {filename!r} 超过单文件上限 "
+                f"({MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MiB)。"
+            )
+        total_bytes += len(payload)
+        if total_bytes > MAX_UPLOAD_TOTAL_BYTES:
+            raise ValueError(
+                f"附件总大小超过上限 "
+                f"({MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} MiB)。"
+            )
+        if len(attachments) >= MAX_UPLOAD_FILES:
+            raise ValueError(f"单次最多上传 {MAX_UPLOAD_FILES} 个文件。")
+        attachments.append({
+            "name": filename,
+            "mimeType": part.get_content_type() or "application/octet-stream",
+            "buffer": payload,
+        })
+
+    if request is None:
+        raise ValueError("multipart 请求缺少 request JSON 字段。")
+    return request, attachments
+
+
+def add_attachment_context(
+    question: str,
+    attachments: list[dict[str, Any]],
+) -> str:
+    """Pass names and handling instructions only; never inject file contents into prompts."""
+    names = [str(item.get("name", "")) for item in attachments]
+    return (
+        str(question or "").rstrip()
+        + "\\n\\n【原始文件附件】\\n"
+        + "文件名（JSON）："
+        + json.dumps(names, ensure_ascii=False)
+        + "\\n这些原始附件会直接上传到本次 DeepSeek Web 会话。请直接利用附件完成用户任务；"
+        + "Study Agent 没有预先解析或提取文件正文。若 DeepSeek 无法读取附件，请明确说明，"
+        + "不要假装已读到文件内容，也不要要求把整份文件复制进提示词。"
+    )
 
 
 def _run_agent_with_cancellation(agent, question: str, cancellation_event: threading.Event):
@@ -169,12 +275,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _body(self) -> dict[str, Any]:
+    def _body_and_attachments(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         length = int(self.headers.get("Content-Length", "0"))
-        value = json.loads(self.rfile.read(length).decode() if length else "{}")
-        if not isinstance(value, dict):
-            raise ValueError("request body must be a JSON object")
-        return value
+        if length < 0 or length > MAX_REQUEST_BODY_BYTES:
+            raise ValueError(
+                f"请求体大小无效或超过上限（{MAX_REQUEST_BODY_BYTES // (1024 * 1024)} MiB）。"
+            )
+        raw = self.rfile.read(length) if length else b"{}"
+        if len(raw) != length:
+            raise ValueError("请求体未完整接收。")
+        return parse_chat_request_body(raw, self.headers.get("Content-Type", "application/json"))
+
+    def _body(self) -> dict[str, Any]:
+        """Compatibility helper for JSON-only internal/tests."""
+        request, attachments = self._body_and_attachments()
+        if attachments:
+            raise ValueError("当前入口不接受附件。")
+        return request
 
     @staticmethod
     def _message_text(content: Any) -> str:
@@ -268,15 +385,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
             return
         try:
-            request = self._body()
+            request, attachments = self._body_and_attachments()
             messages = request.get("messages", [])
             if not isinstance(messages, list):
                 raise ValueError("messages 必须是数组")
             question = self._prompt(messages)
+            if attachments:
+                question = add_attachment_context(question, attachments)
+                debug.log(
+                    "StudyAgentWebAPI",
+                    "ATTACHMENTS RECEIVED → "
+                    + ", ".join(
+                        f"{item['name']} ({len(item['buffer'])} bytes)"
+                        for item in attachments
+                    ),
+                )
             if request.get("stream", True):
-                self._stream(question)
+                self._stream(question, attachments=attachments)
             else:
-                result = self._run(question, lambda _: None)
+                result = self._run(question, lambda _: None, attachments=attachments)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -295,6 +422,7 @@ class Handler(BaseHTTPRequestHandler):
         question: str,
         emit,
         cancellation_event: threading.Event | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Any:
         cancellation_event = cancellation_event or threading.Event()
 
@@ -326,7 +454,10 @@ class Handler(BaseHTTPRequestHandler):
             factory = getattr(self.server.agent, "_web_model_factory", None)
             begin_run = getattr(factory, "begin_run", None)
             if callable(begin_run):
-                begin_run(cancellation_event)
+                if attachments:
+                    begin_run(cancellation_event, attachments=attachments)
+                else:
+                    begin_run(cancellation_event)
             debug.bind_thread(log_hook)
             try:
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
@@ -346,7 +477,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
         self.wfile.flush()
 
-    def _stream(self, question: str) -> None:
+    def _stream(
+        self,
+        question: str,
+        *,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -366,7 +502,15 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             try:
-                events.put(("result", self._run(question, emit, cancellation_event)))
+                events.put((
+                    "result",
+                    self._run(
+                        question,
+                        emit,
+                        cancellation_event,
+                        attachments=attachments,
+                    ),
+                ))
             except Exception as exc:
                 events.put(("error", exc))
             finally:
