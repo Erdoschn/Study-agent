@@ -59,9 +59,9 @@ def parse_chat_request_body(
         return request, []
 
     header = (
-        b"MIME-Version: 1.0\\r\\nContent-Type: "
+        b"MIME-Version: 1.0\r\nContent-Type: "
         + str(content_type).encode("ascii", errors="strict")
-        + b"\\r\\n\\r\\n"
+        + b"\r\n\r\n"
         + raw
     )
     try:
@@ -91,8 +91,8 @@ def parse_chat_request_body(
         if field != "file":
             continue
 
-        filename = str(part.get_filename() or "").replace("\\\\", "/").rsplit("/", 1)[-1]
-        filename = filename.replace("\\x00", "").strip()
+        filename = str(part.get_filename() or "").replace(chr(92), "/").rsplit("/", 1)[-1]
+        filename = filename.replace(chr(0), "").strip()
         if not filename or filename in {".", ".."}:
             raise ValueError("附件缺少有效文件名。")
         if len(filename) > 240:
