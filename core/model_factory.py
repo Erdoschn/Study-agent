@@ -17,26 +17,47 @@ class ModelClientFactory:
         self._browser_clients: dict[str, Any] = {}
         self._run_context = threading.local()
 
-    def begin_run(self, cancellation_event: Event) -> None:
-        """Bind one request's cancellation event to browser clients on this thread."""
+    def begin_run(self, cancellation_event: Event, attachments=None) -> None:
+        """Bind cancellation and optional raw attachments to this Agent request."""
         self._run_context.cancellation_event = cancellation_event
+        self._run_context.attachments = tuple(attachments or ())
         for client in tuple(self._browser_clients.values()):
             bind = getattr(client, "bind_cancellation_event", None)
             if callable(bind):
                 bind(cancellation_event)
             else:
                 client.cancellation_event = cancellation_event
+            if self._run_context.attachments:
+                begin_attachments = getattr(client, "begin_attachment_session", None)
+                if not callable(begin_attachments):
+                    raise RuntimeError(
+                        "当前浏览器模型不支持直接上传附件；未将文件内容转换成提示词。"
+                    )
+                begin_attachments(self._run_context.attachments)
 
     def end_run(self, cancellation_event: Event) -> None:
-        """Detach a completed request's event so it cannot poison the next run."""
-        if getattr(self._run_context, "cancellation_event", None) is cancellation_event:
-            del self._run_context.cancellation_event
+        """Clean temporary browser attachments and detach request cancellation."""
+        attachments = getattr(self._run_context, "attachments", ())
         for client in tuple(self._browser_clients.values()):
+            if attachments:
+                end_attachments = getattr(client, "end_attachment_session", None)
+                if callable(end_attachments):
+                    try:
+                        end_attachments()
+                    except Exception as exc:
+                        debug.log(
+                            "ModelClientFactory",
+                            f"ATTACHMENT CLEANUP SKIP → {type(exc).__name__}: {exc}",
+                        )
             bind = getattr(client, "bind_cancellation_event", None)
             if callable(bind):
                 bind(None)
             elif getattr(client, "cancellation_event", None) is cancellation_event:
                 client.cancellation_event = None
+        if getattr(self._run_context, "cancellation_event", None) is cancellation_event:
+            del self._run_context.cancellation_event
+        if hasattr(self._run_context, "attachments"):
+            del self._run_context.attachments
 
     def create(
         self,
@@ -113,7 +134,11 @@ class ModelClientFactory:
         )
         cached = self._browser_clients.get(model.name)
         if cached is not None:
-            cached.cancellation_event = cancellation_event
+            bind = getattr(cached, "bind_cancellation_event", None)
+            if callable(bind):
+                bind(cancellation_event)
+            else:
+                cached.cancellation_event = cancellation_event
             return cached
 
         # Playwright's synchronous API is thread-bound. Browser-backed
@@ -152,5 +177,18 @@ class ModelClientFactory:
         )
         if cancellation_event is not None:
             client.bind_cancellation_event(cancellation_event)
+        attachments = getattr(self._run_context, "attachments", ())
+        if attachments:
+            begin_attachments = getattr(client, "begin_attachment_session", None)
+            if not callable(begin_attachments):
+                client.close()
+                raise RuntimeError(
+                    "当前浏览器模型不支持直接上传附件；未将文件内容转换成提示词。"
+                )
+            try:
+                begin_attachments(attachments)
+            except Exception:
+                client.close()
+                raise
         self._browser_clients[model.name] = client
         return client
