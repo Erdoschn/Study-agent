@@ -181,6 +181,18 @@ class CoderBrowserSession:
             )
         )
 
+    def begin_attachment_session(self, files) -> None:
+        # Copy the byte buffers before queueing to the Playwright-owned thread.
+        payloads = tuple({
+            "name": str(item["name"]),
+            "mimeType": str(item.get("mimeType") or "application/octet-stream"),
+            "buffer": bytes(item["buffer"]),
+        } for item in files)
+        self._call(lambda browser: browser.begin_attachment_session(payloads))
+
+    def end_attachment_session(self) -> None:
+        self._call(lambda browser: browser.end_attachment_session())
+
     def new_chat(self) -> None:
         self._call(lambda browser: browser.new_chat())
 
