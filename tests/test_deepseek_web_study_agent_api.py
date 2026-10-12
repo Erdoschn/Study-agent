@@ -164,16 +164,16 @@ def test_web_api_exposes_health_under_v1_prefix():
 def test_web_api_multipart_keeps_original_file_bytes_without_extracting_text():
     boundary = "study-agent-upload-test"
     request = b'{"model":"deepseek-web","messages":[{"role":"user","content":"Summarize the attachment"}],"stream":true}'
-    raw_file = b"\\x00\\xffbinary-payload\\nnot-extracted"
+    raw_file = b"\x00\xffbinary-payload\nnot-extracted"
     body = (
-        f"--{boundary}\\r\\n"
-        'Content-Disposition: form-data; name="request"\\r\\n'
-        "Content-Type: application/json\\r\\n\\r\\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="request"\r\n'
+        "Content-Type: application/json\r\n\r\n"
     ).encode() + request + (
-        f"\\r\\n--{boundary}\\r\\n"
-        'Content-Disposition: form-data; name="file"; filename="report.pdf"\\r\\n'
-        "Content-Type: application/pdf\\r\\n\\r\\n"
-    ).encode() + raw_file + f"\\r\\n--{boundary}--\\r\\n".encode()
+        f"\r\n--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="report.pdf"\r\n'
+        "Content-Type: application/pdf\r\n\r\n"
+    ).encode() + raw_file + f"\r\n--{boundary}--\r\n".encode()
 
     parsed, attachments = parse_chat_request_body(
         body,
@@ -207,13 +207,13 @@ def test_web_api_rejects_oversized_attachment(monkeypatch):
     boundary = "too-big"
     request = b'{"messages":[{"role":"user","content":"open"}]}'
     body = (
-        f"--{boundary}\\r\\n"
-        'Content-Disposition: form-data; name="request"\\r\\n\\r\\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="request"\r\n\r\n'
     ).encode() + request + (
-        f"\\r\\n--{boundary}\\r\\n"
-        'Content-Disposition: form-data; name="file"; filename="x.txt"\\r\\n'
-        "Content-Type: text/plain\\r\\n\\r\\n"
-    ).encode() + b"1234" + f"\\r\\n--{boundary}--\\r\\n".encode()
+        f"\r\n--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="x.txt"\r\n'
+        "Content-Type: text/plain\r\n\r\n"
+    ).encode() + b"1234" + f"\r\n--{boundary}--\r\n".encode()
 
     try:
         parse_chat_request_body(body, f"multipart/form-data; boundary={boundary}")
@@ -231,4 +231,4 @@ def test_web_frontend_uses_multipart_and_direct_attachment_upload():
     assert 'formData.append("file",file,file.name)' in source
     assert 'headers(true),body:formData' in source
     assert "filesByConversation:new Map()" in source
-    assert "formData.append(\"request\",JSON.stringify(payload))" in source
+    assert 'formData.append("request",JSON.stringify(payload))' in source
