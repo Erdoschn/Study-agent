@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0f1115">
 <title>StudyAgent</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.12.0/styles/github-dark.min.css">
-<script src="https://cdn.jsdelivr.net/npm/marked@18.1.0/lib/marked.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.12.0/lib/common.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.12.0/styles/github-dark.min.css" referrerpolicy="no-referrer">
+<script src="https://cdn.jsdelivr.net/npm/marked@18.1.1/lib/marked.umd.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.17/dist/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.12.0/lib/common.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>window.MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]},svg:{fontCache:"global"}};</script>
-<script src="https://cdn.jsdelivr.net/npm/mathjax@4.1.3/tex-svg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@4.1.3/tex-svg.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
 :root{color-scheme:dark;--bg:#0f1115;--panel:#151821;--panel2:#1b1f28;--panel3:#232936;--border:#2b313c;--text:#e9ecf1;--muted:#929aaa;--muted2:#697282;--accent:#e7e9ee;--accentText:#111318;--user:#252c38;--danger:#e47074;--ok:#86c98a;--shadow:0 18px 70px rgba(0,0,0,.34)}
 *{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,textarea{font:inherit}button{cursor:pointer}
@@ -36,13 +36,14 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
 <section class="main">
 <header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span>DeepSeek Web · Browser Model</span></div><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
 <main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>完整的 StudyAgent 会分析、搜索、推理和教学，并通过本地浏览器调用 DeepSeek Web。</p><div class="chips"><span>Markdown</span><span>代码高亮</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
-<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件将以原始文件形式交给 DeepSeek Web，不在本地提取文件正文。当前页面关闭后需重新添加附件才能继续引用。</div></footer>
+<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件会以原始文件形式发送给 DeepSeek Web；请勿上传不应交给第三方的文件。对话文本会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。</div></footer>
 </section></div>
 <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="card"><div class="mhead"><div><h2 id="settingsTitle">设置</h2><p>默认使用当前页面提供的 StudyAgent API。</p></div><button class="icon" id="close">×</button></div><label class="field"><span>API 地址</span><input id="base" placeholder="/v1"></label><label class="field"><span>API Key（可选）</span><input id="key" type="password" placeholder="STUDY_AGENT_WEB_API_KEY"></label><div class="actions"><button class="secondary" id="reset" type="button">恢复默认</button><button class="send" id="save" type="button">保存</button></div></div></div>
 <script>
 const DEF="/v1",KEY="studyagent.ui.v3";
 const $=s=>document.querySelector(s);
-const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],filesByConversation:new Map(),base:localStorage.getItem("studyagent.apiBase")||DEF,key:localStorage.getItem("studyagent.apiKey")||""};
+const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],filesByConversation:new Map(),base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
+try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=20*1024*1024,MAX_UPLOAD_TOTAL_BYTES=40*1024*1024;
 if(window.marked)marked.setOptions({gfm:true,breaks:false});
@@ -51,7 +52,7 @@ function active(){return state.conversations.find(c=>c.id===state.active)||null}
 function base(){let x=(state.base||DEF).trim()||DEF;if(!/^https?:\/\//i.test(x)&&!x.startsWith("/"))x="/"+x;return x.replace(/\/$/,"")}
 function url(p){return base()+p}
 function headers(multipart=false){const h={};if(!multipart)h["Content-Type"]="application/json";if(state.key.trim())h.Authorization="Bearer "+state.key.trim();return h}
-function persist(){localStorage.setItem(KEY,JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem("studyagent.apiBase",state.base);localStorage.setItem("studyagent.apiKey",state.key)}
+function persist(){localStorage.setItem(KEY,JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem("studyagent.apiBase",state.base);try{localStorage.removeItem("studyagent.apiKey")}catch(_){}}
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0].id}
 function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value="";renderAttachments()}
 function newChat(save=true){clearPendingFiles();const c={id:id(),title:"新对话",createdAt:Date.now(),messages:[]};state.conversations.unshift(c);state.active=c.id;render();if(save)persist();input.focus();closeSide()}
@@ -181,7 +182,22 @@ function addFiles(fileList){
 function autoResize(){input.style.height="auto";input.style.height=Math.min(input.scrollHeight,220)+"px"}
 function settings(){ $("#base").value=state.base;$("#key").value=state.key;$("#modal").classList.remove("hidden");$("#base").focus()}
 function closeSettings(){$("#modal").classList.add("hidden")}
-function saveSettings(){state.base=base();state.key=$("#key").value.trim();persist();closeSettings();health()}
+function saveSettings(){
+ let next=($("#base").value||DEF).trim()||DEF;
+ if(!/^https?:\/\//i.test(next)&&!next.startsWith("/"))next="/"+next;
+ next=next.replace(/\/$/,"");
+ let destination;
+ try{destination=new URL(next,location.href)}catch(_){alert("API 地址无效。");return}
+ if(destination.origin!==location.origin){
+  const transport=destination.protocol==="https:"?"HTTPS 加密连接":"非加密 HTTP 连接";
+  const warning="你正在把 API 指向另一个来源：\n"+destination.origin+"\n\n该地址会收到你的提示词、对话上下文、上传附件和当前页面内存中的 API Key。连接类型："+transport+"。\n只有在你信任该服务时才继续。";
+  if(!confirm(warning))return;
+ }
+ state.base=next;
+ state.key=$("#key").value.trim();
+ try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
+ persist();closeSettings();health()
+}
 function resetSettings(){$("#base").value=DEF;$("#key").value=""}
 function closeSide(){$("#sidebar").classList.remove("open")}
 
