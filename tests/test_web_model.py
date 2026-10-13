@@ -2194,7 +2194,7 @@ def test_browser_model_attachment_upload_uses_original_binary_payload():
     assert page.payloads[1]["buffer"] == b"# Notes"
 
 
-def test_browser_model_isolates_attachment_backed_agent_steps_into_fresh_sessions(monkeypatch):
+def test_browser_model_reuses_attachment_chat_for_consecutive_calls_in_same_role(monkeypatch):
     model = BrowserModel(
         timeout=1,
         session_pause_seconds=0,
@@ -2223,17 +2223,17 @@ def test_browser_model_isolates_attachment_backed_agent_steps_into_fresh_session
         {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
     ])
 
-    assert model.generate("", "answer generation") == "answer"
-    assert model.generate("", "independent answer audit") == "answer"
-    assert events.count("new_chat") == 2
-    assert events.count("upload") == 2
+    assert model.generate("", "first reasoning step") == "answer"
+    assert model.generate("", "second reasoning step") == "answer"
+    assert events.count("new_chat") == 1
+    assert events.count("upload") == 1
     assert len([event for event in events if isinstance(event, tuple) and event[0] == "send"]) == 2
-    assert events.count("cleanup") == 2
+    assert events.count("cleanup") == 0
 
     model.end_attachment_session()
 
-    # Sessions are deleted after each call; end-of-run cleanup is idempotent.
-    assert events.count("cleanup") == 2
+    # Consecutive calls by the same role share one uploaded source-file session.
+    assert events.count("cleanup") == 1
     assert model._attachment_session_active is False
     assert model._attachment_files == ()
 
@@ -2424,3 +2424,64 @@ def test_browser_model_forces_separate_sessions_for_teacher_and_validator(monkey
         ("new_chat", True),
     ]
     assert len([event for event in events if event[0] == "cleanup"]) == 2
+
+
+
+def test_browser_model_reuploads_original_source_to_distinct_teacher_and_audit_chats(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page, *, force=False: events.append(("new_chat", force)),
+    )
+    monkeypatch.setattr(
+        model,
+        "_upload_attachments",
+        lambda _page, files: events.append(("upload", tuple(item["name"] for item in files))),
+    )
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    responses = iter(["draft answer", '{"status":"PASS","claims":[],"summary":"audit ok"}'])
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: next(responses))
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append(("cleanup",)))
+
+    original_files = [
+        {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
+    ]
+    model.begin_attachment_session(original_files)
+
+    draft = model.generate("You are the Teacher (教学引擎).", "generate an answer")
+    audit = model.generate(
+        "You are the Teaching Validator (校验器).",
+        '{"audit_specification":{"problem_to_solve":"Solve problem 2"},"candidate_answer_to_audit":"draft answer"}',
+        json_mode=True,
+    )
+
+    assert draft == "draft answer"
+    assert audit == '{"status":"PASS","claims":[],"summary":"audit ok"}'
+    assert [event for event in events if event[0] == "new_chat"] == [
+        ("new_chat", True),
+        ("new_chat", True),
+    ]
+    assert [event for event in events if event[0] == "upload"] == [
+        ("upload", ("source.pdf",)),
+        ("upload", ("source.pdf",)),
+    ]
+    assert len([event for event in events if event[0] == "cleanup"]) == 2
+    model.end_attachment_session()
+    assert model._attachment_session_active is False
