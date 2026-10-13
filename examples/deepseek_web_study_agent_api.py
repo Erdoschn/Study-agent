@@ -129,10 +129,10 @@ def add_attachment_context(
     names = [str(item.get("name", "")) for item in attachments]
     return (
         str(question or "").rstrip()
-        + "\\n\\n【原始文件附件】\\n"
+        + "\n\n【原始文件附件】\n"
         + "文件名（JSON）："
         + json.dumps(names, ensure_ascii=False)
-        + "\\n这些原始附件会直接上传到本次 DeepSeek Web 会话。请直接利用附件完成用户任务；"
+        + "\n这些原始附件会直接上传到本次 DeepSeek Web 会话。请直接利用附件完成用户任务；"
         + "Study Agent 没有预先解析或提取文件正文。若 DeepSeek 无法读取附件，请明确说明，"
         + "不要假装已读到文件内容，也不要要求把整份文件复制进提示词。"
     )
