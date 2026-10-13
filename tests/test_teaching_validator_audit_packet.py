@@ -100,3 +100,16 @@ def test_audit_without_source_file_does_not_claim_that_an_attachment_was_sent():
 def test_real_teacher_and_validator_system_prompts_map_to_isolated_browser_roles():
     assert BrowserModel._infer_session_role(Teacher.SYSTEM_PROMPT) == "answer_generation"
     assert BrowserModel._infer_session_role(TeachingValidator.SYSTEM_PROMPT) == "answer_audit"
+
+
+
+def test_audit_requirement_extraction_keeps_english_output_constraints():
+    fragments = TeachingValidator._extract_request_fragments(
+        "Please solve problem 4 in the attached PDF. Use SI units. "
+        "Round to three significant figures and provide only the final answer."
+    )
+
+    assert any("Please solve problem 4" in item for item in fragments)
+    assert any("Use SI units" in item for item in fragments)
+    assert any("Round to three significant figures" in item for item in fragments)
+    assert any("provide only the final answer" in item for item in fragments)
