@@ -46,7 +46,7 @@ def test_web_api_isolates_browser_model():
     assert list(isolated["models"]) == ["deepseek-web"]
 
 
-def test_web_api_closes_browser_factory_after_run():
+def test_web_api_keeps_browser_factory_alive_after_run():
     from examples.deepseek_web_study_agent_api import Handler
 
     class Factory:
@@ -77,7 +77,7 @@ def test_web_api_closes_browser_factory_after_run():
     result = handler._run("hello", events.append)
 
     assert result.step_count == 1
-    assert factory.closed is True
+    assert factory.closed is False
     assert events[0] == "🤔 StudyAgent 正在分析任务"
 
 
@@ -151,3 +151,50 @@ def test_web_api_exposes_health_under_v1_prefix():
         encoding="utf-8"
     )
     assert 'if path in {"/health", "/v1/health"}:' in source
+
+
+
+def test_web_api_prewarm_creates_the_only_browser_candidate():
+    from examples.deepseek_web_study_agent_api import MODEL_ID, _prewarm_browser_model
+
+    model = SimpleNamespace(name=MODEL_ID)
+    client = SimpleNamespace(user_data_dir=".study-agent-browser")
+
+    class Registry:
+        def available(self, *, allow_paid):
+            assert allow_paid is False
+            return [model]
+
+    class Factory:
+        def __init__(self):
+            self.created = []
+
+        def create(self, candidate):
+            self.created.append(candidate)
+            return client
+
+    factory = Factory()
+    agent = SimpleNamespace(
+        _web_model_factory=factory,
+        _web_model_registry=Registry(),
+    )
+
+    assert _prewarm_browser_model(agent) is True
+    assert factory.created == [model]
+
+
+def test_web_api_prewarm_failure_does_not_abort_startup():
+    from examples.deepseek_web_study_agent_api import _prewarm_browser_model
+
+    class Registry:
+        def available(self, *, allow_paid):
+            raise RuntimeError("browser unavailable")
+
+    class Factory:
+        pass
+
+    agent = SimpleNamespace(
+        _web_model_factory=Factory(),
+        _web_model_registry=Registry(),
+    )
+    assert _prewarm_browser_model(agent) is False
