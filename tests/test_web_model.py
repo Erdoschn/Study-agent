@@ -1479,6 +1479,8 @@ def test_browser_model_raises_when_response_does_not_arrive(monkeypatch):
     page._press = lambda key: None
     page.input.on_press = page._press
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    # This test targets response timeout, not the send-confirmation path.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     with pytest.raises(TimeoutError, match="等待 DeepSeek Web 回答超时"):
         model.generate("", "hello")
@@ -2404,12 +2406,13 @@ def test_browser_model_forces_separate_sessions_for_teacher_and_validator(monkey
     )
     monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
     monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
-    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: "answer")
+    responses = iter(["answer", '{"status":"PASS","claims":[],"summary":"ok"}'])
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: next(responses))
     monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
     monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append(("cleanup",)))
 
     assert model.generate("You are the Teacher (教学引擎).", "draft answer") == "answer"
-    assert model.generate("You are the Teaching Validator (校验器).", "audit answer", json_mode=True) == "answer"
+    assert model.generate("You are the Teaching Validator (校验器).", "audit answer", json_mode=True) == '{"status":"PASS","claims":[],"summary":"ok"}'
 
     assert BrowserModel._infer_session_role("You are the Teacher.") == "answer_generation"
     assert BrowserModel._infer_session_role("You are the Teaching Validator.") == "answer_audit"
