@@ -326,7 +326,7 @@ def test_web_frontend_does_not_persist_api_key_and_warns_on_remote_api():
     assert "该地址会收到你的提示词、对话上下文、上传附件和当前页面内存中的 API Key" in source
     assert "dompurify@3.4.17" in source
     assert "marked@18.1.1" in source
-    assert "对话文本会保存在当前浏览器本地存储" in source
+    assert "对话文本和附件文件名会保存在当前浏览器本地存储" in source
 
 
 
