@@ -1829,7 +1829,7 @@ class BrowserModel(ModelClient):
             classes = str(control.get_attribute("class") or "").casefold()
         except Exception:
             classes = ""
-        tokens = set(re.findall(r"[a-z0-9_-]+", classes))
+        tokens = {token for token in re.split(r"[^a-z0-9]+", classes) if token}
         if tokens & {"active", "is-active", "checked", "is-checked", "selected", "is-selected", "on"}:
             return True
         if tokens & {"inactive", "is-inactive", "unchecked", "is-unchecked", "unselected", "is-unselected", "off"}:
