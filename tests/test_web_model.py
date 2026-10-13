@@ -2485,3 +2485,117 @@ def test_browser_model_reuploads_original_source_to_distinct_teacher_and_audit_c
     assert len([event for event in events if event[0] == "cleanup"]) == 2
     model.end_attachment_session()
     assert model._attachment_session_active is False
+
+
+
+def test_browser_model_send_selector_matches_current_deepseek_composer_dom():
+    assert (
+        '[role="button"].ds-button--primary.ds-button--filled.ds-button--circle'
+        in BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS
+    )
+
+
+def test_browser_model_does_not_click_deepseek_send_button_disabled_by_class(monkeypatch):
+    model = BrowserModel()
+    clicked = []
+
+    class Button:
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def inner_text(self):
+            return ""
+
+        def get_attribute(self, name):
+            if name == "class":
+                return (
+                    "ds-button ds-button--primary ds-button--filled "
+                    "ds-button--circle ds-button--disabled _52c986b bd74640a"
+                )
+            return None
+
+        def is_enabled(self):
+            # div[role=button] may still look enabled to Playwright because the
+            # disabled state is represented only by a CSS class.
+            return True
+
+        def click(self, *, timeout):
+            clicked.append(timeout)
+
+    button = Button()
+
+    class EmptyLocator:
+        def count(self):
+            return 0
+
+    class Page:
+        def locator(self, selector):
+            if selector == BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS[0]:
+                return button
+            return EmptyLocator()
+
+    monkeypatch.setattr(
+        model, "_click_button_with_matching_label", lambda *_args: False
+    )
+
+    assert model._click_send_button(Page()) is False
+    assert clicked == []
+
+
+def test_browser_model_clicks_enabled_deepseek_composer_send_button(monkeypatch):
+    model = BrowserModel()
+    clicked = []
+
+    class Button:
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def inner_text(self):
+            return ""
+
+        def get_attribute(self, name):
+            if name == "class":
+                return (
+                    "ds-button ds-button--primary ds-button--filled "
+                    "ds-button--circle _52c986b bd74640a"
+                )
+            return None
+
+        def is_enabled(self):
+            return True
+
+        def click(self, *, timeout):
+            clicked.append(timeout)
+
+    button = Button()
+
+    class EmptyLocator:
+        def count(self):
+            return 0
+
+    class Page:
+        def locator(self, selector):
+            if selector == BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS[0]:
+                return button
+            return EmptyLocator()
+
+    monkeypatch.setattr(
+        model, "_click_button_with_matching_label", lambda *_args: False
+    )
+
+    assert model._click_send_button(Page()) is True
+    assert clicked == [BrowserModel.CLICK_ACTION_TIMEOUT_MS]
