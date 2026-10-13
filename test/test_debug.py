@@ -51,6 +51,10 @@ def test_debug_tracer_redacts_attachment_metadata_from_terminal_and_sink(capsys)
         "StudyAgent",
         'QUESTION → solve this file\\n【原始文件附件】\\n文件名（JSON）：["private.pdf"]',
     )
+    tracer.log(
+        "OtherModule",
+        'CONTEXT → query="private request" 【原始文件附件】文件名（JSON）：["private.pdf"]',
+    )
     output = capsys.readouterr().out
     tracer.clear_thread_binding()
 
