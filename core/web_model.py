@@ -494,8 +494,7 @@ class BrowserModel(ModelClient):
         if text.startswith("```"):
             lines = text.splitlines()
             if len(lines) >= 3 and lines[-1].strip().startswith("```"):
-                text = "
-".join(lines[1:-1]).strip()
+                text = "\n".join(lines[1:-1]).strip()
         try:
             data = json.loads(text)
             if isinstance(data, dict):
