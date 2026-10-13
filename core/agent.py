@@ -84,7 +84,7 @@ class StudyAgent:
             if "【原始文件附件】" in logged_question:
                 logged_question = (
                     logged_question.split("【原始文件附件】", 1)[0].rstrip()
-                    + "\\n[attachment metadata redacted]"
+                    + "\n[attachment metadata redacted]"
                 )
             debug.log("StudyAgent", f"QUESTION → {logged_question}")
             state = AgentState(
