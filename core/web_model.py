@@ -156,6 +156,7 @@ class BrowserModel(ModelClient):
         self._context = None
         self._page = None
         self._pending_prompt: str | None = None
+        self._submission_baseline_message_count: int | None = None
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
@@ -357,6 +358,7 @@ class BrowserModel(ModelClient):
         try:
             before_snapshot = self._response_snapshot(page)
             self._pending_prompt = prompt
+            self._submission_baseline_message_count = self._visible_chat_message_count(page)
             self._send_prompt(page, prompt)
             answer = self._wait_for_response(page, before_snapshot)
             self._check_cancelled()
@@ -404,6 +406,7 @@ class BrowserModel(ModelClient):
             return answer
         finally:
             self._pending_prompt = None
+            self._submission_baseline_message_count = None
             self._json_mode_active = False
             # Attachment mode always isolates each generation/audit call,
             # regardless of the general reuse_chat/cleanup configuration.
@@ -1670,14 +1673,52 @@ class BrowserModel(ModelClient):
             )
         debug.log("BrowserModel", "SEND CONFIRMED → user message appeared after Send button click")
 
+    def _visible_chat_message_count(self, page) -> int | None:
+        try:
+            messages = page.locator(".ds-message")
+            return messages.count()
+        except Exception:
+            return None
+
+    def _new_user_message_visible(self, page) -> bool:
+        """Fallback confirmation using message-list growth after this send attempt."""
+        baseline = self._submission_baseline_message_count
+        if baseline is None:
+            return False
+        try:
+            messages = page.locator(".ds-message")
+            count = messages.count()
+            if count <= baseline:
+                return False
+            head = self._compact_text(self._pending_prompt or "")[:100]
+            for index in range(count - 1, baseline - 1, -1):
+                message = messages.nth(index)
+                if not message.is_visible():
+                    continue
+                body = self._compact_text(message.inner_text())
+                has_response = any(
+                    message.locator(selector).count() > 0
+                    for selector in self.response_selectors
+                )
+                if has_response:
+                    continue
+                if body and (not head or head in body):
+                    return True
+        except Exception:
+            return False
+        return False
+
     def _wait_for_submission_confirmation(self, page) -> bool:
-        """Wait until this exact pending user message is visible in chat history."""
+        """Wait until this exact pending user message appears after the send attempt."""
         if not self._pending_prompt:
             return False
         deadline = time.monotonic() + float(self.SEND_CONFIRMATION_TIMEOUT_SECONDS)
         while True:
             self._check_cancelled()
-            if self._current_user_message_index(page) is not None:
+            if (
+                self._current_user_message_index(page) is not None
+                or self._new_user_message_visible(page)
+            ):
                 return True
             remaining = deadline - time.monotonic()
             if remaining <= 0:
