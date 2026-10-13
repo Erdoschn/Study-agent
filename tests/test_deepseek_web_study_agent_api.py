@@ -230,8 +230,140 @@ def test_web_frontend_uses_multipart_and_direct_attachment_upload():
     assert 'dropTarget.addEventListener("drop"' in source
     assert 'formData.append("file",file,file.name)' in source
     assert 'headers(true),body:formData' in source
-    assert "filesByConversation:new Map()" in source
     assert 'formData.append("request",JSON.stringify(payload))' in source
+    assert "filesByConversation" not in source
+
+
+def test_web_frontend_attachments_are_consumed_once_per_submission():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    send_start = source.index("async function sendMessage(){")
+    send_end = source.index("\nfunction fileKey(", send_start)
+    send_body = source[send_start:send_end]
+    clear_composer = send_body.index("clearPendingFiles();persist();render();running(true);scroll();")
+    attach_files = send_body.index('for(const file of filesForRequest)formData.append("file",file,file.name);')
+
+    assert "const filesForRequest=state.pendingFiles.slice()" in send_body
+    assert 'c.messages.push({role:"user",content:text,attachments:filesForRequest.map(file=>file.name)})' in send_body
+    assert clear_composer < attach_files
+    assert "for(const file of state.pendingFiles)" not in send_body
+
+    assert "filesByConversation" not in source
+
+
+def test_web_frontend_send_message_consumes_the_real_attachment_snapshot_once():
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is needed to execute the frontend's real sendMessage function")
+
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    send_start = source.index("async function sendMessage(){")
+    send_end = source.index("\nfunction fileKey(", send_start)
+    send_function = source[send_start:send_end].strip()
+    clear_start = source.index("function clearPendingFiles(){")
+    clear_end = source.index("\nfunction newChat(", clear_start)
+    clear_function = source[clear_start:clear_end].strip()
+
+    harness = r"""
+const assert = require("node:assert/strict");
+const state = {
+  conversations: [{id: "conversation-1", title: "New chat", messages: []}],
+  active: "conversation-1",
+  running: false,
+  ctrl: null,
+  pendingFiles: []
+};
+const input = {value: "", style: {}, scrollHeight: 20};
+const fileInput = {value: ""};
+let attachmentRenderCalls = 0;
+const requests = [];
+function active() { return state.conversations.find(item => item.id === state.active) || null; }
+function title(value) { return String(value || "").slice(0, 28); }
+function autoResize() {}
+function renderAttachments() { attachmentRenderCalls += 1; }
+function persist() {}
+function render() {}
+function running(value) { state.running = value; }
+function scroll() {}
+function headers() { return {}; }
+function url(path) { return path; }
+class FormData {
+  constructor() { this.entries = []; }
+  append(...values) { this.entries.push(values); }
+}
+async function fetch(_url, options) {
+  const requestField = options.body.entries.find(([name]) => name === "request");
+  assert.ok(requestField, "each request should include the chat payload");
+  requests.push({
+    requestPayload: JSON.parse(requestField[1]),
+    files: options.body.entries.filter(([name]) => name === "file").map(([, file]) => file)
+  });
+  return {
+    ok: true,
+    status: 200,
+    text: async () => "",
+    body: {
+      getReader() {
+        let emitted = false;
+        return {
+          async read() {
+            if (emitted) return {done: true};
+            emitted = true;
+            return {done: false, value: new TextEncoder().encode("data: [DONE]\n\n")};
+          }
+        };
+      }
+    }
+  };
+}
+function sseParse(buffer, onData) {
+  const events = buffer.split(/\r?\n\r?\n/);
+  for (const event of events.slice(0, -1)) {
+    const data = event.split(/\r?\n/)
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).trim())
+      .join("\n");
+    if (data) onData(data);
+  }
+  return events.at(-1);
+}
+"""
+    script = harness + "\n" + clear_function + "\n" + send_function + r"""
+(async () => {
+  const file = {name: "report.pdf", size: 11, lastModified: 123};
+  state.pendingFiles.push(file);
+  input.value = "Summarize this report";
+  await sendMessage();
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].files.length, 1);
+  assert.strictEqual(requests[0].files[0], file, "the snapshotted File must survive clearing the composer");
+  assert.equal(state.pendingFiles.length, 0);
+  assert.equal(fileInput.value, "");
+  assert.equal(requests[0].requestPayload.messages.at(-1).content, "Summarize this report");
+
+  input.value = "Follow-up without reattaching";
+  await sendMessage();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].files.length, 0, "the next message must not re-upload the prior attachment");
+  assert.equal(requests[1].requestPayload.messages.at(-1).content, "Follow-up without reattaching");
+
+  const messageCount = state.conversations[0].messages.length;
+  input.value = "   ";
+  await sendMessage();
+  assert.equal(requests.length, 2, "an empty text-only submit must be a no-op");
+  assert.equal(state.conversations[0].messages.length, messageCount);
+  assert.ok(attachmentRenderCalls >= 2, "the actual clear helper should refresh the attachment UI");
+  console.log("real sendMessage attachment one-shot behavior: passed");
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+""";
 
 
 
