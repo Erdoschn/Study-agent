@@ -164,6 +164,7 @@ class BrowserModel(ModelClient):
         self._attachment_session_active = False
         self._attachment_chat_started = False
         self._attachment_uploaded = False
+        self._attachment_current_role: str | None = None
         self._attachment_files: tuple[dict[str, Any], ...] = ()
 
 
@@ -195,6 +196,7 @@ class BrowserModel(ModelClient):
         self._attachment_session_active = True
         self._attachment_chat_started = False
         self._attachment_uploaded = False
+        self._attachment_current_role = None
         debug.log(
             "BrowserModel",
             "ATTACHMENT SESSION BEGIN → files="
@@ -226,6 +228,7 @@ class BrowserModel(ModelClient):
             self._attachment_session_active = False
             self._attachment_chat_started = False
             self._attachment_uploaded = False
+            self._attachment_current_role = None
             self._attachment_files = ()
             self._chat_initialized = False
             debug.log("BrowserModel", "ATTACHMENT SESSION END")
@@ -339,23 +342,56 @@ class BrowserModel(ModelClient):
         # behind other windows. Playwright can interact with a normal window
         # in the background, but not reliably with a minimized one.
         self._send_browser_window_to_back(page)
-        if isolate_this_call:
-            # Never share the answer-generation session with the audit session.
-            # With attachments, upload the original bytes into each role's
-            # separate chat; without attachments, still force a fresh chat.
-            self._start_fresh_chat(page, force=role_requires_isolation or self._attachment_session_active)
+        if self._attachment_session_active:
+            # Keep a single attachment-backed chat while the Agent is making
+            # consecutive calls as the same role (e.g. Reasoner's observe/act
+            # loop). On role changes, delete the prior temporary chat and start
+            # a role-specific one. Teacher and Validator are isolated per call
+            # so the audit never shares the answer-generation conversation.
+            must_start_new_chat = (
+                not self._attachment_chat_started
+                or self._attachment_current_role != call_role
+                or role_requires_isolation
+            )
+            if self._attachment_chat_started and must_start_new_chat:
+                try:
+                    self._cleanup_current_chat(page)
+                finally:
+                    self._attachment_chat_started = False
+                    self._attachment_uploaded = False
+                    self._attachment_current_role = None
+                    self._chat_initialized = False
+            if must_start_new_chat:
+                self._start_fresh_chat(
+                    page,
+                    force=role_requires_isolation or self._chat_initialized,
+                )
+                self._chat_initialized = True
+                self._attachment_current_role = call_role
+                self._attachment_chat_started = True
+                self._attachment_uploaded = False
+            if not self._attachment_uploaded:
+                self._upload_attachments(page, self._attachment_files)
+                self._attachment_uploaded = True
+            session_id = self._session_id_from_url(getattr(page, "url", ""))
+            debug.log(
+                "BrowserModel",
+                f"ATTACHMENT CHAT → role={call_role}, "
+                f"reused={not must_start_new_chat}, session={session_id or 'new/undisclosed'}",
+            )
+        elif role_requires_isolation:
+            # Answer generation and answer auditing must never share history,
+            # even when no uploaded file is present.
+            self._start_fresh_chat(page, force=True)
             self._chat_initialized = True
             session_id = self._session_id_from_url(getattr(page, "url", ""))
             debug.log(
                 "BrowserModel",
                 f"ISOLATED CHAT → role={call_role}, session={session_id or 'new/undisclosed'}",
             )
-            if self._attachment_session_active:
-                self._attachment_chat_started = True
-                self._attachment_uploaded = False
-                self._upload_attachments(page, self._attachment_files)
-                self._attachment_uploaded = True
         elif not self.reuse_chat or not self._chat_initialized:
+            self._start_fresh_chat(page)
+            self._chat_initialized = True
             self._start_fresh_chat(page)
             self._chat_initialized = True
         completed = False
@@ -416,22 +452,27 @@ class BrowserModel(ModelClient):
             self._pending_prompt = None
             self._submission_baseline_message_count = None
             self._json_mode_active = False
-            # Attachment mode always isolates each generation/audit call,
-            # regardless of the general reuse_chat/cleanup configuration.
-            # Clean each temporary session immediately so later model roles do
-            # not inherit its conversation history.
-            if (
-                role_requires_isolation
-                or self._attachment_session_active
-                or (completed and self.cleanup_after_generate)
+            # In attachment mode, ordinary same-role calls keep their
+            # chat so Reasoner's multi-step loop can retain context without
+            # re-uploading the original file. Isolated answer/audit calls are
+            # deleted after each invocation; role switches clean up the prior
+            # role chat before opening another one.
+            if self._attachment_session_active and role_requires_isolation:
+                try:
+                    self._cleanup_current_chat(page)
+                finally:
+                    self._chat_initialized = False
+                    self._attachment_chat_started = False
+                    self._attachment_uploaded = False
+                    self._attachment_current_role = None
+            elif (
+                not self._attachment_session_active
+                and (role_requires_isolation or (completed and self.cleanup_after_generate))
             ):
                 try:
                     self._cleanup_current_chat(page)
                 finally:
                     self._chat_initialized = False
-                    if self._attachment_session_active:
-                        self._attachment_chat_started = False
-                        self._attachment_uploaded = False
             # Leave the browser out of the user's way after UI work, including
             # failed requests, without minimizing it and breaking the next run.
             self._send_browser_window_to_back(page)
