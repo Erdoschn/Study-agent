@@ -40,3 +40,21 @@ def test_debug_tracer_keeps_terminal_quiet_when_disabled_even_with_sink(capsys):
     assert capsys.readouterr().out == ""
     assert received == [("BrowserModel", "WINDOW BACK ATTEMPT")]
     tracer.clear_thread_binding()
+
+
+
+def test_debug_tracer_redacts_attachment_metadata_from_terminal_and_sink(capsys):
+    tracer = DebugTracer(enabled=True)
+    received = []
+    tracer.bind_thread(lambda module, message: received.append((module, message)))
+    tracer.log(
+        "StudyAgent",
+        'QUESTION → solve this file\\n【原始文件附件】\\n文件名（JSON）：["private.pdf"]',
+    )
+    output = capsys.readouterr().out
+    tracer.clear_thread_binding()
+
+    assert "solve this file" in output
+    assert "private.pdf" not in output
+    assert "private.pdf" not in received[0][1]
+    assert "attachment metadata redacted" in output
