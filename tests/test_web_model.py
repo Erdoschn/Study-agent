@@ -2421,7 +2421,8 @@ def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monk
     prompt = "long browser prompt for the agent"
     model._pending_prompt = prompt
     calls = []
-    confirmations = iter([False, True])
+    confirmations = iter([False, False, True])
+    click_results = iter([False, True])
 
     class Textbox:
         def fill(self, value, *, timeout):
@@ -2434,27 +2435,28 @@ def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monk
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
     monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(
-        model,
-        "_wait_for_submission_confirmation",
-        lambda _page: next(confirmations),
+        model, "_submission_is_confirmed", lambda _page: next(confirmations)
     )
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
-    monkeypatch.setattr(
-        model,
-        "_click_send_button",
-        lambda _page: calls.append(("click_send",)) or True,
-    )
+
+    def click_send(_page):
+        calls.append(("click_send",))
+        return next(click_results)
+
+    monkeypatch.setattr(model, "_click_send_button", click_send)
 
     model._send_prompt(object(), prompt)
 
     assert calls[0] == ("fill", prompt, BrowserModel.SEND_ACTION_TIMEOUT_MS)
     assert calls[1] == ("press", "Enter", BrowserModel.SEND_ACTION_TIMEOUT_MS)
-    assert calls[2] == ("click_send",)
+    assert calls[2:] == [("click_send",), ("click_send",)]
 
 
 def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypatch):
     model = BrowserModel(timeout=1, poll_interval=0.01)
+    model.SEND_BUTTON_READY_TIMEOUT_SECONDS = 0.02
     model._pending_prompt = "prompt still in composer"
 
     class Textbox:
@@ -2469,10 +2471,11 @@ def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypa
     monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
+    monkeypatch.setattr(model, "_submission_is_confirmed", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
     monkeypatch.setattr(model, "_click_send_button", lambda _page: False)
 
-    with pytest.raises(RuntimeError, match="未找到可用的 DeepSeek 发送按钮"):
+    with pytest.raises(RuntimeError, match="发送按钮在"):
         model._send_prompt(object(), "prompt still in composer")
 
 
