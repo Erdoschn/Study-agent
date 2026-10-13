@@ -1672,9 +1672,10 @@ class BrowserModel(ModelClient):
                 timeout=self.CLICK_ACTION_TIMEOUT_MS,
             )
         except Exception as exc:
+            # Upload exceptions may echo local filenames; log only the exception type.
             debug.log(
                 "BrowserModel",
-                f"ATTACHMENT SELECT FAILED → {type(exc).__name__}: {exc}",
+                f"ATTACHMENT SELECT FAILED → {type(exc).__name__}",
             )
             raise RuntimeError(
                 "DeepSeek Web 无法接收这些附件；文件未发送给模型。"
