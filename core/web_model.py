@@ -39,9 +39,9 @@ class BrowserModel(ModelClient):
         "新对话", "新建对话", "新建聊天", "新建会话", "开始新对话", "开启新对话",
     )
     DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
-    # DeepSeek currently renders the per-conversation action control as the
-    # third child div of the history-row anchor. Keep this as a primary
-    # selector, then retain the accessible-label fallbacks for UI changes.
+    # Stable SVG path observed on DeepSeek history-row three-dot menu buttons.
+    # Avoid generated CSS module hashes; keep structural XPath as a fallback.
+    DEFAULT_MORE_ICON_PATH_PREFIX = "M4.55146 8.00001"
     DEFAULT_MORE_XPATHS = ("./div[3]/div",)
     DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
     DEFAULT_STOP_LABELS = (
@@ -1372,9 +1372,29 @@ class BrowserModel(ModelClient):
     def _click_session_more(self, page, row_link) -> bool:
         import re as _re
 
-        # Current DeepSeek UI: the history-row action button is reachable as
-        # ./div[3]/div from the conversation <a>. Prefer this structural path
-        # because the control currently has no stable text/aria/title label.
+        # Prefer the observed three-dot SVG path scoped to this history row.
+        # The path avoids generated CSS hashes and is less brittle than child indexes.
+        icon_selector = (
+            '[role="button"]:has(svg path[d^="'
+            + self.DEFAULT_MORE_ICON_PATH_PREFIX
+            + '"])'
+        )
+        try:
+            buttons = row_link.locator(icon_selector)
+            for index in range(buttons.count() - 1, -1, -1):
+                button = buttons.nth(index)
+                if button.is_visible():
+                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    debug.log("BrowserModel", "CLEANUP MENU → three-dot SVG selector")
+                    return True
+        except Exception as exc:
+            debug.log(
+                "BrowserModel",
+                f"CLEANUP MENU → SVG selector skipped ({type(exc).__name__})",
+            )
+
+        # Compatibility fallback for DOM versions where the menu is not inside
+        # the row link or DeepSeek changes the SVG path.
         for xpath in self.DEFAULT_MORE_XPATHS:
             try:
                 button = row_link.locator(f"xpath={xpath}")
