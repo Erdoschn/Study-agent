@@ -389,8 +389,6 @@ class BrowserModel(ModelClient):
         elif not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
-            self._start_fresh_chat(page)
-            self._chat_initialized = True
         completed = False
         try:
             before_snapshot = self._response_snapshot(page)
