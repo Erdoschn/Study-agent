@@ -239,7 +239,7 @@ class Teacher:
                 lines.append(f"- 待核对：{claim}")
             if correction:
                 lines.append(f"  建议核对：{correction}")
-        return f"{str(answer or '').rstrip()}\\n\\n" + "\\n".join(lines)
+        return f"{str(answer or '').rstrip()}\n\n" + "\n".join(lines)
 
     def generate(self, state, draft_answer: str | None = None) -> str:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
