@@ -99,7 +99,7 @@ class TeachingValidator:
         return [str(name).strip()[:240] for name in names if str(name).strip()][:8]
 
     @classmethod
-    def _extract_request_fragments(cls, request: str, *, limit: int = 6) -> list[str]:
+    def _extract_request_fragments(cls, request: str, *, limit: int = 10) -> list[str]:
         """Extract concise questions and requirements instead of copying full chat history."""
         import re
 
@@ -112,11 +112,11 @@ class TeachingValidator:
             if item.strip(" \\t-•")
         ]
         focus = re.compile(
-            r"(\\?|？|\\b(?:what|why|how|which|whether|can you|could you|please|"
+            r"(\?|？|\b(?:what|why|how|which|whether|can you|could you|please|"
             r"explain|calculate|prove|compare|summarize|implement|fix|analyze|"
             r"derive|translate|answer|show|use|express|round|format|return|provide|"
             r"list|state|must|should|do not|don't|only|include|exclude|without|"
-            r"exactly|at least|significant figures|decimal places|units?)\\b|"
+            r"exactly|at least|significant figures|decimal places|units?)\b|"
             r"请|帮我|需要|要求|必须|不要|不能|只需|仅|输出|解释|计算|证明|比较|总结|"
             r"修复|实现|分析|推导|翻译|回答|检查|求出|判断|保留|单位|有效数字|"
             r"小数位|格式|逐步|分别|每个|所有|禁止|不得|保持|列出|只给|仅给|"
@@ -129,7 +129,7 @@ class TeachingValidator:
             compact = " ".join(part.split())
             if not focus.search(compact):
                 continue
-            compact = compact[:260]
+            compact = compact[:320]
             key = compact.casefold()
             if compact and key not in seen:
                 selected.append(compact)
