@@ -20,7 +20,7 @@ from .knowledge_graph import CoderKnowledgeGraph
 class CoderHarness:
     ALLOWED_ACTIONS = frozenset({
         "SEARCH", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK", "PATCH_FILE",
-        "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT", "READ_DIFF", "VERIFY_GOAL",
+        "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "RUN_PROJECT", "ASK_STUDY_AGENT", "READ_DIFF", "VERIFY_GOAL",
     })
     ARGUMENT_KEYS = {
         "SEARCH": frozenset({"query"}),
@@ -34,6 +34,7 @@ class CoderHarness:
         "ASK_STUDY_AGENT": frozenset({"question"}),
         "RUN_PYTHON": frozenset({"script_path"}),
         "RUN_PYTEST": frozenset({"paths"}),
+        "RUN_PROJECT": frozenset({"kind", "path", "sources", "args", "stdin"}),
         "READ_DIFF": frozenset(),
         "VERIFY_GOAL": frozenset(),
     }
@@ -99,6 +100,7 @@ class CoderHarness:
             {"name": "ASK_STUDY_AGENT", "description": "Ask the independently running Study Agent for conceptual or learning guidance. Use this when reasoning is blocked by a knowledge question, not for ordinary file operations.", "parameters": {"type": "object", "properties": {"question": {"type": "string", "maxLength": 8000}}, "required": ["question"]}},
             {"name": "RUN_PYTHON", "description": "Run one Python script inside the isolated sandbox.", "parameters": {"type": "object", "properties": {"script_path": {"type": "string"}}, "required": ["script_path"]}},
             {"name": "RUN_PYTEST", "description": "Run pytest inside the isolated sandbox. Empty paths means the full suite.", "parameters": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}}},
+            {"name": "RUN_PROJECT", "description": "Safely validate HTML or compile/run C++17/Java in the isolated sandbox. No arbitrary shell/build command is accepted.", "parameters": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["html", "cpp", "java"]}, "path": {"type": "string"}, "sources": {"type": "array", "items": {"type": "string"}, "maxItems": 49}, "args": {"type": "array", "items": {"type": "string"}, "maxItems": 16}, "stdin": {"type": "string", "maxLength": 16384}}, "required": ["kind", "path"]}},
             {"name": "READ_DIFF", "description": "Show the diff of files modified during this Coder run.", "parameters": {"type": "object", "properties": {}}},
             {"name": "VERIFY_GOAL", "description": "Run deterministic goal gates.", "parameters": {"type": "object", "properties": {}}},
         ]
@@ -124,6 +126,7 @@ class CoderHarness:
             "ASK_STUDY_AGENT": self._ask_study_agent,
             "RUN_PYTHON": self._run_python,
             "RUN_PYTEST": self._run_pytest,
+            "RUN_PROJECT": self._run_project,
             "READ_DIFF": self._read_diff,
             "VERIFY_GOAL": self._verify_goal,
         }
@@ -139,7 +142,8 @@ class CoderHarness:
             )
 
         string_fields = {
-            "query", "path", "script_path", "content", "old_text", "new_text"
+            "query", "path", "script_path", "content", "old_text", "new_text",
+            "kind", "stdin",
         }
         for key, value in arguments.items():
             if key in string_fields and not isinstance(value, str):
@@ -154,6 +158,17 @@ class CoderHarness:
             value = arguments.get(key)
             if isinstance(value, str) and len(value.encode("utf-8")) > WorkspaceFS.MAX_FILE_BYTES:
                 raise PermissionError(f"{action}.{key} 超过安全长度上限。")
+        for key, limit in (("sources", 49), ("args", 16)):
+            if key in arguments:
+                values = arguments[key]
+                if not isinstance(values, list) or len(values) > limit or any(not isinstance(item, str) for item in values):
+                    raise ValueError(f"RUN_PROJECT.{key} 必须是最多 {limit} 个字符串的数组。")
+                if any("\0" in item for item in values):
+                    raise ValueError(f"RUN_PROJECT.{key} 不能包含 NUL 字符。")
+                if key == "args" and sum(len(item.encode("utf-8")) for item in values) > 4096:
+                    raise ValueError("RUN_PROJECT.args 总长度超过 4096 字节。")
+        if "stdin" in arguments and len(arguments["stdin"].encode("utf-8")) > 16_384:
+            raise ValueError("RUN_PROJECT.stdin 超过 16 KiB。")
 
     def _run_blocking_cancellable(self, operation: Callable[[], Any]) -> Any:
         """Run a potentially slow external operation without holding cancellation hostage."""
@@ -540,6 +555,24 @@ class CoderHarness:
         raise_if_cancelled(self.cancellation_event)
         return result
 
+    def _sandbox_run_project(self, kind, path, sources, program_args, stdin_text):
+        raise_if_cancelled(self.cancellation_event)
+        run_project = getattr(self.sandbox, "run_project", None)
+        if not callable(run_project):
+            raise RuntimeError(
+                "当前 Coder 沙箱不支持多语言项目。请先构建 study-agent-coder-multilang:1 镜像。"
+            )
+        kwargs = {
+            "sources": sources,
+            "args": program_args,
+            "stdin_text": stdin_text,
+        }
+        if self.cancellation_event is not None:
+            kwargs["cancellation_event"] = self.cancellation_event
+        result = run_project(kind, path, **kwargs)
+        raise_if_cancelled(self.cancellation_event)
+        return result
+
     def _run_python(self, args, state):
         path = str(args.get("script_path", "")).strip()
         rel, _ = self.fs._target(path)
@@ -586,6 +619,56 @@ class CoderHarness:
                 state.last_test_result["backup_error"] = (
                     f"{type(exc).__name__}: {exc}"
                 )
+        return state.last_test_result
+
+    def _run_project(self, args, state):
+        kind = str(args.get("kind", "")).strip().casefold()
+        path = str(args.get("path", "")).strip()
+        sources = args.get("sources", [])
+        program_args = args.get("args", [])
+        stdin_text = args.get("stdin", "")
+        if kind not in {"html", "cpp", "java"}:
+            raise ValueError("RUN_PROJECT.kind 只支持 html / cpp / java。")
+        if not path:
+            raise ValueError("RUN_PROJECT.path 不能为空。")
+        allowed = {
+            "html": {".html", ".htm"},
+            "cpp": {".cc", ".cpp", ".cxx"},
+            "java": {".java"},
+        }[kind]
+        paths = [path, *sources]
+        if len(paths) > 50:
+            raise ValueError("RUN_PROJECT 最多允许 50 个源文件。")
+        for source_path in paths:
+            rel, _ = self.fs._target(source_path)
+            self.fs._policy(rel)
+            if rel.suffix.casefold() not in allowed:
+                raise ValueError(f"RUN_PROJECT {kind} 源文件扩展名无效：{source_path}")
+        if kind == "html" and sources:
+            raise ValueError("HTML 检查只接受入口页面；CSS/JS 引用会自动检查。")
+        self._test_count += 1
+        if self._test_count > self.MAX_TEST_RUNS:
+            raise PermissionError("超过单次 Coder 执行次数上限。")
+        result = self._sandbox_run_project(kind, path, sources, program_args, stdin_text)
+        state.last_test_result = {
+            "kind": kind,
+            "paths": paths,
+            "passed": result.passed,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "timed_out": result.timed_out,
+            "output_limited": result.output_limited,
+            "backup_ok": False,
+        }
+        state.test_generation = state.modification_generation
+        if result.passed:
+            try:
+                snapshot = self.backup.snapshot(state.modification_generation)
+                state.backup_generation = snapshot.generation
+                state.last_test_result["backup_ok"] = True
+            except Exception as exc:
+                state.last_test_result["backup_error"] = f"{type(exc).__name__}: {exc}"
         return state.last_test_result
 
     def _read_diff(self, _args, _state):
@@ -648,11 +731,11 @@ class CoderHarness:
         checks.append({"check": "modified_files", "ok": bool(state.modified_files) if goal.must_modify else True})
         checks.append({"check": "pytest_created", "ok": bool(state.created_tests) if goal.must_create_tests else True})
         checks.append({
-            "check": "pytest_passed_after_latest_change",
+            "check": "validation_passed_after_latest_change",
             "ok": bool(
                 goal.must_pass_tests
                 and state.last_test_result
-                and state.last_test_result.get("kind") == "pytest"
+                and state.last_test_result.get("kind") in {"pytest", "html", "cpp", "java"}
                 and state.last_test_result.get("passed")
                 and state.test_generation == state.modification_generation
             ) if goal.must_pass_tests else True,

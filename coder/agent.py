@@ -56,7 +56,7 @@ def _is_explicit_stop_confirmation(response: object) -> bool:
 
 
 class CoderAgent:
-    """Autonomous Python coding agent with a fail-closed Harness."""
+    """Autonomous multi-language coding agent with a fail-closed Harness."""
 
     def __init__(
         self,
@@ -585,7 +585,7 @@ class CoderAgent:
             state.metrics["modified_files"] = len(state.modified_files)
             state.metrics["chat_resets"] = state.chat_resets
             state.metrics["test_runs"] = sum(
-                1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
+                1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST", "RUN_PROJECT"}
             )
             emit({"type": "finished", "state": state})
             return state
