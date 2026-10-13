@@ -42,7 +42,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
 <script>
 const DEF="/v1",KEY="studyagent.ui.v3";
 const $=s=>document.querySelector(s);
-const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],filesByConversation:new Map(),base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
+const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=20*1024*1024,MAX_UPLOAD_TOTAL_BYTES=40*1024*1024;
@@ -57,8 +57,8 @@ function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||"null");if(x&&
 function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value="";renderAttachments()}
 function newChat(save=true){clearPendingFiles();const c={id:id(),title:"新对话",createdAt:Date.now(),messages:[]};state.conversations.unshift(c);state.active=c.id;render();if(save)persist();input.focus();closeSide()}
 function title(t){t=String(t||"").replace(/\s+/g," ").trim();return t.length>28?t.slice(0,28)+"…":t||"新对话"}
-function removeChat(cid){const i=state.conversations.findIndex(c=>c.id===cid);if(i<0)return;state.filesByConversation.delete(cid);state.conversations.splice(i,1);if(state.active===cid)state.active=state.conversations[0]?.id;if(!state.conversations.length)newChat(false);else{render();persist()}}
-function clearChat(){const c=active();if(!c)return;c.messages=[];c.title="新对话";state.filesByConversation.delete(c.id);clearPendingFiles();render();persist();input.focus()}
+function removeChat(cid){const i=state.conversations.findIndex(c=>c.id===cid);if(i<0)return;state.conversations.splice(i,1);if(state.active===cid)state.active=state.conversations[0]?.id;if(!state.conversations.length)newChat(false);else{render();persist()}}
+function clearChat(){const c=active();if(!c)return;c.messages=[];c.title="新对话";clearPendingFiles();render();persist();input.focus()}
 function selectChat(cid){if(state.running)return;if(!state.conversations.some(c=>c.id===cid))return;clearPendingFiles();state.active=cid;render();persist();closeSide();input.focus()}
 function renderList(){list.textContent="";for(const c of state.conversations){const row=document.createElement("div");row.className="conv"+(c.id===state.active?" active":"");const b=document.createElement("button");b.className="conv-open";b.type="button";b.textContent=c.title;b.title=c.title;b.onclick=()=>selectChat(c.id);const d=document.createElement("button");d.className="conv-del";d.type="button";d.textContent="×";d.title="删除";d.onclick=e=>{e.stopPropagation();removeChat(c.id)};row.append(b,d);list.append(row)}}
 function render(){renderList();messages.textContent="";const c=active();welcome.classList.toggle("hidden",!!c?.messages.length);if(c)for(const m of c.messages)renderMessage(m);renderAttachments()}
@@ -125,11 +125,11 @@ function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.p
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
  const typed=input.value.trim(),c=active();if(!c||state.running)return;
- const pending=state.pendingFiles.slice(),retained=state.filesByConversation.get(c.id)||[];
- const retainedKeys=new Set(retained.map(fileKey)),added=pending.filter(file=>!retainedKeys.has(fileKey(file)));
- const filesForRequest=[...retained,...added];
+ // Attachments are one-shot: snapshot this submission's files, then clear the
+ // composer. Keep the snapshot for this request only; later messages are text-only
+ // unless the user explicitly attaches the files again.
+ const filesForRequest=state.pendingFiles.slice();
  const text=typed||(filesForRequest.length?"请阅读我上传的原始附件，并根据上下文完成分析。":"");if(!text)return;
- if(filesForRequest.length)state.filesByConversation.set(c.id,filesForRequest);
  c.messages.push({role:"user",content:text,attachments:filesForRequest.map(file=>file.name)});
  if(c.messages.filter(m=>m.role==="user").length===1)c.title=title(text);
  const a={role:"assistant",content:"",statuses:[],done:false};c.messages.push(a);
@@ -153,26 +153,24 @@ function formatSize(bytes){return bytes<1024?bytes+" B":bytes<1024*1024?(bytes/1
 function renderAttachments(){
  if(!attachmentsBox)return;
  attachmentsBox.textContent="";
- const retained=state.filesByConversation.get(state.active)||[],seen=new Set(),all=[];
- for(const file of [...retained,...state.pendingFiles]){const key=fileKey(file);if(!seen.has(key)){seen.add(key);all.push({file,key,stored:retained.some(item=>fileKey(item)===key)})}}
+ const seen=new Set(),all=[];
+ for(const file of state.pendingFiles){const key=fileKey(file);if(!seen.has(key)){seen.add(key);all.push({file,key})}}
  attachmentsBox.classList.toggle("hidden",all.length===0);
  for(const item of all){
   const pill=document.createElement("div");pill.className="attachment-pill";
   const name=document.createElement("span");name.textContent="📎 "+item.file.name;name.title=item.file.name;
-  const size=document.createElement("small");size.textContent=formatSize(item.file.size)+(item.stored?" · 本对话":" · 待发送");
-  const remove=document.createElement("button");remove.type="button";remove.textContent="×";remove.title="从本对话移除文件";remove.onclick=()=>removeAttachment(item.key);
+  const size=document.createElement("small");size.textContent=formatSize(item.file.size)+" · 待发送";
+  const remove=document.createElement("button");remove.type="button";remove.textContent="×";remove.title="移除待发送文件";remove.onclick=()=>removeAttachment(item.key);
   pill.append(name,size,remove);attachmentsBox.append(pill)
  }
 }
 function removeAttachment(key){
  state.pendingFiles=state.pendingFiles.filter(file=>fileKey(file)!==key);
- const retained=(state.filesByConversation.get(state.active)||[]).filter(file=>fileKey(file)!==key);
- if(retained.length)state.filesByConversation.set(state.active,retained);else state.filesByConversation.delete(state.active);
  renderAttachments()
 }
 function addFiles(fileList){
  if(state.running){alert("任务执行中，完成后再添加文件。");return}
- const retained=state.filesByConversation.get(state.active)||[],current=[...retained,...state.pendingFiles];
+ const current=state.pendingFiles.slice();
  const known=new Set(current.map(fileKey));let total=current.reduce((sum,file)=>sum+file.size,0),count=current.length,added=0;
  for(const file of Array.from(fileList||[])){
   const key=fileKey(file);if(known.has(key))continue;

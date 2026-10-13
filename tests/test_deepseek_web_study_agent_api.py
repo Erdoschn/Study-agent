@@ -230,8 +230,22 @@ def test_web_frontend_uses_multipart_and_direct_attachment_upload():
     assert 'dropTarget.addEventListener("drop"' in source
     assert 'formData.append("file",file,file.name)' in source
     assert 'headers(true),body:formData' in source
-    assert "filesByConversation:new Map()" in source
     assert 'formData.append("request",JSON.stringify(payload))' in source
+    assert "filesByConversation" not in source
+
+
+def test_web_frontend_attachments_are_consumed_once_per_submission():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    send_start = source.index("async function sendMessage(){")
+    clear_composer = source.index("clearPendingFiles();persist();render();running(true);scroll();", send_start)
+    attach_files = source.index('for(const file of filesForRequest)formData.append("file",file,file.name);', send_start)
+
+    assert "const filesForRequest=state.pendingFiles.slice()" in source
+    assert 'c.messages.push({role:"user",content:text,attachments:filesForRequest.map(file=>file.name)})' in source
+    assert clear_composer < attach_files
+    assert "function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value=\"\";renderAttachments()}" in source
+    assert "const retained=state.filesByConversation" not in source
+    assert "for(const file of state.pendingFiles)" in source
 
 
 
