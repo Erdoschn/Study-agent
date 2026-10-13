@@ -1576,9 +1576,12 @@ class BrowserModel(ModelClient):
                 "BrowserModel",
                 f"SEND ENTER SKIP → {type(exc).__name__}: {exc}",
             )
-            # A keyboard exception is not proof that the browser ignored the
-            # event. Continue to the page-state check before deciding whether
-            # a pointer fallback is safe.
+            # Direct private-method callers without an active Agent turn have
+            # no safe way to establish whether the draft was submitted.
+            if not self._pending_prompt:
+                raise RuntimeError("DeepSeek Web 输入框发送超时或不可操作。") from exc
+            # During a real Agent turn, verify the page state before deciding
+            # whether a pointer fallback is safe.
         self._check_cancelled()
 
         # In production generate() sets _pending_prompt before reaching here.
