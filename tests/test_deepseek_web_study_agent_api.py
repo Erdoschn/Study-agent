@@ -7,6 +7,7 @@ from examples.deepseek_web_study_agent_api import (
     parse_chat_request_body,
     web_asset_path,
 )
+import examples.deepseek_web_study_agent_api as study_web_api
 
 
 def test_web_api_extracts_latest_user_message_from_history():
@@ -198,6 +199,21 @@ def test_attachment_context_adds_only_names_and_not_file_contents():
     assert "原始附件" in question
     assert marker.decode() not in question
     assert "Study Agent 没有预先解析或提取文件正文" in question
+
+
+def test_web_api_enforces_48_mib_attachment_limits_and_frontend_matches():
+    expected_limit = 48 * 1024 * 1024
+    assert study_web_api.MAX_UPLOAD_FILE_BYTES == expected_limit
+    assert study_web_api.MAX_UPLOAD_TOTAL_BYTES == expected_limit
+    assert study_web_api.MAX_REQUEST_BODY_BYTES >= expected_limit + 8 * 1024 * 1024
+
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "MAX_UPLOAD_FILE_BYTES=48*1024*1024" in source
+    assert "MAX_UPLOAD_TOTAL_BYTES=48*1024*1024" in source
+    assert "超过单文件 48 MiB 限制" in source
+    assert "附件总大小不能超过 48 MiB" in source
+    assert "超过单文件 20 MiB 限制" not in source
+    assert "附件总大小不能超过 40 MiB" not in source
 
 
 def test_web_api_rejects_oversized_attachment(monkeypatch):
