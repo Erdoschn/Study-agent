@@ -65,7 +65,9 @@ def test_coder_web_rejects_non_multipart_upload():
 
 
 def test_coder_web_limits_upload_and_runtime():
-    assert UPLOAD_MAX_BYTES <= WorkspaceFS.MAX_FILE_BYTES
+    expected_limit = 48 * 1024 * 1024
+    assert WorkspaceFS.MAX_FILE_BYTES == expected_limit
+    assert UPLOAD_MAX_BYTES == expected_limit
     assert MAX_RUNTIME_SECONDS >= 30.0
 
 

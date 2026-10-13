@@ -34,8 +34,9 @@ HOST = os.getenv("STUDY_AGENT_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("STUDY_AGENT_WEB_PORT", "8001"))
 API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", "").strip()
 MAX_UPLOAD_FILES = 8
-MAX_UPLOAD_FILE_BYTES = 20 * 1024 * 1024
-MAX_UPLOAD_TOTAL_BYTES = 40 * 1024 * 1024
+MAX_UPLOAD_FILE_BYTES = 48 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 48 * 1024 * 1024
+# Allow room for multipart headers and the JSON request alongside file bytes.
 MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_TOTAL_BYTES + 8 * 1024 * 1024
 _RUN_LOCK = threading.Lock()
 

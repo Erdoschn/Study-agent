@@ -28,7 +28,7 @@ class WorkspaceFS:
     BLOCKED_PREFIXES = (".coder-sandbox-", ".coder-backup")
     # Keep a generous hard safety bound, while READ_FILE can stream a huge
     # source file to the model in line-addressed chunks.
-    MAX_FILE_BYTES = 16 * 1024 * 1024
+    MAX_FILE_BYTES = 48 * 1024 * 1024
     WINDOWS_DEVICE_NAMES = frozenset(
         {"con", "prn", "aux", "nul"}
         | {f"com{i}" for i in range(1, 10)}

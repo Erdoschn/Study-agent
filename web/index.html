@@ -45,7 +45,7 @@ const $=s=>document.querySelector(s);
 const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
-const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=20*1024*1024,MAX_UPLOAD_TOTAL_BYTES=40*1024*1024;
+const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
 if(window.marked)marked.setOptions({gfm:true,breaks:false});
 function id(){return"c-"+Date.now()+"-"+Math.random().toString(36).slice(2,8)}
 function active(){return state.conversations.find(c=>c.id===state.active)||null}
@@ -177,8 +177,8 @@ function addFiles(fileList){
  for(const file of Array.from(fileList||[])){
   const key=fileKey(file);if(known.has(key))continue;
   if(count>=MAX_UPLOAD_FILES){alert("单个对话最多保留 "+MAX_UPLOAD_FILES+" 个附件。");break}
-  if(file.size>MAX_UPLOAD_FILE_BYTES){alert(file.name+" 超过单文件 20 MiB 限制。");continue}
-  if(total+file.size>MAX_UPLOAD_TOTAL_BYTES){alert("单个对话的附件总大小不能超过 40 MiB。");break}
+  if(file.size>MAX_UPLOAD_FILE_BYTES){alert(file.name+" 超过单文件 48 MiB 限制。");continue}
+  if(total+file.size>MAX_UPLOAD_TOTAL_BYTES){alert("单个对话的附件总大小不能超过 48 MiB。");break}
   state.pendingFiles.push(file);known.add(key);total+=file.size;count++;added++
  }
  renderAttachments();

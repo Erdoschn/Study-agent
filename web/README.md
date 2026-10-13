@@ -23,6 +23,6 @@ Environment:
 - CODER_WEB_HOST / CODER_WEB_PORT：服务地址
 - CODER_WEB_API_KEY：可选 API key
 - CODER_MAX_RUNTIME_SECONDS：单次 Coder 最大运行时间
-- CODER_UPLOAD_MAX_BYTES：单文件上传上限（不会超过 workspace 文件上限）
+- CODER_UPLOAD_MAX_BYTES：Coder 单文件上传上限，默认 48 MiB（不会超过 workspace 文件上限）
 
-上传只接受 UTF-8 代码/文本及合法 .ipynb，并继续经过 WorkspaceFS 的路径、敏感文件和大小检查。
+Coder 上传只接受 UTF-8 代码/文本及合法 .ipynb，单文件默认上限为 48 MiB，并继续经过 WorkspaceFS 的路径、敏感文件和大小检查。Study Agent 网页端附件单文件上限为 48 MiB，单次附件总量上限为 48 MiB。
