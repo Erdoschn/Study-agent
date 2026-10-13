@@ -151,6 +151,7 @@ class BrowserModel(ModelClient):
         self.cancellation_event = cancellation_event
         self._created_edge_window_handles: set[int] = set()
         self._json_mode_active = False
+        self._call_role = "general"
 
         self._playwright = None
         self._context = None
@@ -330,6 +331,7 @@ class BrowserModel(ModelClient):
         self._check_cancelled()
         self._dismiss_cookie_banner(page)
         self._json_mode_active = bool(json_mode)
+        self._call_role = call_role
         self._response_binding_fallback_logged = False
         # Restore a previously minimized browser if necessary, then keep it
         # behind other windows. Playwright can interact with a normal window
@@ -381,20 +383,24 @@ class BrowserModel(ModelClient):
             self._check_cancelled()
             if markdown:
                 if json_mode:
-                    extracted = self._extract_json_object(markdown)
+                    extracted = (
+                        self._extract_json_object(markdown)
+                        if call_role == "reasoning"
+                        else self._extract_any_json_object(markdown)
+                    )
                     if extracted:
                         answer = extracted
                     else:
                         debug.log(
                             "BrowserModel",
-                            "COPY SKIP → response did not contain a complete Agent JSON object",
+                            f"COPY SKIP → response did not contain a valid JSON object for role={call_role}",
                         )
                 else:
                     answer = markdown
             if not answer:
                 raise RuntimeError("DeepSeek Web 返回为空。")
 
-            if json_mode and self._needs_json_recovery(answer):
+            if json_mode and self._needs_json_recovery(answer, role=call_role):
                 completed = True
                 answer = self._recover_json_response(page, answer)
 
@@ -671,21 +677,40 @@ class BrowserModel(ModelClient):
         user = str(user_prompt or "").strip()
 
         if json_mode:
-            # DeepSeek Web receives one browser user message rather than a
-            # provider-level system message. Put the structured-output contract
-            # both before and after the long Reasoner context so it remains
-            # prominent even when the prompt is large.
-            contract = get_prompt("web_model.json_contract")
-            parts = [contract]
-            if system:
-                parts.append(f"Agent decision instructions:\n{system}")
-            if user:
-                parts.append(f"Current Agent state:\n{user}")
-            parts.append(
-                "FINAL FORMAT REMINDER:\n"
-                "Return ONLY the JSON object requested by the Agent decision "
-                "instructions. Do not answer the user's question directly."
-            )
+            # Reasoner emits an Agent action object. Other roles (TaskAnalyzer,
+            # TeachingValidator, AssessmentGenerator, etc.) define their own
+            # JSON schemas in their role-specific system prompt.
+            role = BrowserModel._infer_session_role(system)
+            if role == "reasoning":
+                contract = get_prompt("web_model.json_contract")
+                parts = [contract]
+                if system:
+                    parts.append(f"Agent decision instructions:\n{system}")
+                if user:
+                    parts.append(f"Current Agent state:\n{user}")
+                parts.append(
+                    "FINAL FORMAT REMINDER:\n"
+                    "Return ONLY the JSON object requested by the Agent decision "
+                    "instructions. Do not answer the user's question directly."
+                )
+            else:
+                contract = (
+                    "CRITICAL STRUCTURED OUTPUT CONTRACT:\n"
+                    "Return exactly one syntactically valid JSON object matching the "
+                    "schema required by the role-specific system instructions below. "
+                    "Do not substitute the Agent action schema or invent fields from a different role. "
+                    "Do not add Markdown fences or prose before or after the JSON object."
+                )
+                parts = [contract]
+                if system:
+                    parts.append(f"Role-specific system instructions:\n{system}")
+                if user:
+                    parts.append(f"Current task and audit data:\n{user}")
+                parts.append(
+                    "FINAL FORMAT REMINDER:\n"
+                    "Follow the schema specified by the role-specific system instructions. "
+                    "Return only that JSON object."
+                )
             return "\n\n".join(parts).strip()
 
         parts = []
@@ -1745,7 +1770,15 @@ class BrowserModel(ModelClient):
                 )
                 if has_response:
                     continue
-                if body and (not head or head in body):
+                if body:
+                    if head and head not in body:
+                        debug.log(
+                            "BrowserModel",
+                            "SEND CONFIRMATION → new user row appeared after submission; "
+                            "rendered text differs from the draft prefix",
+                        )
+                    # A non-assistant chat row that appeared after the send
+                    # baseline is stronger evidence than composer events alone.
                     return True
         except Exception:
             return False
