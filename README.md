@@ -519,7 +519,7 @@ only when paid-model use is explicitly intended.
 
 ## API 监听与认证安全
 
-三个 HTTP API 默认只监听本机回环地址。若通过环境变量把监听地址改为局域网、0.0.0.0、:: 或其他非回环地址，启动时必须配置对应的非空 API Key；否则 API 会拒绝启动。使用 Authorization: Bearer <key> 进行认证。
+三个 HTTP API 默认只监听本机回环地址。若通过环境变量把监听地址改为局域网、0.0.0.0、:: 或其他非回环地址，启动时必须配置对应的非空 API Key；否则 API 会拒绝启动。使用 Authorization: Bearer YOUR_API_KEY 进行认证。
 
 | API | 监听地址变量 | 必需的远程访问 Key 变量 |
 |---|---|---|

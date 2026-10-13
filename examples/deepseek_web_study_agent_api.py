@@ -67,10 +67,10 @@ def _allowed_browser_origin(origin: str) -> bool:
     )
 
 
-def _require_auth_for_non_loopback_bind(host: str = HOST, api_key: str = API_KEY) -> None:
+def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
     _shared_require_auth(
-        host,
-        api_key,
+        HOST if host is None else host,
+        API_KEY if api_key is None else api_key,
         api_name="StudyAgent Web API",
         api_key_env="STUDY_AGENT_WEB_API_KEY",
         host_env="STUDY_AGENT_WEB_HOST",
