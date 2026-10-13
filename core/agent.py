@@ -78,7 +78,15 @@ class StudyAgent:
         run_started = time.perf_counter()
         with debug.scope("StudyAgent", "RUN"):
             question = str(question or "").strip()
-            debug.log("StudyAgent", f"QUESTION → {question}")
+            # The request carries attachment filenames as transport metadata.
+            # Keep useful prompt diagnostics but do not emit private filenames.
+            logged_question = question
+            if "【原始文件附件】" in logged_question:
+                logged_question = (
+                    logged_question.split("【原始文件附件】", 1)[0].rstrip()
+                    + "\n[attachment metadata redacted]"
+                )
+            debug.log("StudyAgent", f"QUESTION → {logged_question}")
             state = AgentState(
                 question=question,
                 max_steps=self.max_steps,

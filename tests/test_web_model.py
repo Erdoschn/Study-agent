@@ -77,11 +77,39 @@ class FakeLocator:
             return target.get_attribute(name)
         return ""
 
+    def input_value(self, timeout=None):
+        target = self._value()
+        if hasattr(target, "input_value"):
+            return target.input_value(timeout=timeout)
+        return "" if target is None else str(target)
+
+
+class FakeMessage:
+    def __init__(self, text, *, assistant=False):
+        self.text = text
+        self.assistant = assistant
+
+    def is_visible(self):
+        return True
+
+    def inner_text(self):
+        return self.text
+
+    def locator(self, selector):
+        if self.assistant and selector in {
+            ".ds-assistant-message-main-content",
+            ".ds-markdown",
+            '[data-message-author-role="assistant"]',
+        }:
+            return FakeLocator([self.text])
+        return FakeLocator([])
+
 
 class FakePage:
     def __init__(self, *, logged_in=True):
         self.prompt = ""
         self.responses = []
+        self.messages = []
         self.logged_in = logged_in
         self.input = FakeLocator(
             [""],
@@ -104,11 +132,18 @@ class FakePage:
             return self.input
         if selector == '[data-message-author-role="assistant"]':
             return FakeLocator(self.responses)
+        if selector == ".ds-message":
+            return FakeLocator(self.messages)
         return FakeLocator([])
 
     def _press(self, key):
         if key == "Enter":
-            self.responses.append(f"answer for: {self.input.values[0]}")
+            prompt = str(self.input.values[0] if self.input.values else "")
+            self.messages.append(FakeMessage(prompt))
+            response = f"answer for: {prompt}"
+            self.responses.append(response)
+            self.messages.append(FakeMessage(response, assistant=True))
+            self.input.values[:] = [""]
 
 
 
@@ -883,7 +918,7 @@ def test_browser_model_does_not_accept_stale_clipboard(monkeypatch):
     )
 
     assert model._copy_latest_response_markdown(object()) == ""
-    assert cleared == [True]
+    assert cleared == [True, True]  # initial sentinel and post-read cleanup
 
 
 def test_browser_model_uses_bounded_copy_click_timeout(monkeypatch):
@@ -1182,6 +1217,8 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
     # Windows production code uses msvcrt.kbhit() here. Patch the model-level
     # wait hook so this unit test never blocks on the real pytest console.
     monkeypatch.setattr(model, "_wait_for_terminal_enter", fake_wait_for_enter)
+    # This test exercises manual login, not the send-confirmation implementation.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     answer = model.generate("", "hello")
 
@@ -1308,6 +1345,8 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
         "_copy_latest_response_markdown",
         lambda _page: "",
     )
+    # This test exercises browser I/O and response collection, not the submit verifier.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     answer = model.generate(
         "You are a teacher.",
@@ -1339,11 +1378,10 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
         return page
 
     monkeypatch.setattr(model, "_ensure_page", ensure_page)
-    monkeypatch.setattr(
-        model,
-        "_copy_latest_response_markdown",
-        lambda _page: "",
-    )
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: None)
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    # Submission correctness is covered by dedicated fallback/duplicate-send tests.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     first = model.generate("", "first")
     second = model.generate("", "second")
@@ -1444,6 +1482,8 @@ def test_browser_model_raises_when_response_does_not_arrive(monkeypatch):
     page._press = lambda key: None
     page.input.on_press = page._press
     monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    # This test targets response timeout, not the send-confirmation path.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     with pytest.raises(TimeoutError, match="等待 DeepSeek Web 回答超时"):
         model.generate("", "hello")
@@ -2105,3 +2145,520 @@ def test_browser_model_accepts_ask_user_action_in_json_mode():
     response = '{"action":"ASK_USER","arguments":{"question":"Which API should be preserved?"}}'
     assert BrowserModel._extract_json_object(response) == response
     assert BrowserModel._needs_json_recovery(response) is False
+
+
+
+def test_browser_model_attachment_upload_uses_original_binary_payload():
+    class UploadLocator:
+        def __init__(self, page, selector):
+            self.page = page
+            self.selector = selector
+
+        def count(self):
+            return 1 if self.selector in {'input[type="file"]', "body"} else 0
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def set_input_files(self, files, *, timeout=None):
+            self.page.payloads = list(files)
+            self.page.body_text = " ".join(item["name"] for item in files)
+
+        def inner_text(self):
+            return self.page.body_text
+
+        def is_visible(self):
+            return False
+
+    class UploadPage:
+        def __init__(self):
+            self.payloads = []
+            self.body_text = ""
+
+        def locator(self, selector):
+            return UploadLocator(self, selector)
+
+    model = BrowserModel(poll_interval=0.1)
+    page = UploadPage()
+    binary_payload = bytes([0, 255]) + b"pdf-bytes"
+    files = [
+        {"name": "lecture.pdf", "mimeType": "application/pdf", "buffer": binary_payload},
+        {"name": "notes.md", "mimeType": "text/markdown", "buffer": b"# Notes"},
+    ]
+
+    model._upload_attachments(page, files)
+
+    assert [item["name"] for item in page.payloads] == ["lecture.pdf", "notes.md"]
+    assert page.payloads[0]["buffer"] == binary_payload
+    assert page.payloads[1]["buffer"] == b"# Notes"
+
+
+def test_browser_model_reuses_attachment_chat_for_consecutive_calls_in_same_role(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+        poll_interval=0.1,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page, **_kwargs: events.append("new_chat"))
+    monkeypatch.setattr(model, "_upload_attachments", lambda _page, _files: events.append("upload"))
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: "answer")
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append("cleanup"))
+
+    model.begin_attachment_session([
+        {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
+    ])
+
+    assert model.generate("", "first reasoning step") == "answer"
+    assert model.generate("", "second reasoning step") == "answer"
+    assert events.count("new_chat") == 1
+    assert events.count("upload") == 1
+    assert len([event for event in events if isinstance(event, tuple) and event[0] == "send"]) == 2
+    assert events.count("cleanup") == 0
+
+    model.end_attachment_session()
+
+    # Consecutive calls by the same role share one uploaded source-file session.
+    assert events.count("cleanup") == 1
+    assert model._attachment_session_active is False
+    assert model._attachment_files == ()
+
+
+def test_factory_forwards_original_attachments_to_browser_session(monkeypatch):
+    import threading
+    from coder import browser_session as browser_session_module
+
+    class FakeBrowserSession:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.model = kwargs["model"]
+            self.cancellation_event = None
+            self.received_files = None
+            self.attachment_session_ended = False
+            self.closed = False
+
+        def bind_cancellation_event(self, event):
+            self.cancellation_event = event
+
+        def begin_attachment_session(self, files):
+            self.received_files = tuple(files)
+
+        def end_attachment_session(self):
+            self.attachment_session_ended = True
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        browser_session_module,
+        "CoderBrowserSession",
+        FakeBrowserSession,
+    )
+    config = {
+        "providers": {"deepseek_web": {"type": "browser", "enabled": True}},
+        "models": {
+            "deepseek-web": {
+                "provider": "deepseek_web",
+                "model": "deepseek-web",
+                "enabled": True,
+                "paid": False,
+            }
+        },
+    }
+    registry = ModelRegistry(config)
+    factory = ModelClientFactory(config)
+    event = threading.Event()
+    attachment = {
+        "name": "lecture.pdf",
+        "mimeType": "application/pdf",
+        "buffer": b"original raw payload",
+    }
+
+    factory.begin_run(event, attachments=[attachment])
+    client = factory.create(registry.get("deepseek-web"))
+
+    assert client.received_files[0]["name"] == "lecture.pdf"
+    assert client.received_files[0]["buffer"] == b"original raw payload"
+
+    factory.end_run(event)
+    assert client.attachment_session_ended is True
+    assert client.cancellation_event is None
+    factory.close()
+    assert client.closed is True
+
+
+
+def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    prompt = "long browser prompt for the agent"
+    model._pending_prompt = prompt
+    calls = []
+    confirmations = iter([False, True])
+
+    class Textbox:
+        def fill(self, value, *, timeout):
+            calls.append(("fill", value, timeout))
+
+        def press(self, key, *, timeout):
+            calls.append(("press", key, timeout))
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(
+        model,
+        "_wait_for_submission_confirmation",
+        lambda _page: next(confirmations),
+    )
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
+    monkeypatch.setattr(
+        model,
+        "_click_send_button",
+        lambda _page: calls.append(("click_send",)) or True,
+    )
+
+    model._send_prompt(object(), prompt)
+
+    assert calls[0] == ("fill", prompt, BrowserModel.SEND_ACTION_TIMEOUT_MS)
+    assert calls[1] == ("press", "Enter", BrowserModel.SEND_ACTION_TIMEOUT_MS)
+    assert calls[2] == ("click_send",)
+
+
+def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    model._pending_prompt = "prompt still in composer"
+
+    class Textbox:
+        def fill(self, _value, *, timeout):
+            return None
+
+        def press(self, _key, *, timeout):
+            return None
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
+    monkeypatch.setattr(model, "_click_send_button", lambda _page: False)
+
+    with pytest.raises(RuntimeError, match="未找到可用的 DeepSeek 发送按钮"):
+        model._send_prompt(object(), "prompt still in composer")
+
+
+def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_unconfirmed(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    model._pending_prompt = "prompt was sent but history has not rendered"
+    clicked = []
+
+    class Textbox:
+        def fill(self, _value, *, timeout):
+            return None
+
+        def press(self, _key, *, timeout):
+            return None
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: False)
+    monkeypatch.setattr(model, "_click_send_button", lambda _page: clicked.append(True) or True)
+
+    with pytest.raises(RuntimeError, match="输入框已清空，但当前用户消息尚未出现在页面"):
+        model._send_prompt(object(), "prompt was sent but history has not rendered")
+    assert clicked == []
+
+
+
+def test_browser_model_forces_separate_sessions_for_teacher_and_validator(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        cleanup_after_generate=False,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page, *, force=False: events.append(("new_chat", force)),
+    )
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    responses = iter(["answer", '{"status":"PASS","claims":[],"summary":"ok"}'])
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: next(responses))
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append(("cleanup",)))
+
+    assert model.generate("You are the Teacher (教学引擎).", "draft answer") == "answer"
+    assert model.generate("You are the Teaching Validator (校验器).", "audit answer", json_mode=True) == '{"status":"PASS","claims":[],"summary":"ok"}'
+
+    assert BrowserModel._infer_session_role("You are the Teacher.") == "answer_generation"
+    assert BrowserModel._infer_session_role("You are the Teaching Validator.") == "answer_audit"
+    assert [event for event in events if event[0] == "new_chat"] == [
+        ("new_chat", True),
+        ("new_chat", True),
+    ]
+    assert len([event for event in events if event[0] == "cleanup"]) == 2
+
+
+
+def test_browser_model_reuploads_original_source_to_distinct_teacher_and_audit_chats(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page, *, force=False: events.append(("new_chat", force)),
+    )
+    monkeypatch.setattr(
+        model,
+        "_upload_attachments",
+        lambda _page, files: events.append(("upload", tuple(item["name"] for item in files))),
+    )
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    responses = iter(["draft answer", '{"status":"PASS","claims":[],"summary":"audit ok"}'])
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: next(responses))
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append(("cleanup",)))
+
+    original_files = [
+        {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
+    ]
+    model.begin_attachment_session(original_files)
+
+    draft = model.generate("You are the Teacher (教学引擎).", "generate an answer")
+    audit = model.generate(
+        "You are the Teaching Validator (校验器).",
+        '{"audit_specification":{"problem_to_solve":"Solve problem 2"},"candidate_answer_to_audit":"draft answer"}',
+        json_mode=True,
+    )
+
+    assert draft == "draft answer"
+    assert audit == '{"status":"PASS","claims":[],"summary":"audit ok"}'
+    assert [event for event in events if event[0] == "new_chat"] == [
+        ("new_chat", True),
+        ("new_chat", True),
+    ]
+    assert [event for event in events if event[0] == "upload"] == [
+        ("upload", ("source.pdf",)),
+        ("upload", ("source.pdf",)),
+    ]
+    assert len([event for event in events if event[0] == "cleanup"]) == 2
+    model.end_attachment_session()
+    assert model._attachment_session_active is False
+
+
+
+def test_browser_model_send_selector_matches_current_deepseek_composer_dom():
+    assert (
+        '[role="button"].ds-button--primary.ds-button--filled.ds-button--circle'
+        in BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS
+    )
+
+
+def test_browser_model_does_not_click_deepseek_send_button_disabled_by_class(monkeypatch):
+    model = BrowserModel()
+    clicked = []
+
+    class Button:
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def inner_text(self):
+            return ""
+
+        def get_attribute(self, name):
+            if name == "class":
+                return (
+                    "ds-button ds-button--primary ds-button--filled "
+                    "ds-button--circle ds-button--disabled _52c986b bd74640a"
+                )
+            return None
+
+        def is_enabled(self):
+            # div[role=button] may still look enabled to Playwright because the
+            # disabled state is represented only by a CSS class.
+            return True
+
+        def click(self, *, timeout):
+            clicked.append(timeout)
+
+    button = Button()
+
+    class EmptyLocator:
+        def count(self):
+            return 0
+
+    class Page:
+        def locator(self, selector):
+            if selector == BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS[0]:
+                return button
+            return EmptyLocator()
+
+    monkeypatch.setattr(
+        model, "_click_button_with_matching_label", lambda *_args: False
+    )
+
+    assert model._click_send_button(Page()) is False
+    assert clicked == []
+
+
+def test_browser_model_clicks_enabled_deepseek_composer_send_button(monkeypatch):
+    model = BrowserModel()
+    clicked = []
+
+    class Button:
+        def count(self):
+            return 1
+
+        def nth(self, index):
+            assert index == 0
+            return self
+
+        def is_visible(self):
+            return True
+
+        def inner_text(self):
+            return ""
+
+        def get_attribute(self, name):
+            if name == "class":
+                return (
+                    "ds-button ds-button--primary ds-button--filled "
+                    "ds-button--circle _52c986b bd74640a"
+                )
+            return None
+
+        def is_enabled(self):
+            return True
+
+        def click(self, *, timeout):
+            clicked.append(timeout)
+
+    button = Button()
+
+    class EmptyLocator:
+        def count(self):
+            return 0
+
+    class Page:
+        def locator(self, selector):
+            if selector == BrowserModel.DEFAULT_SEND_BUTTON_SELECTORS[0]:
+                return button
+            return EmptyLocator()
+
+    monkeypatch.setattr(
+        model, "_click_button_with_matching_label", lambda *_args: False
+    )
+
+    assert model._click_send_button(Page()) is True
+    assert clicked == [BrowserModel.CLICK_ACTION_TIMEOUT_MS]
+
+
+
+def test_browser_model_attachment_session_logs_no_filename_or_file_bytes(monkeypatch):
+    model = BrowserModel()
+    logs = []
+    monkeypatch.setattr(
+        web_model_module.debug, "log",
+        lambda module, message: logs.append((module, message)),
+    )
+    marker = b"PRIVATE_FILE_BYTES_4a9e8"
+    model.begin_attachment_session([{
+        "name": "confidential-financial-report.pdf",
+        "mimeType": "application/pdf",
+        "buffer": marker,
+    }])
+
+    rendered = "\n".join(message for _module, message in logs)
+    assert "confidential-financial-report.pdf" not in rendered
+    assert marker.decode() not in rendered
+    assert "count=1" in rendered
+    assert "total_bytes=" in rendered
+    model.end_attachment_session()
+
+
+def test_browser_model_attachment_session_rejects_path_and_control_names():
+    model = BrowserModel()
+    for name in ("../secret.pdf", "folder\\secret.pdf", "secret\nname.pdf"):
+        with pytest.raises(ValueError, match="文件名"):
+            model.begin_attachment_session([{
+                "name": name,
+                "mimeType": "application/pdf",
+                "buffer": b"test",
+            }])
+
+
+def test_browser_model_does_not_log_copied_response_text(monkeypatch):
+    model = BrowserModel(timeout=1)
+    sensitive = "PRIVATE_ANSWER_TEXT_9c124"
+    logs = []
+
+    class Button:
+        def click(self, *, timeout):
+            return None
+
+    monkeypatch.setattr(
+        web_model_module.debug, "log",
+        lambda module, message: logs.append(message),
+    )
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: Button())
+    clear_calls = []
+    monkeypatch.setattr(
+        model,
+        "_clear_browser_clipboard",
+        lambda _page: clear_calls.append(True) or "old",
+    )
+    monkeypatch.setattr(model, "_read_browser_clipboard", lambda _page: sensitive)
+    monkeypatch.setattr(model, "_sleep", lambda _seconds: None)
+
+    assert model._copy_latest_response_markdown(object()) == sensitive
+    assert len(clear_calls) == 2  # clear before copy and after reading the answer
+    assert sensitive not in "\n".join(logs)
+    assert all("clipboard_preview" not in item for item in logs)

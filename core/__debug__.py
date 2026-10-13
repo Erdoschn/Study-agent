@@ -13,7 +13,67 @@ class DebugTracer:
         self._local = local()
         self._local.depth = 0
 
+    @staticmethod
+    def _redact_attachment_metadata(message: str) -> str:
+        """Hide attachment transport metadata from every log sink.
+
+        The raw file bytes are never part of the question, but the API appends
+        filenames to a transport marker so independent audit calls can identify
+        the files. Redact that suffix before it reaches terminal logs or UI sinks.
+        """
+        value = str(message)
+        marker = "【原始文件附件】"
+        if marker not in value:
+            return value
+        return value.split(marker, 1)[0] + marker + "[attachment metadata redacted]"
+
+    @staticmethod
+    def _redact_user_text(module: str, message: str) -> str:
+        """Keep useful diagnostics without printing user prompts or query text."""
+        value = str(message)
+
+        if module == "StudyAgent" and "QUESTION → " in value:
+            prefix, request = value.split("QUESTION → ", 1)
+            value = f"{prefix}QUESTION → [user request redacted; chars={len(request)}]"
+
+        if module == "GoalMatcher" and "MATCH → current=" in value:
+            prefix, rest = value.split("MATCH → current=", 1)
+            if ", candidates=" in rest:
+                current, suffix = rest.split(", candidates=", 1)
+                value = f"{prefix}MATCH → current=[redacted; chars={len(current)}], candidates={suffix}"
+
+        if module == "KnowledgeGraph":
+            for label in ("RESOLVE → query=", "CONTEXT → query="):
+                if label in value:
+                    prefix, rest = value.split(label, 1)
+                    boundary = ", matched="
+                    if boundary in rest:
+                        query, suffix = rest.split(boundary, 1)
+                        value = f"{prefix}{label}[redacted; chars={len(query)}]{boundary}{suffix}"
+                    break
+
+        sensitive_fields = ()
+        if module == "ToolExecutor":
+            sensitive_fields = (
+                ("CALCULATE → expression=", ", result_type="),
+                ("VERIFY → claim=", ", evidence_count="),
+            )
+        elif module == "AgentToolLoop":
+            sensitive_fields = (("VERIFY RESULT → claim=", ", status="),)
+        for label, boundary in sensitive_fields:
+            if label in value and boundary in value.split(label, 1)[1]:
+                prefix, rest = value.split(label, 1)
+                sensitive, suffix = rest.split(boundary, 1)
+                value = (
+                    f"{prefix}{label}[redacted; chars={len(sensitive)}]"
+                    f"{boundary}{suffix}"
+                )
+                break
+        return value
+
     def log(self, module: str, message: str) -> None:
+        message = self._redact_attachment_metadata(message)
+        message = self._redact_user_text(module, message)
         sink = getattr(self._local, "sink", None)
         # API sinks translate selected internal events into user-facing status
         # updates. They must not replace terminal logging when debug is ON.
