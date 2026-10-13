@@ -297,6 +297,8 @@ class BrowserModel(ModelClient):
             return "answer_generation"
         if "task analyzer" in text or "任务分析器" in text:
             return "task_analysis"
+        if "assessment generator" in text or "测评题生成器" in text or "assessmentgenerator" in text:
+            return "assessment_generation"
         if "reasoner" in text or "决策器" in text:
             return "reasoning"
         return "general"
@@ -543,7 +545,7 @@ class BrowserModel(ModelClient):
             )
         if role == "task_analysis":
             return not any(key in data for key in ("task_type", "domain", "goal"))
-        if role != "reasoning":
+        if role not in {"reasoning", "general"}:
             return False
         return str(data.get("action", "")).upper() not in {
             "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
@@ -591,6 +593,10 @@ class BrowserModel(ModelClient):
     def _recover_json_response(self, page, previous_answer: str) -> str:
         """Repair JSON according to the current Agent role's expected schema."""
         role = getattr(self, "_call_role", "reasoning")
+        if role == "general":
+            # Preserve the historical default: unknown JSON-mode callers use
+            # the Agent action schema unless they identify a role-specific schema.
+            role = "reasoning"
         recovery_prompt = self._build_json_recovery_prompt(previous_answer, role=role)
         debug.log(
             "BrowserModel",
@@ -695,7 +701,7 @@ class BrowserModel(ModelClient):
             # TeachingValidator, AssessmentGenerator, etc.) define their own
             # JSON schemas in their role-specific system prompt.
             role = BrowserModel._infer_session_role(system)
-            if role == "reasoning":
+            if role in {"reasoning", "general"}:
                 contract = get_prompt("web_model.json_contract")
                 parts = [contract]
                 if system:
