@@ -67,6 +67,9 @@ class BrowserModel(ModelClient):
         "Send message", "Send", "发送消息", "发送",
     )
     DEFAULT_SEND_BUTTON_SELECTORS = (
+        # Current DeepSeek Web uses a div[role=button] for its round arrow-up
+        # composer control; the BEM classes are stable while hashed suffixes are not.
+        '[role="button"].ds-button--primary.ds-button--filled.ds-button--circle',
         '[data-testid="send-button"]',
         '[data-test-id="send-button"]',
         "#chat-input-send-button",
@@ -1888,14 +1891,24 @@ class BrowserModel(ModelClient):
                     button = locator.nth(index)
                     if not button.is_visible():
                         continue
+                    class_name = str(button.get_attribute("class") or "")
                     label = " ".join(str(value or "") for value in (
                         button.inner_text(),
                         button.get_attribute("aria-label"),
                         button.get_attribute("title"),
                         button.get_attribute("data-testid"),
-                        button.get_attribute("class"),
+                        class_name,
                     )).strip()
                     if any(token in label.casefold() for token in stop_tokens):
+                        continue
+                    # DeepSeek's current div[role=button] marks the disabled state
+                    # through a CSS class, not necessarily disabled/aria-disabled
+                    # attributes. Playwright is_enabled() alone cannot catch that.
+                    if "ds-button--disabled" in class_name.split():
+                        debug.log(
+                            "BrowserModel",
+                            f"SEND BUTTON SKIP → disabled class, selector={selector!r}",
+                        )
                         continue
                     disabled = button.get_attribute("disabled")
                     aria_disabled = str(button.get_attribute("aria-disabled") or "").casefold()
