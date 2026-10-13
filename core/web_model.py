@@ -285,6 +285,20 @@ class BrowserModel(ModelClient):
             f"chat_input_ready={input_ready}",
         )
 
+    @staticmethod
+    def _infer_session_role(system_prompt: str) -> str:
+        """Classify only known Study Agent roles for strict context isolation."""
+        text = str(system_prompt or "").casefold()
+        if "teaching validator" in text or "校验器" in text:
+            return "answer_audit"
+        if "teacher" in text or "教学引擎" in text:
+            return "answer_generation"
+        if "task analyzer" in text or "任务分析器" in text:
+            return "task_analysis"
+        if "reasoner" in text or "决策器" in text:
+            return "reasoning"
+        return "general"
+
     def generate(
         self,
         system_prompt: str,
@@ -295,6 +309,14 @@ class BrowserModel(ModelClient):
         del reasoning_effort
         self._check_cancelled()
         prompt = self._build_prompt(system_prompt, user_prompt, json_mode=json_mode)
+        call_role = self._infer_session_role(system_prompt)
+        role_requires_isolation = call_role in {"answer_generation", "answer_audit"}
+        isolate_this_call = self._attachment_session_active or role_requires_isolation
+        debug.log(
+            "BrowserModel",
+            f"SESSION POLICY → role={call_role}, isolated={isolate_this_call}, "
+            f"attachments={len(self._attachment_files) if self._attachment_session_active else 0}",
+        )
         page = self._ensure_page()
         self._check_cancelled()
 
@@ -312,17 +334,22 @@ class BrowserModel(ModelClient):
         # behind other windows. Playwright can interact with a normal window
         # in the background, but not reliably with a minimized one.
         self._send_browser_window_to_back(page)
-        if self._attachment_session_active:
-            # A BrowserModel call is one isolated model turn. In particular,
-            # answer generation and TeachingValidator auditing must not share
-            # the same DeepSeek conversation. Re-create the chat and attach the
-            # original bytes for every call instead of carrying hidden history.
-            self._start_fresh_chat(page)
+        if isolate_this_call:
+            # Never share the answer-generation session with the audit session.
+            # With attachments, upload the original bytes into each role's
+            # separate chat; without attachments, still force a fresh chat.
+            self._start_fresh_chat(page, force=role_requires_isolation or self._attachment_session_active)
             self._chat_initialized = True
-            self._attachment_chat_started = True
-            self._attachment_uploaded = False
-            self._upload_attachments(page, self._attachment_files)
-            self._attachment_uploaded = True
+            session_id = self._session_id_from_url(getattr(page, "url", ""))
+            debug.log(
+                "BrowserModel",
+                f"ISOLATED CHAT → role={call_role}, session={session_id or 'new/undisclosed'}",
+            )
+            if self._attachment_session_active:
+                self._attachment_chat_started = True
+                self._attachment_uploaded = False
+                self._upload_attachments(page, self._attachment_files)
+                self._attachment_uploaded = True
         elif not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
@@ -382,14 +409,18 @@ class BrowserModel(ModelClient):
             # regardless of the general reuse_chat/cleanup configuration.
             # Clean each temporary session immediately so later model roles do
             # not inherit its conversation history.
-            if completed and (
-                self.cleanup_after_generate or self._attachment_session_active
+            if (
+                role_requires_isolation
+                or self._attachment_session_active
+                or (completed and self.cleanup_after_generate)
             ):
-                self._cleanup_current_chat(page)
-                self._chat_initialized = False
-                if self._attachment_session_active:
-                    self._attachment_chat_started = False
-                    self._attachment_uploaded = False
+                try:
+                    self._cleanup_current_chat(page)
+                finally:
+                    self._chat_initialized = False
+                    if self._attachment_session_active:
+                        self._attachment_chat_started = False
+                        self._attachment_uploaded = False
             # Leave the browser out of the user's way after UI work, including
             # failed requests, without minimizing it and breaking the next run.
             self._send_browser_window_to_back(page)
@@ -1071,16 +1102,16 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"CLICK BUTTON SCAN SKIP → {type(exc).__name__}: {exc}")
         return False
 
-    def _start_fresh_chat(self, page) -> None:
+    def _start_fresh_chat(self, page, *, force: bool = False) -> None:
         if self.session_pause_seconds:
             self._sleep(self.session_pause_seconds)
 
         old_session = self._session_id_from_url(getattr(page, "url", ""))
 
-        # DeepSeek can open directly on an already-empty chat page. In that
-        # state there is no reason to click "New chat"; the current page is
-        # already a fresh conversation. Only require the New Chat control when
-        # visible messages prove that the current conversation is non-empty.
+        # For ordinary work, an empty root page can be accepted as a new chat.
+        # For answer generation/auditing, force a new session whenever the page
+        # still identifies the previous conversation, even if its messages were
+        # cleared or hidden.
         if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
             visible_messages = page.locator(".ds-message")
             has_visible_message = False
@@ -1091,7 +1122,7 @@ class BrowserModel(ModelClient):
                         break
                 except Exception:
                     continue
-            if not has_visible_message:
+            if not has_visible_message and not (force and old_session):
                 debug.log("BrowserModel", "FRESH CHAT → current blank chat accepted")
                 return
 
@@ -1133,7 +1164,16 @@ class BrowserModel(ModelClient):
             if not has_visible_message and self._find_visible(
                 page, ("textarea", '[contenteditable="true"]')
             ) is not None:
-                debug.log("BrowserModel", "FRESH CHAT → previous visible messages cleared")
+                if force and old_session and current_session == old_session:
+                    # The history pane disappearing is not proof of a new
+                    # conversation when the URL still points to the old one.
+                    self._sleep(self.poll_interval)
+                    continue
+                debug.log(
+                    "BrowserModel",
+                    f"FRESH CHAT CONFIRMED → previous={old_session or 'none'}, "
+                    f"current={current_session or 'new/undisclosed'}",
+                )
                 return
 
             self._sleep(self.poll_interval)
