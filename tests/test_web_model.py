@@ -1378,11 +1378,8 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
         return page
 
     monkeypatch.setattr(model, "_ensure_page", ensure_page)
-    monkeypatch.setattr(
-        model,
-        "_copy_latest_response_markdown",
-        lambda _page: "",
-    )
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: None)
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
     # Submission correctness is covered by dedicated fallback/duplicate-send tests.
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
