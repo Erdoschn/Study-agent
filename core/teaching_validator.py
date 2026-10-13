@@ -60,8 +60,8 @@ class TeachingValidator:
                 correction = str(item.get("correction", "")).strip()
                 if claim:
                     claims.append({"claim": claim, "verdict": verdict, "severity": severity, "correction": correction})
-        major_errors = [item for item in claims if item["verdict"] == "ERROR" and item["severity"] == "major"]
-        if major_errors:
+        confirmed_errors = [item for item in claims if item["verdict"] == "ERROR"]
+        if confirmed_errors:
             status = "REVISE"
         elif status == "REVISE":
             status = "UNCERTAIN"
@@ -293,6 +293,10 @@ class TeachingValidator:
 
     @staticmethod
     def revision_findings(result: dict) -> list[dict]:
+        """Return every confirmed error; severity controls prioritization, not omission."""
         if not isinstance(result, dict):
             return []
-        return [item for item in result.get("claims", []) if isinstance(item, dict) and item.get("verdict") == "ERROR" and item.get("severity") == "major"]
+        return [
+            item for item in result.get("claims", [])
+            if isinstance(item, dict) and item.get("verdict") == "ERROR"
+        ]
