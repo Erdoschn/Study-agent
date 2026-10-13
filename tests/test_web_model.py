@@ -84,6 +84,34 @@ class FakeLocator:
         return "" if target is None else str(target)
 
 
+class FakeThinkingToggle:
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.click_count = 0
+
+    def is_visible(self):
+        return True
+
+    def is_enabled(self):
+        return True
+
+    def inner_text(self):
+        return "深度思考"
+
+    def get_attribute(self, name):
+        if name in {"aria-checked", "aria-pressed"}:
+            return str(self.enabled).lower()
+        if name == "aria-label":
+            return "深度思考"
+        if name == "class":
+            return "ds-toggle-button active" if self.enabled else "ds-toggle-button"
+        return None
+
+    def click(self, timeout=None):
+        self.click_count += 1
+        self.enabled = True
+
+
 class FakeMessage:
     def __init__(self, text, *, assistant=False):
         self.text = text
@@ -111,6 +139,7 @@ class FakePage:
         self.responses = []
         self.messages = []
         self.logged_in = logged_in
+        self.deep_thinking_toggle = FakeThinkingToggle(enabled=True)
         self.input = FakeLocator(
             [""],
             on_press=self._press,
@@ -126,6 +155,8 @@ class FakePage:
         return FakeLocator([])
 
     def locator(self, selector):
+        if selector == ".ds-toggle-button":
+            return FakeLocator([self.deep_thinking_toggle])
         if selector in {"textarea", '[contenteditable="true"]'}:
             if self.logged_in and not self.input.values:
                 self.input = FakeLocator([""], on_press=self._press)
@@ -146,6 +177,40 @@ class FakePage:
             self.input.values[:] = [""]
 
 
+
+
+
+def test_browser_model_enables_deep_thinking_before_submitting_prompt():
+    model = BrowserModel(timeout=1, min_send_interval_seconds=0)
+    page = FakePage()
+    page.deep_thinking_toggle.enabled = False
+
+    model._send_prompt(page, "please solve carefully")
+
+    assert page.deep_thinking_toggle.enabled is True
+    assert page.deep_thinking_toggle.click_count == 1
+    assert page.messages[0].inner_text() == "please solve carefully"
+
+
+def test_browser_model_does_not_toggle_deep_thinking_off_when_already_enabled():
+    model = BrowserModel(timeout=1)
+    page = FakePage()
+
+    model._ensure_deep_thinking_enabled(page)
+
+    assert page.deep_thinking_toggle.enabled is True
+    assert page.deep_thinking_toggle.click_count == 0
+
+
+def test_browser_model_refuses_to_send_when_deep_thinking_toggle_is_missing():
+    model = BrowserModel(timeout=1)
+    page = FakePage()
+    page.deep_thinking_toggle = None
+
+    with pytest.raises(RuntimeError, match="未找到 DeepSeek Web 的「深度思考」开关"):
+        model._send_prompt(page, "do not silently downgrade")
+
+    assert page.messages == []
 
 
 def test_browser_model_has_long_response_recovery_labels():
@@ -257,6 +322,7 @@ def test_browser_model_send_actions_use_bounded_timeouts(monkeypatch):
             calls.append(("press", key, timeout))
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     model._send_prompt(object(), "hello")
@@ -278,6 +344,7 @@ def test_browser_model_wraps_send_fill_timeout_as_runtime_error(monkeypatch):
             raise AssertionError("press should not run")
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     with pytest.raises(RuntimeError, match="输入框填充超时或不可操作"):
@@ -295,6 +362,7 @@ def test_browser_model_wraps_send_enter_timeout_as_runtime_error(monkeypatch):
             raise TimeoutError("enter blocked")
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     with pytest.raises(RuntimeError, match="输入框发送超时或不可操作"):
@@ -2360,6 +2428,7 @@ def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monk
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(
         model,
@@ -2393,6 +2462,7 @@ def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypa
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
@@ -2416,6 +2486,7 @@ def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: False)
