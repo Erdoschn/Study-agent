@@ -74,11 +74,13 @@ class TeachingValidator:
         """Keep only the latest user request, excluding prior chat and transport notes."""
         request = str(getattr(state, "question", "") or "").strip()
         request = request.split(cls.ATTACHMENT_CONTEXT_MARKER, 1)[0].strip()
+        # _prompt() appends this directive after the final user turn; remove it
+        # before locating the last 【用户】 marker, or that marker inside the
+        # directive itself would be mistaken for the start of the user message.
+        request = request.split("请回答最后一个【用户】请求。", 1)[0].strip()
         if "【用户】" in request:
-            request = request.rsplit("【用户】", 1)[1]
-            # _prompt() appends this directive after the final user turn.
-            request = request.split("请回答最后一个【用户】请求。", 1)[0]
-        return request.strip()
+            request = request.rsplit("【用户】", 1)[1].strip()
+        return request
 
     @classmethod
     def _attached_file_names(cls, state) -> list[str]:
