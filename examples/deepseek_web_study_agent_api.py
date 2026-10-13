@@ -469,11 +469,13 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
+        # Stop accepting/wait for in-flight HTTP handlers before closing the
+        # shared browser session they may still be using.
+        server.server_close()
         factory = getattr(agent, "_web_model_factory", None)
         close_factory = getattr(factory, "close", None)
         if callable(close_factory):
             close_factory()
-        server.server_close()
 
 
 if __name__ == "__main__":
