@@ -102,7 +102,44 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
         knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
     )
     agent._web_model_factory = factory
+    agent._web_model_registry = registry
     return agent
+
+
+def _prewarm_browser_model(agent: StudyAgent) -> bool:
+    """Start the browser-backed model before serving requests.
+
+    ModelClientFactory creates a CoderBrowserSession, which owns Playwright on
+    its dedicated worker thread and calls BrowserModel.prepare_browser() before
+    the session constructor returns. Keep that session alive across requests so
+    the user can log in before submitting the first task.
+    """
+    factory = getattr(agent, "_web_model_factory", None)
+    registry = getattr(agent, "_web_model_registry", None)
+    if factory is None or registry is None:
+        debug.log("StudyAgentWebAPI", "BROWSER PREWARM SKIP → factory/registry unavailable")
+        return False
+
+    try:
+        candidates = registry.available(allow_paid=False)
+        model = next((candidate for candidate in candidates if candidate.name == MODEL_ID), None)
+        if model is None:
+            debug.log("StudyAgentWebAPI", "BROWSER PREWARM SKIP → deepseek-web unavailable")
+            return False
+
+        client = factory.create(model)
+        debug.log(
+            "StudyAgentWebAPI",
+            f"BROWSER PREWARM → model={model.name}, "
+            f"profile={getattr(client, 'user_data_dir', 'unknown')}",
+        )
+        return True
+    except Exception as exc:
+        debug.log(
+            "StudyAgentWebAPI",
+            f"BROWSER PREWARM FAILED → {type(exc).__name__}: {exc}",
+        )
+        return False
 
 
 def sse(data: dict[str, Any]) -> bytes:
@@ -338,9 +375,8 @@ class Handler(BaseHTTPRequestHandler):
                 end_run = getattr(factory, "end_run", None)
                 if callable(end_run):
                     end_run(cancellation_event)
-                close_factory = getattr(factory, "close", None)
-                if callable(close_factory):
-                    close_factory()
+                # Keep the prewarmed browser session alive for the next request.
+                # The API process closes the factory once at shutdown.
 
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
@@ -412,6 +448,11 @@ def main() -> None:
     agent = build_agent(config)
     server = Server((HOST, PORT), Handler)
     server.agent = agent
+
+    # Mirror Coder's startup lifecycle: launch the persistent browser session
+    # before serving requests, so login can be completed ahead of the first task.
+    browser_prewarmed = _prewarm_browser_model(agent)
+
     print(f"Study Agent Web API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Web UI: http://{HOST}:{PORT}/")
@@ -419,11 +460,21 @@ def main() -> None:
     print("Agent: StudyAgent")
     print("LLM candidates: deepseek-web ONLY")
     print("Backend: visible local browser -> DeepSeek Web")
+    if browser_prewarmed:
+        print("DeepSeek browser: .study-agent-browser 已启动，可提前登录。")
+    else:
+        print("DeepSeek browser: 预热失败，首次任务时会重试。")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
+        # Release the shared browser first: CoderBrowserSession.close() signals
+        # cancellation to an active browser operation before stopping its worker.
+        factory = getattr(agent, "_web_model_factory", None)
+        close_factory = getattr(factory, "close", None)
+        if callable(close_factory):
+            close_factory()
         server.server_close()
 
 
