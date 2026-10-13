@@ -13,7 +13,22 @@ class DebugTracer:
         self._local = local()
         self._local.depth = 0
 
+    @staticmethod
+    def _redact_attachment_metadata(message: str) -> str:
+        """Hide attachment transport metadata from every log sink.
+
+        The raw file bytes are never part of the question, but the API appends
+        filenames to a transport marker so independent audit calls can identify
+        the files. Redact that suffix before it reaches terminal logs or UI sinks.
+        """
+        value = str(message)
+        marker = "【原始文件附件】"
+        if marker not in value:
+            return value
+        return value.split(marker, 1)[0] + marker + "[attachment metadata redacted]"
+
     def log(self, module: str, message: str) -> None:
+        message = self._redact_attachment_metadata(message)
         sink = getattr(self._local, "sink", None)
         # API sinks translate selected internal events into user-facing status
         # updates. They must not replace terminal logging when debug is ON.
