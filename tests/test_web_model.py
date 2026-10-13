@@ -2258,3 +2258,68 @@ def test_factory_forwards_original_attachments_to_browser_session(monkeypatch):
     assert client.cancellation_event is None
     factory.close()
     assert client.closed is True
+
+
+
+def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    prompt = "long browser prompt for the agent"
+    model._pending_prompt = prompt
+    calls = []
+    confirmations = iter([False, True])
+
+    class Textbox:
+        def fill(self, value, *, timeout):
+            calls.append(("fill", value, timeout))
+
+        def press(self, key, *, timeout):
+            calls.append(("press", key, timeout))
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(
+        model,
+        "_wait_for_submission_confirmation",
+        lambda _page: next(confirmations),
+    )
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
+    monkeypatch.setattr(
+        model,
+        "_click_send_button",
+        lambda _page: calls.append(("click_send",)) or True,
+    )
+
+    model._send_prompt(object(), prompt)
+
+    assert calls[0] == ("fill", prompt, BrowserModel.SEND_ACTION_TIMEOUT_MS)
+    assert calls[1] == ("press", "Enter", BrowserModel.SEND_ACTION_TIMEOUT_MS)
+    assert calls[2] == ("click_send",)
+
+
+def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    model._pending_prompt = "prompt still in composer"
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: object())
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
+    monkeypatch.setattr(model, "_click_send_button", lambda _page: False)
+
+    with pytest.raises(RuntimeError, match="未找到可用的 DeepSeek 发送按钮"):
+        model._send_prompt(object(), "prompt still in composer")
+
+
+def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_unconfirmed(monkeypatch):
+    model = BrowserModel(timeout=1, poll_interval=0.01)
+    model._pending_prompt = "prompt was sent but history has not rendered"
+    clicked = []
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: object())
+    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: False)
+    monkeypatch.setattr(model, "_click_send_button", lambda _page: clicked.append(True) or True)
+
+    with pytest.raises(RuntimeError, match="输入框已清空，但当前用户消息尚未出现在页面"):
+        model._send_prompt(object(), "prompt was sent but history has not rendered")
+    assert clicked == []
