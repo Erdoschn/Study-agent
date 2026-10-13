@@ -313,13 +313,16 @@ class BrowserModel(ModelClient):
         # in the background, but not reliably with a minimized one.
         self._send_browser_window_to_back(page)
         if self._attachment_session_active:
-            if not self._attachment_chat_started:
-                self._start_fresh_chat(page)
-                self._chat_initialized = True
-                self._attachment_chat_started = True
-            if not self._attachment_uploaded:
-                self._upload_attachments(page, self._attachment_files)
-                self._attachment_uploaded = True
+            # A BrowserModel call is one isolated model turn. In particular,
+            # answer generation and TeachingValidator auditing must not share
+            # the same DeepSeek conversation. Re-create the chat and attach the
+            # original bytes for every call instead of carrying hidden history.
+            self._start_fresh_chat(page)
+            self._chat_initialized = True
+            self._attachment_chat_started = True
+            self._attachment_uploaded = False
+            self._upload_attachments(page, self._attachment_files)
+            self._attachment_uploaded = True
         elif not self.reuse_chat or not self._chat_initialized:
             self._start_fresh_chat(page)
             self._chat_initialized = True
@@ -375,13 +378,18 @@ class BrowserModel(ModelClient):
         finally:
             self._pending_prompt = None
             self._json_mode_active = False
-            if (
-                completed
-                and self.cleanup_after_generate
-                and not self._attachment_session_active
+            # Attachment mode always isolates each generation/audit call,
+            # regardless of the general reuse_chat/cleanup configuration.
+            # Clean each temporary session immediately so later model roles do
+            # not inherit its conversation history.
+            if completed and (
+                self.cleanup_after_generate or self._attachment_session_active
             ):
                 self._cleanup_current_chat(page)
                 self._chat_initialized = False
+                if self._attachment_session_active:
+                    self._attachment_chat_started = False
+                    self._attachment_uploaded = False
             # Leave the browser out of the user's way after UI work, including
             # failed requests, without minimizing it and breaking the next run.
             self._send_browser_window_to_back(page)
