@@ -110,7 +110,9 @@ function renderStatus(arr,isRunning){
  }
  if(arr.length>1){
   const h=document.createElement("div");h.className="hist";
-  arr.slice(0,-1).forEach(s=>{const d=document.createElement("div");d.textContent=s;h.append(d)});
+  // Keep a short useful timeline rather than letting a long Agent run grow
+  // into an unbounded wall of status text.
+  arr.slice(-7,-1).forEach(s=>{const d=document.createElement("div");d.textContent=s;h.append(d)});
   box.append(h);
  }
  const line=document.createElement("div");line.className="status-line";
@@ -143,7 +145,7 @@ async function sendMessage(){
   if(!r.ok)throw Error("HTTP "+r.status+": "+(await r.text()).slice(0,500));
   if(!r.body)throw Error("浏览器不支持流式响应");
   const reader=r.body.getReader(),decoder=new TextDecoder();let buf="",finished=false;
-  while(!finished){const q=await reader.read();buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});buf=sseParse(buf,data=>{if(data==="[DONE]"){finished=true;return}try{const o=JSON.parse(data),d=o.choices?.[0]?.delta||{};if(d.reasoning_content)a.statuses.push(d.reasoning_content.trim());if(d.content)a.content+=d.content}catch(_){}});if(!q.done){render();scroll()}}
+  while(!finished){const q=await reader.read();buf+=decoder.decode(q.value||new Uint8Array(),{stream:!q.done});buf=sseParse(buf,data=>{if(data==="[DONE]"){finished=true;return}try{const o=JSON.parse(data),d=o.choices?.[0]?.delta||{};if(d.reasoning_content){const status=d.reasoning_content.trim();if(status&&a.statuses[a.statuses.length-1]!==status){a.statuses.push(status);if(a.statuses.length>60)a.statuses.splice(0,a.statuses.length-60)}}if(d.content)a.content+=d.content}catch(_){}});if(!q.done){render();scroll()}}
   if(!a.content.trim())a.content="请求完成，但 StudyAgent 没有返回最终回答。";
  }catch(e){a.content=e.name==="AbortError"?"⏹ 已取消前端等待；后台 Agent 可能仍在继续执行。":"请求失败：\n\n"+String(e.message||e)}
  finally{a.done=true;state.ctrl=null;running(false);persist();render();scroll()}

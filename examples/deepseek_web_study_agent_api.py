@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import queue
+import re
 import threading
 import time
 import uuid
@@ -293,6 +294,140 @@ def _prewarm_browser_model(agent: StudyAgent) -> bool:
         return False
 
 
+def _user_progress_message(module: str, message: str) -> str | None:
+    """Map internal debug events to redacted, user-readable progress milestones."""
+    value = str(message or "").strip()
+    if not value:
+        return None
+
+    if module == "TaskAnalyzer":
+        if value.startswith("TRY MODEL →"):
+            return "🧩 正在识别任务类型、领域和难度"
+        if value.startswith("RESULT →"):
+            return "🧩 任务分析完成，正在规划执行"
+
+    if module == "ModelRouter" and value.startswith("ORDER →"):
+        return "🧭 正在选择合适的模型与推理强度"
+
+    if module == "BrowserModel":
+        if value.startswith("ATTACHMENT SESSION BEGIN →"):
+            return "📎 已准备原始附件，正在建立本次任务的独立会话"
+        if value.startswith("REQUEST →"):
+            return "🌐 正在等待 DeepSeek Web 返回本轮推理结果"
+        if value.startswith("SUCCESS →"):
+            return "🌐 已收到模型响应，正在整理本轮结果"
+        if value.startswith("CONTINUE GENERATION →"):
+            return "↪️ 当前回答尚未完整，正在继续获取剩余内容"
+        if value.startswith("ATTACHMENT CLEANUP WARNING →"):
+            return "⚠️ 临时附件会话清理未能完全确认，请留意浏览器中的会话记录"
+
+    if module == "AgentReasoner":
+        if value.startswith("TRY MODEL →"):
+            return "🧠 正在结合当前状态分析下一步行动"
+        if value.startswith("ACTION →"):
+            action = value.split("→", 1)[1].strip().upper()
+            actions = {
+                "SEARCH": "🔎 下一步：检索资料，为回答补充证据",
+                "CALCULATE": "🧮 下一步：执行计算并检查结果",
+                "VERIFY": "🧾 下一步：核对关键主张与现有证据",
+                "ASSESS": "📝 下一步：评估学习状态",
+                "ANSWER": "✍️ 下一步：组织最终回答",
+                "STOP": "🏁 下一步：检查完成条件并准备结束",
+            }
+            return actions.get(action, "🧠 已选定下一步行动")
+        if value.startswith(("MODEL TIMEOUT →", "MODEL FAILED →")):
+            return "⚠️ 当前推理模型调用未成功，正在进行错误恢复"
+
+    if module == "AgentToolLoop":
+        if value.startswith("REASON →"):
+            match = re.search(r"\bstep=(\d+)", value)
+            if match:
+                return f"🔄 正在开始第 {match.group(1)} 轮决策"
+            return "🔄 正在结合最新观察决定下一步"
+        if value.startswith("OBSERVE →"):
+            return "📥 已记录本轮执行结果，正在更新任务状态"
+        if value.startswith("VERIFY RESULT →"):
+            return "🧾 已收到证据核验结果，正在决定是否继续"
+        if value.startswith("SEARCH RECOVERY →"):
+            return "🔎 当前检索结果可能不足，正在调整检索方向"
+        if value.startswith("ANSWER EVIDENCE NOTE →"):
+            return "📑 正在整理回答，并标明证据不足之处"
+        if value.startswith("ACT FAILED →"):
+            return "⚠️ 本轮操作未成功，正在检查是否可以恢复"
+
+    if module == "ToolExecutor":
+        if value.startswith("EXECUTE →"):
+            action = value.split("→", 1)[1].strip().upper()
+            actions = {
+                "SEARCH": "🔎 正在调用检索工具获取资料",
+                "CALCULATE": "🧮 正在执行计算工具",
+                "VERIFY": "🧾 正在核对主张与证据",
+                "ASSESS": "📝 正在评估学习状态",
+            }
+            return actions.get(action, "🔧 正在执行已授权的学习工具")
+        if value.startswith("SEARCH RESULT →"):
+            match = re.search(r"\bunique=(\d+)", value)
+            if match:
+                return f"📚 已整理 {match.group(1)} 条去重检索结果，正在评估相关性"
+            return "📚 已收到检索结果，正在评估相关性"
+        if value.startswith("VERIFY →"):
+            return "🧾 正在检查主张与现有证据的一致性"
+        if value.startswith("ACT FAILED →"):
+            return "⚠️ 工具执行未成功，正在整理错误并决定后续步骤"
+        # In particular, do not surface ARGS: it may contain user input or secrets.
+
+    if module == "SearchRouter":
+        if value.startswith("AUTO PROVIDER →"):
+            return "🌍 正在尝试一个检索来源"
+        if value.startswith("AUTO SUMMARY →"):
+            attempted = re.search(r"\battempted=(\d+)", value)
+            results = re.search(r"\bresults=(\d+)", value)
+            if attempted and results:
+                return f"🌍 检索阶段完成：尝试 {attempted.group(1)} 个来源，汇总 {results.group(1)} 条结果"
+            return "🌍 检索阶段已返回结果，正在整理资料"
+
+    if module == "EvidenceStore" and value.startswith("ADD →"):
+        added = re.search(r"\badded=(\d+)", value)
+        total = re.search(r"\btotal=(\d+)", value)
+        if added and total:
+            return f"📚 证据集已更新：新增 {added.group(1)} 条，累计 {total.group(1)} 条"
+        return "📚 正在更新证据集"
+
+    if module == "EvidenceEngine":
+        if value.startswith("COVERAGE →"):
+            return "📊 正在检查现有证据对问题的覆盖程度"
+        if value.startswith("VERIFY →"):
+            return "🧾 正在评估证据能否支持关键主张"
+
+    if module == "Teacher":
+        if value.startswith("STRATEGY →"):
+            return "🎓 正在结合学习者状态规划解释方式"
+        if value.startswith("CALL LLM →"):
+            return "✍️ Teacher 正在生成教学解释"
+        if value.startswith("VALIDATION →"):
+            return "🔍 教学质量检查发现需要关注的问题，正在尝试修订"
+        if value.startswith("SUCCESS →"):
+            return "✍️ 教学解释初稿已生成，正在完成后续检查"
+        if value.startswith(("MODEL FAILED →", "REVISION FAILED →")):
+            return "⚠️ 教学模型或修订步骤未成功，正在保留可用结果并继续处理"
+
+    if module == "TeachingValidator":
+        if value.startswith("CALL LLM →"):
+            return "🔍 正在检查回答中的关键事实和数学推导"
+        if value.startswith("RESULT →"):
+            match = re.search(r"\bstatus=([A-Za-z_]+)", value)
+            status = match.group(1).upper() if match else ""
+            if status == "PASS":
+                return "✅ 回答质量检查已通过"
+            if status in {"REVISE", "NEEDS_REVISION", "FAIL"}:
+                return "⚠️ 回答质量检查建议修订"
+            if status:
+                return "🧪 回答质量检查已返回结果，正在结合其他信息判断"
+            return "🧪 回答质量检查已返回结果"
+
+    return None
+
+
 def sse(data: dict[str, Any]) -> bytes:
     return ("data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode()
 
@@ -544,17 +679,17 @@ class Handler(BaseHTTPRequestHandler):
             if not debug.enabled and any(token in message.upper() for token in important):
                 print(f"[{module}] {message}", flush=True)
 
-            # These are user-facing progress events, not raw debug output.
-            if module == "AgentReasoner" and message.startswith("ACTION →"):
-                emit("🧠 " + message.split("→", 1)[1].strip())
-            elif module == "ToolExecutor" and message.startswith("ARGS →"):
-                emit("🔧 正在调用工具")
-            elif module == "Teacher" and message.startswith("SUCCESS →"):
-                emit("✍️ 正在整理最终教学回答")
-            elif module == "TaskAnalyzer" and message.startswith("RESULT →"):
-                emit("🧩 任务分析完成，开始规划执行")
+            # Convert internal trace events into safe, concise user-facing progress.
+            # Never forward raw arguments, queries, claims, prompts, filenames, or errors.
+            progress = _user_progress_message(module, message)
+            if progress:
+                emit(progress)
 
         emit("🤔 StudyAgent 正在分析任务")
+        if attachments:
+            emit(f"📎 已接收 {len(attachments)} 个附件，正在准备原始文件")
+        if _RUN_LOCK.locked():
+            emit("⏳ 当前有任务正在执行，本次请求正在等待执行槽位")
         with _RUN_LOCK:
             if cancellation_event.is_set():
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")

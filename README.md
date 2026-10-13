@@ -543,7 +543,7 @@ Endpoints:
 - GET /v1/models
 - POST /v1/chat/completions
 
-The API uses an OpenAI-compatible streaming interface. Agent status is emitted separately through reasoning_content, while the final answer is emitted through content.
+The API uses an OpenAI-compatible streaming interface. Agent status is emitted separately through `reasoning_content`, while the final answer is emitted through `content`. The local StudyAgent Web UI presents progress milestones for task analysis, model selection, each reasoning round, tool execution, retrieval-result counts, evidence checks, teaching, and answer validation. These are curated summaries rather than raw debug logs; the UI deduplicates consecutive repeats and retains only a bounded recent timeline. See the [security review and self-evolution roadmap](docs/security-review-self-evolution-roadmap.md) for current trust boundaries, prioritized security findings, and a human-gated path for StudyAgent and Coder to contribute improvements.
 
 When Open WebUI runs in Docker and the API runs on the Windows host, use:
 
