@@ -5,6 +5,7 @@ from .knowledge_graph import KnowledgeGraph, normalize_difficulty
 from .assessment import AssessmentEvaluator
 from .assessment_generator import AssessmentGenerator
 from .__debug__ import debug
+from .errors import AttachmentUploadError
 
 
 class StudyAgent:
@@ -123,11 +124,18 @@ class StudyAgent:
                     (time.perf_counter() - analysis_started) * 1000, 2
                 )
                 state.metrics["route_fallback"] = True
-                debug.log(
-                    "StudyAgent",
-                    f"TASK ANALYZER FAILED → continuing full agent loop: "
-                    f"{type(exc).__name__}: {exc}",
-                )
+                if isinstance(exc, AttachmentUploadError):
+                    # The user's request depends on the original files. Running the
+                    # Reasoner without them would be misleading and would retry the
+                    # same failing upload in every subsequent browser role.
+                    state.error = f"附件上传失败，已停止本次任务：{exc}"
+                    debug.log("StudyAgent", f"TASK ANALYZER FATAL → {state.error}")
+                else:
+                    debug.log(
+                        "StudyAgent",
+                        f"TASK ANALYZER FAILED → continuing full agent loop: "
+                        f"{type(exc).__name__}: {exc}",
+                    )
 
             state.student.sync_from_knowledge_graph(self.knowledge_graph)
             self.knowledge_graph.bootstrap_query_context(question)

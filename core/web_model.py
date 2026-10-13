@@ -11,6 +11,7 @@ from .__debug__ import debug
 from .reasoner import ModelClient
 from .prompt_config import get_prompt
 from .cancellation import RunCancelled, raise_if_cancelled
+from .errors import AttachmentUploadError
 
 
 class BrowserModel(ModelClient):
@@ -94,7 +95,10 @@ class BrowserModel(ModelClient):
         "Upload file", "Upload files", "Add file", "Add files",
         "Attach file", "Attach files", "上传文件", "添加文件", "添加附件",
     )
-    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 30.0
+    # Large multi-file requests need time both for Playwright to stage the
+    # in-memory payload and for DeepSeek Web to finish processing the uploads.
+    ATTACHMENT_SELECT_TIMEOUT_MS = 120_000
+    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 120.0
     SEND_CONFIRMATION_TIMEOUT_SECONDS = 2.0
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
@@ -1675,7 +1679,7 @@ class BrowserModel(ModelClient):
                 page, self.DEFAULT_ATTACHMENT_LABELS, role="button"
             ) or self._click_first_visible(page, self.DEFAULT_ATTACHMENT_LABELS)
             if not clicked:
-                raise RuntimeError(
+                raise AttachmentUploadError(
                     "DeepSeek Web 未找到文件上传控件或 input[type=file]；"
                     "无法将原始附件交给模型。"
                 )
@@ -1690,14 +1694,20 @@ class BrowserModel(ModelClient):
                 self._sleep(min(0.1, self.poll_interval))
         count = file_inputs.count()
         if count <= 0:
-            raise RuntimeError(
+            raise AttachmentUploadError(
                 "点击 DeepSeek Web 文件上传控件后，仍未找到 input[type=file]。"
             )
 
+        total_bytes = sum(len(item["buffer"]) for item in payloads)
+        debug.log(
+            "BrowserModel",
+            f"ATTACHMENT SELECT BEGIN → count={len(payloads)}, "
+            f"total_bytes={total_bytes}, timeout_ms={self.ATTACHMENT_SELECT_TIMEOUT_MS}",
+        )
         try:
             file_inputs.nth(count - 1).set_input_files(
                 payloads,
-                timeout=self.CLICK_ACTION_TIMEOUT_MS,
+                timeout=self.ATTACHMENT_SELECT_TIMEOUT_MS,
             )
         except Exception as exc:
             # Upload exceptions may echo local filenames; log only the exception type.
@@ -1705,8 +1715,9 @@ class BrowserModel(ModelClient):
                 "BrowserModel",
                 f"ATTACHMENT SELECT FAILED → {type(exc).__name__}",
             )
-            raise RuntimeError(
-                "DeepSeek Web 无法接收这些附件；文件未发送给模型。"
+            raise AttachmentUploadError(
+                "DeepSeek Web 无法在附件选择超时时间内接收这些文件；"
+                "文件未发送给模型。"
             ) from exc
 
         expected_names = [item["name"].casefold() for item in payloads]
@@ -1749,8 +1760,8 @@ class BrowserModel(ModelClient):
                 stable_since = None
             self._sleep(min(0.2, self.poll_interval))
 
-        raise TimeoutError(
-            "DeepSeek Web 附件上传未能在规定时间内确认完成；"
+        raise AttachmentUploadError(
+            "DeepSeek Web 附件上传未能在 120 秒内确认完成；"
             "为避免模型在未收到文件时回答，已中止本次请求。"
         )
 
