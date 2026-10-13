@@ -322,6 +322,7 @@ def test_browser_model_send_actions_use_bounded_timeouts(monkeypatch):
             calls.append(("press", key, timeout))
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     model._send_prompt(object(), "hello")
@@ -343,6 +344,7 @@ def test_browser_model_wraps_send_fill_timeout_as_runtime_error(monkeypatch):
             raise AssertionError("press should not run")
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     with pytest.raises(RuntimeError, match="输入框填充超时或不可操作"):
@@ -360,6 +362,7 @@ def test_browser_model_wraps_send_enter_timeout_as_runtime_error(monkeypatch):
             raise TimeoutError("enter blocked")
 
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: Textbox())
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
 
     with pytest.raises(RuntimeError, match="输入框发送超时或不可操作"):
@@ -2425,6 +2428,7 @@ def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monk
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(
         model,
@@ -2458,6 +2462,7 @@ def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypa
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
@@ -2481,6 +2486,7 @@ def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_
 
     textbox = Textbox()
     monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
+    monkeypatch.setattr(model, "_ensure_deep_thinking_enabled", lambda _page: None)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: False)
