@@ -469,14 +469,13 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
-        # Close the HTTP listener before releasing the shared browser
-        # session. Factory.close() also signals cancellation to an active
-        # browser operation before shutting down its dedicated worker.
-        server.server_close()
+        # Release the shared browser first: CoderBrowserSession.close() signals
+        # cancellation to an active browser operation before stopping its worker.
         factory = getattr(agent, "_web_model_factory", None)
         close_factory = getattr(factory, "close", None)
         if callable(close_factory):
             close_factory()
+        server.server_close()
 
 
 if __name__ == "__main__":
