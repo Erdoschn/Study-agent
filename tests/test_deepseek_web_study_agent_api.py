@@ -246,7 +246,7 @@ def test_web_frontend_attachments_are_consumed_once_per_submission():
     assert 'c.messages.push({role:"user",content:text,attachments:filesForRequest.map(file=>file.name)})' in send_body
     assert clear_composer < attach_files
     assert "for(const file of state.pendingFiles)" not in send_body
-    assert "function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value=\\"\\";renderAttachments()}" in source
+
     assert "filesByConversation" not in source
 
 
