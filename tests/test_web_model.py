@@ -918,7 +918,7 @@ def test_browser_model_does_not_accept_stale_clipboard(monkeypatch):
     )
 
     assert model._copy_latest_response_markdown(object()) == ""
-    assert cleared == [True]
+    assert cleared == [True, True]  # initial sentinel and post-read cleanup
 
 
 def test_browser_model_uses_bounded_copy_click_timeout(monkeypatch):
