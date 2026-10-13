@@ -100,6 +100,10 @@ class BrowserModel(ModelClient):
     ATTACHMENT_SELECT_TIMEOUT_MS = 120_000
     ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 120.0
     SEND_CONFIRMATION_TIMEOUT_SECONDS = 2.0
+    # The Send control can remain disabled briefly after a large attachment set
+    # becomes visible. Keep polling rather than treating one disabled snapshot
+    # as a permanent UI failure.
+    SEND_BUTTON_READY_TIMEOUT_SECONDS = 120.0
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
     SEND_ACTION_TIMEOUT_MS = 1500
@@ -1915,6 +1919,7 @@ class BrowserModel(ModelClient):
                 "可检查 BrowserModel 的输入选择器。"
             )
 
+        self._send_button_disabled_logged = False
         self._ensure_deep_thinking_enabled(page)
         self._wait_for_send_slot()
         self._check_cancelled()
@@ -1961,27 +1966,17 @@ class BrowserModel(ModelClient):
         # the key duplicate-send guard: if the composer was cleared but the
         # message node is not yet discoverable, don't blindly submit again.
         if not self._composer_contains_prompt(textbox, prompt):
-            raise RuntimeError(
+            raise self._submission_failure(
                 "DeepSeek Web 的发送状态无法确认：输入框已清空，但当前用户消息尚未出现在页面。"
                 "为避免重复发送，本次请求已中止；请检查浏览器页面和终端日志。"
             )
 
         debug.log(
             "BrowserModel",
-            "SEND ENTER UNCONFIRMED → prompt still in composer; trying visible Send button",
+            "SEND ENTER UNCONFIRMED → prompt still in composer; waiting for enabled Send button",
         )
-        if not self._click_send_button(page):
-            raise RuntimeError(
-                "按 Enter 后提示词仍留在输入框，且未找到可用的 DeepSeek 发送按钮；"
-                "本次请求没有确认发送。"
-            )
-        self._check_cancelled()
-        if not self._wait_for_submission_confirmation(page):
-            raise RuntimeError(
-                "点击 DeepSeek 发送按钮后仍未确认用户消息已提交；"
-                "本次请求已停止，不会继续等待一个尚未发出的回答。"
-            )
-        debug.log("BrowserModel", "SEND CONFIRMED → user message appeared after Send button click")
+        self._wait_for_send_button_and_confirmation(page, textbox, prompt)
+        debug.log("BrowserModel", "SEND CONFIRMED → user message appeared after Send became ready")
 
     def _visible_chat_message_count(self, page) -> int | None:
         try:
@@ -2026,6 +2021,15 @@ class BrowserModel(ModelClient):
             return False
         return False
 
+    def _submission_is_confirmed(self, page) -> bool:
+        """Return whether the pending prompt is visibly submitted in the chat."""
+        if not self._pending_prompt:
+            return False
+        return (
+            self._current_user_message_index(page) is not None
+            or self._new_user_message_visible(page)
+        )
+
     def _wait_for_submission_confirmation(self, page) -> bool:
         """Wait until this exact pending user message appears after the send attempt."""
         if not self._pending_prompt:
@@ -2033,10 +2037,7 @@ class BrowserModel(ModelClient):
         deadline = time.monotonic() + float(self.SEND_CONFIRMATION_TIMEOUT_SECONDS)
         while True:
             self._check_cancelled()
-            if (
-                self._current_user_message_index(page) is not None
-                or self._new_user_message_visible(page)
-            ):
+            if self._submission_is_confirmed(page):
                 return True
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -2064,6 +2065,59 @@ class BrowserModel(ModelClient):
         tail = expected[-120:] if len(expected) > 240 else ""
         return head in current and (not tail or tail in current)
 
+    def _submission_failure(self, message: str) -> RuntimeError:
+        """Attachment-backed sends must fail as fatal attachment errors, not retry sans files."""
+        if self._attachment_session_active:
+            return AttachmentUploadError(message)
+        return RuntimeError(message)
+
+    def _wait_for_send_button_and_confirmation(self, page, textbox, prompt: str) -> None:
+        """Wait for a formerly-disabled Send control, clicking at most once.
+
+        After a successful click, continue checking the message list without
+        clicking again; this avoids duplicate submissions if the UI renders
+        the submitted message slowly.
+        """
+        timeout = max(0.1, float(self.SEND_BUTTON_READY_TIMEOUT_SECONDS))
+        deadline = time.monotonic() + timeout
+        clicked = False
+        wait_logged = False
+        while True:
+            self._check_cancelled()
+            if self._submission_is_confirmed(page):
+                return
+
+            if not clicked and self._composer_contains_prompt(textbox, prompt):
+                if self._click_send_button(page):
+                    clicked = True
+                    debug.log(
+                        "BrowserModel",
+                        "SEND BUTTON CLICKED → waiting for user-message confirmation",
+                    )
+                elif not wait_logged:
+                    wait_logged = True
+                    debug.log(
+                        "BrowserModel",
+                        "SEND BUTTON WAIT → control is disabled/unavailable; "
+                        f"retrying for up to {timeout:.0f}s",
+                    )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if clicked:
+                    message = (
+                        "已点击 DeepSeek 发送按钮，但在等待期限内仍未确认用户消息已提交；"
+                        "为避免重复发送，本次请求已停止。"
+                    )
+                else:
+                    message = (
+                        f"DeepSeek 发送按钮在 {timeout:.0f} 秒内仍不可用；"
+                        "附件可能仍在上传或处理中，或页面未解除发送禁用状态；"
+                        "本次请求未确认发送。"
+                    )
+                raise self._submission_failure(message)
+            self._sleep(min(self.poll_interval, remaining))
+
     def _click_send_button(self, page) -> bool:
         """Click a visible, enabled Send control as a fallback to Enter."""
         stop_tokens = ("stop", "cancel", "停止", "中止", "取消")
@@ -2088,10 +2142,12 @@ class BrowserModel(ModelClient):
                     # through a CSS class, not necessarily disabled/aria-disabled
                     # attributes. Playwright is_enabled() alone cannot catch that.
                     if "ds-button--disabled" in class_name.split():
-                        debug.log(
-                            "BrowserModel",
-                            f"SEND BUTTON SKIP → disabled class, selector={selector!r}",
-                        )
+                        if not getattr(self, "_send_button_disabled_logged", False):
+                            debug.log(
+                                "BrowserModel",
+                                f"SEND BUTTON SKIP → disabled class, selector={selector!r}",
+                            )
+                            self._send_button_disabled_logged = True
                         continue
                     disabled = button.get_attribute("disabled")
                     aria_disabled = str(button.get_attribute("aria-disabled") or "").casefold()

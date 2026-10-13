@@ -92,3 +92,17 @@ def test_study_agent_stops_instead_of_retrying_failed_attachment_upload(monkeypa
     assert state.error and state.error.startswith("附件上传失败")
     assert "Agent 未能完成任务" in state.final_answer
     assert "DeepSeek Web 附件上传未完成" in state.final_answer
+
+
+
+def test_send_button_timeout_is_attachment_failure_and_stops_further_model_roles(monkeypatch):
+    model = BrowserModel(poll_interval=0.001)
+    model._attachment_session_active = True
+    model.SEND_BUTTON_READY_TIMEOUT_SECONDS = 0.01
+    monkeypatch.setattr(model, "_submission_is_confirmed", lambda _page: False)
+    monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
+    monkeypatch.setattr(model, "_click_send_button", lambda _page: False)
+    monkeypatch.setattr(model, "_sleep", lambda _seconds: None)
+
+    with pytest.raises(AttachmentUploadError, match="发送按钮在"):
+        model._wait_for_send_button_and_confirmation(object(), object(), "study from files")
