@@ -221,6 +221,26 @@ class Teacher:
             "revision_instructions": get_prompt("study_agent.teacher_revision"),
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    @staticmethod
+    def _append_validation_notice(
+        answer: str,
+        *,
+        reason: str,
+        findings: list[dict] | None = None,
+    ) -> str:
+        """Keep uncertainty or unresolved errors visible instead of presenting them as verified."""
+        lines = [f"【答案校验提示】{reason}"]
+        for item in list(findings or [])[:5]:
+            if not isinstance(item, dict):
+                continue
+            claim = str(item.get("claim", "")).strip()
+            correction = str(item.get("correction", "")).strip()
+            if claim:
+                lines.append(f"- 待核对：{claim}")
+            if correction:
+                lines.append(f"  建议核对：{correction}")
+        return f"{str(answer or '').rstrip()}\\n\\n" + "\\n".join(lines)
+
     def generate(self, state, draft_answer: str | None = None) -> str:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
@@ -258,33 +278,108 @@ class Teacher:
                     return result
 
                 validation = self.teaching_validator.validate(state, result)
-                state.metrics["teaching_validation_status"] = validation.get("status", "UNCERTAIN")
+                status = str(validation.get("status", "UNCERTAIN")).upper()
+                findings = self.teaching_validator.revision_findings(validation)
+                state.metrics["teaching_validation_initial_status"] = status
+                state.metrics["teaching_validation_status"] = status
                 state.metrics["teaching_validation_model"] = validation.get("model")
                 state.metrics["teaching_validation_effort"] = validation.get("effort")
-                findings = self.teaching_validator.revision_findings(validation)
-                state.metrics["teaching_validation_major_errors"] = len(findings)
+                state.metrics["teaching_validation_major_errors"] = sum(
+                    str(item.get("severity", "")).lower() == "major"
+                    for item in findings
+                )
+                state.metrics["teaching_validation_confirmed_errors"] = len(findings)
+                state.metrics["teaching_answer_verified"] = False
+                state.metrics["teaching_revision"] = False
+                state.metrics["teaching_revision_verified"] = False
 
-                if not findings:
+                if not findings and status == "PASS":
+                    state.metrics["teaching_answer_verified"] = True
                     return result
+                if not findings:
+                    return self._append_validation_notice(
+                        result,
+                        reason=(
+                            "独立校验未能确认答案完全正确；请重点核对题目条件、计算和单位。"
+                        ),
+                    )
 
                 debug.log(
                     "Teacher",
-                    f"VALIDATION → major_errors={len(findings)}, revising with {model.name}",
+                    f"VALIDATION → confirmed_errors={len(findings)}, "
+                    f"major={state.metrics['teaching_validation_major_errors']}; revising with {model.name}",
                 )
                 revision_prompt = self._build_revision_prompt(state, result, findings)
                 try:
                     revised = self._call_model(model, state, revision_prompt, choice.effort)
                     revised = str(revised or "").strip()
-                    if revised:
-                        state.metrics["teaching_revision"] = True
-                        return revised
                 except Exception as revision_exc:
                     state.metrics["teaching_revision"] = False
                     debug.log(
                         "Teacher",
-                        f"REVISION FAILED → kept draft: {type(revision_exc).__name__}",
+                        f"REVISION FAILED → known errors remain: {type(revision_exc).__name__}",
                     )
-                return result
+                    return self._append_validation_notice(
+                        result,
+                        reason="校验发现了确定错误，但自动修订失败；不要直接把当前答案视为正确。",
+                        findings=findings,
+                    )
+
+                if not revised:
+                    return self._append_validation_notice(
+                        result,
+                        reason="校验发现了确定错误，但模型没有给出有效修订；当前答案仍需核对。",
+                        findings=findings,
+                    )
+
+                state.metrics["teaching_revision"] = True
+                try:
+                    revised_validation = self.teaching_validator.validate(state, revised)
+                except Exception as audit_exc:
+                    debug.log(
+                        "Teacher",
+                        f"REVISION AUDIT FAILED → {type(audit_exc).__name__}",
+                    )
+                    return self._append_validation_notice(
+                        revised,
+                        reason="答案已修订，但修订后的独立复核失败；请人工核对关键结论。",
+                    )
+
+                revised_status = str(
+                    revised_validation.get("status", "UNCERTAIN")
+                ).upper()
+                remaining = self.teaching_validator.revision_findings(revised_validation)
+                state.metrics["teaching_validation_status"] = revised_status
+                state.metrics["teaching_validation_model"] = revised_validation.get(
+                    "model", state.metrics.get("teaching_validation_model")
+                )
+                state.metrics["teaching_validation_effort"] = revised_validation.get(
+                    "effort", state.metrics.get("teaching_validation_effort")
+                )
+                state.metrics["teaching_revision_errors_remaining"] = len(remaining)
+                state.metrics["teaching_revision_verified"] = (
+                    revised_status == "PASS" and not remaining
+                )
+                state.metrics["teaching_answer_verified"] = (
+                    revised_status == "PASS" and not remaining
+                )
+
+                if state.metrics["teaching_revision_verified"]:
+                    debug.log("Teacher", "REVISION AUDIT → PASS")
+                    return revised
+
+                debug.log(
+                    "Teacher",
+                    f"REVISION AUDIT → status={revised_status}, remaining_errors={len(remaining)}",
+                )
+                return self._append_validation_notice(
+                    revised,
+                    reason=(
+                        "修订后的答案尚未通过独立复核，或仍有确定错误；"
+                        "下面列出需要核对的内容。"
+                    ),
+                    findings=remaining,
+                )
             except Exception as exc:
                 registry = self.model_router.registry
                 provider_level = (
