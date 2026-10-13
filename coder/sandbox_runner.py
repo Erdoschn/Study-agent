@@ -50,8 +50,12 @@ def _ignore(directory: str, names: list[str]) -> set[str]:
             name_key in SKIP_DIRS
             or name_key in BLOCKED_NAMES
             or item.suffix.casefold() in BLOCKED_SUFFIXES
-            or (item.suffix.casefold() not in READABLE_EXTENSIONS and name_key not in SPECIAL_TEXT_FILENAMES)
         ):
+            ignored.add(name)
+        elif item.is_dir() and not item.is_symlink():
+            # Preserve ordinary source directories; only filter files by suffix.
+            continue
+        elif item.suffix.casefold() not in READABLE_EXTENSIONS and name_key not in SPECIAL_TEXT_FILENAMES:
             ignored.add(name)
     return ignored
 

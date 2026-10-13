@@ -352,7 +352,7 @@ def test_sandbox_command_security_contract():
     assert '"--user", "65534:65534"' in text
     assert '"--pull=never"' in text
     assert '"study-agent-coder-multilang:1"' in text
-    assert '"--tmpfs", "/build:rw,nosuid,nodev,size=512m' in text
+    assert '"--tmpfs", "/build:rw,exec,nosuid,nodev,size=512m' in text
 
 
 

@@ -298,7 +298,7 @@ class DockerPythonSandbox:
                 "--ulimit", "nofile=256:256",
                 "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=128m,uid=65534,gid=65534,mode=700",
                 "--tmpfs", "/sandbox:rw,nosuid,nodev,noexec,size=512m,uid=65534,gid=65534,mode=700",
-                "--tmpfs", "/build:rw,nosuid,nodev,size=512m,uid=65534,gid=65534,mode=700",
+                "--tmpfs", "/build:rw,exec,nosuid,nodev,size=512m,uid=65534,gid=65534,mode=700",
                 "--mount",
                 f"type=bind,src={staged},dst=/workspace,readonly",
                 self.IMAGE,
