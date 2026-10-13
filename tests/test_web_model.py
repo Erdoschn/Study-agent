@@ -2300,7 +2300,16 @@ def test_browser_model_falls_back_to_send_button_when_enter_does_not_submit(monk
 def test_browser_model_does_not_report_success_when_send_is_unconfirmed(monkeypatch):
     model = BrowserModel(timeout=1, poll_interval=0.01)
     model._pending_prompt = "prompt still in composer"
-    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: object())
+
+    class Textbox:
+        def fill(self, _value, *, timeout):
+            return None
+
+        def press(self, _key, *, timeout):
+            return None
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: True)
@@ -2314,7 +2323,16 @@ def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_
     model = BrowserModel(timeout=1, poll_interval=0.01)
     model._pending_prompt = "prompt was sent but history has not rendered"
     clicked = []
-    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: object())
+
+    class Textbox:
+        def fill(self, _value, *, timeout):
+            return None
+
+        def press(self, _key, *, timeout):
+            return None
+
+    textbox = Textbox()
+    monkeypatch.setattr(model, "_find_visible", lambda _page, _selectors: textbox)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
     monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: False)
     monkeypatch.setattr(model, "_composer_contains_prompt", lambda _textbox, _prompt: False)
