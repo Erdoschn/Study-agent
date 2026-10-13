@@ -362,10 +362,7 @@ class BrowserModel(ModelClient):
                     self._attachment_current_role = None
                     self._chat_initialized = False
             if must_start_new_chat:
-                self._start_fresh_chat(
-                    page,
-                    force=role_requires_isolation or self._chat_initialized,
-                )
+                self._start_fresh_chat(page, force=True)
                 self._chat_initialized = True
                 self._attachment_current_role = call_role
                 self._attachment_chat_started = True
