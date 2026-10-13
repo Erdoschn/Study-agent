@@ -1,6 +1,7 @@
 """OpenAI-compatible API and lightweight browser UI for StudyAgent + DeepSeek Web."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import mimetypes
 import os
@@ -36,6 +37,53 @@ MAX_UPLOAD_FILE_BYTES = 20 * 1024 * 1024
 MAX_UPLOAD_TOTAL_BYTES = 40 * 1024 * 1024
 MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_TOTAL_BYTES + 8 * 1024 * 1024
 _RUN_LOCK = threading.Lock()
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return true only for localhost or an IP address on the loopback interface."""
+    normalized = str(host or "").strip().strip("[]").rstrip(".").casefold()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _allowed_browser_origin(origin: str) -> bool:
+    """Permit browser-originated API requests only from this local UI origin.
+
+    Non-browser OpenAI-compatible clients usually omit Origin and remain allowed;
+    public/LAN exposure must be protected with an explicit API key at startup.
+    """
+    value = str(origin or "").strip()
+    if not value:
+        return True
+    try:
+        parsed = urlparse(value)
+        port = parsed.port or (80 if parsed.scheme == "http" else 443)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.hostname is not None
+        and _is_loopback_host(parsed.hostname)
+        and port == PORT
+        and parsed.path in ("", "/")
+        and not parsed.params
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _require_auth_for_non_loopback_bind(host: str = HOST, api_key: str = API_KEY) -> None:
+    if not api_key and not _is_loopback_host(host):
+        raise RuntimeError(
+            "拒绝在非本机地址上启动无鉴权的 StudyAgent Web API；"
+            "请设置 STUDY_AGENT_WEB_API_KEY，或将 STUDY_AGENT_WEB_HOST 设为 127.0.0.1。"
+        )
 
 
 def parse_chat_request_body(
@@ -95,11 +143,13 @@ def parse_chat_request_body(
         filename = filename.replace(chr(0), "").strip()
         if not filename or filename in {".", ".."}:
             raise ValueError("附件缺少有效文件名。")
+        if any(ord(char) < 32 or ord(char) == 127 for char in filename):
+            raise ValueError("附件文件名包含不允许的控制字符。")
         if len(filename) > 240:
-            raise ValueError(f"附件文件名过长：{filename[:80]}")
+            raise ValueError("附件文件名过长（上限 240 个字符）。")
         if len(payload) > MAX_UPLOAD_FILE_BYTES:
             raise ValueError(
-                f"附件 {filename!r} 超过单文件上限 "
+                f"某个附件超过单文件上限 "
                 f"({MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MiB)。"
             )
         total_bytes += len(payload)
@@ -208,7 +258,39 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
         knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
     )
     agent._web_model_factory = factory
+    agent._web_model_registry = registry
     return agent
+
+
+def _prewarm_browser_model(agent: StudyAgent) -> bool:
+    """Start the browser-backed model before serving requests."""
+    factory = getattr(agent, "_web_model_factory", None)
+    registry = getattr(agent, "_web_model_registry", None)
+    if factory is None or registry is None:
+        debug.log("StudyAgentWebAPI", "BROWSER PREWARM SKIP → factory/registry unavailable")
+        return False
+    try:
+        model = next(
+            (candidate for candidate in registry.available(allow_paid=False)
+             if candidate.name == MODEL_ID),
+            None,
+        )
+        if model is None:
+            debug.log("StudyAgentWebAPI", "BROWSER PREWARM SKIP → deepseek-web unavailable")
+            return False
+        client = factory.create(model)
+        debug.log(
+            "StudyAgentWebAPI",
+            f"BROWSER PREWARM → model={model.name}, "
+            f"profile={getattr(client, 'user_data_dir', 'unknown')}",
+        )
+        return True
+    except Exception as exc:
+        debug.log(
+            "StudyAgentWebAPI",
+            f"BROWSER PREWARM FAILED → {type(exc).__name__}: {exc}",
+        )
+        return False
 
 
 def sse(data: dict[str, Any]) -> bytes:
@@ -258,8 +340,14 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return not API_KEY or self.headers.get("Authorization", "") == f"Bearer {API_KEY}"
 
+    def _origin_allowed(self) -> bool:
+        return _allowed_browser_origin(self.headers.get("Origin", ""))
+
     def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = str(self.headers.get("Origin", "") or "").strip()
+        self.send_header("Vary", "Origin")
+        if origin and _allowed_browser_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
@@ -270,6 +358,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self._cors()
         self.send_header("Connection", "close")
         self.end_headers()
@@ -346,6 +436,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self._cors()
         self.send_header("Connection", "close")
         self.end_headers()
@@ -353,6 +445,9 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_OPTIONS(self) -> None:
+        if not self._origin_allowed():
+            self._json({"error": {"message": "不允许此浏览器来源访问本地 API。", "type": "authentication_error"}}, 403)
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
@@ -378,6 +473,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
 
     def do_POST(self) -> None:
+        if not self._origin_allowed():
+            self._json({"error": {"message": "不允许此浏览器来源访问本地 API。", "type": "authentication_error"}}, 403)
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
@@ -394,11 +492,8 @@ class Handler(BaseHTTPRequestHandler):
                 question = add_attachment_context(question, attachments)
                 debug.log(
                     "StudyAgentWebAPI",
-                    "ATTACHMENTS RECEIVED → "
-                    + ", ".join(
-                        f"{item['name']} ({len(item['buffer'])} bytes)"
-                        for item in attachments
-                    ),
+                    f"ATTACHMENTS RECEIVED → count={len(attachments)}, "
+                    f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
                 self._stream(question, attachments=attachments)
@@ -414,8 +509,20 @@ class Handler(BaseHTTPRequestHandler):
                     "model": MODEL_ID,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                 })
+        except ValueError as exc:
+            self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, 400)
         except Exception as exc:
-            self._json({"error": {"message": f"{type(exc).__name__}: {exc}", "type": "server_error"}}, 500)
+            reference = uuid.uuid4().hex[:8]
+            debug.log(
+                "StudyAgentWebAPI",
+                f"REQUEST FAILED → ref={reference}, {type(exc).__name__}: {exc}",
+            )
+            self._json({
+                "error": {
+                    "message": f"服务器内部错误（参考编号 {reference}）；详细原因请查看本地 API 终端。",
+                    "type": "server_error",
+                }
+            }, 500)
 
     def _run(
         self,
@@ -469,9 +576,9 @@ class Handler(BaseHTTPRequestHandler):
                 end_run = getattr(factory, "end_run", None)
                 if callable(end_run):
                     end_run(cancellation_event)
-                close_factory = getattr(factory, "close", None)
-                if callable(close_factory):
-                    close_factory()
+                # The browser client is prewarmed once at API startup and remains
+                # available across requests. end_run() removes this request's
+                # raw attachment bytes and best-effort deletes its temporary chat.
 
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
@@ -512,7 +619,15 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 ))
             except Exception as exc:
-                events.put(("error", exc))
+                reference = uuid.uuid4().hex[:8]
+                debug.log(
+                    "StudyAgentWebAPI",
+                    f"REQUEST FAILED → ref={reference}, {type(exc).__name__}: {exc}",
+                )
+                events.put(("error", {
+                    "reference": reference,
+                    "type": type(exc).__name__,
+                }))
             finally:
                 events.put(("done", sentinel))
 
@@ -535,7 +650,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._write(b"data: [DONE]\n\n")
                     finished = True
                 elif kind == "error":
-                    self._write(sse(chunk(cid, reasoning=f"❌ Agent 执行失败：{value}\n")))
+                    self._write(sse(chunk(
+                        cid,
+                        reasoning=(
+                            f"❌ Agent 执行失败：{value.get('type', 'RuntimeError')}。"
+                            f"参考编号 {value.get('reference', 'unknown')}；"
+                            "详细原因仅记录在本地 API 终端。\n"
+                        ),
+                    )))
                     self._write(sse(chunk(cid, finish="stop")))
                     self._write(b"data: [DONE]\n\n")
                     finished = True
@@ -551,11 +673,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    _require_auth_for_non_loopback_bind()
     config = load_config()
     setup_debug(config)
     agent = build_agent(config)
     server = Server((HOST, PORT), Handler)
     server.agent = agent
+    browser_prewarmed = _prewarm_browser_model(agent)
     print(f"Study Agent Web API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Web UI: http://{HOST}:{PORT}/")
@@ -563,12 +687,21 @@ def main() -> None:
     print("Agent: StudyAgent")
     print("LLM candidates: deepseek-web ONLY")
     print("Backend: visible local browser -> DeepSeek Web")
+    if browser_prewarmed:
+        print("DeepSeek browser: .study-agent-browser 已启动，可提前登录。")
+    else:
+        print("DeepSeek browser: 预热失败，首次任务时会重试。")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
+        # Wait for HTTP handlers before disposing their shared browser session.
         server.server_close()
+        factory = getattr(agent, "_web_model_factory", None)
+        close_factory = getattr(factory, "close", None)
+        if callable(close_factory):
+            close_factory()
 
 
 if __name__ == "__main__":
