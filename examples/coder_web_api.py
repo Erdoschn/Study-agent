@@ -43,6 +43,7 @@ from coder.memory import CoderMemoryStore
 from coder.state import CoderState
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
+from core.http_security import require_auth_for_non_loopback_bind as _shared_require_auth
 from core.cancellation import RunCancelled, raise_if_cancelled
 from core.web_model import BrowserModel
 
@@ -64,6 +65,16 @@ RUNS_LOCK = threading.Lock()
 ACTIVE_RUNS: dict[str, "CoderRunControl"] = {}
 PROJECT_NAME_MAX = 64
 PROJECT_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
+    _shared_require_auth(
+        HOST if host is None else host,
+        API_KEY if api_key is None else api_key,
+        api_name="Coder Web API",
+        api_key_env="CODER_WEB_API_KEY",
+        host_env="CODER_WEB_HOST",
+    )
 PROJECT_SLUG_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[-_][a-z0-9]+){0,7}\b", re.IGNORECASE)
 PROJECT_NAME_FILLER = {
     "project", "project-name", "name", "coder", "code", "here", "the", "new",
@@ -1133,6 +1144,7 @@ def build_agent(
 
 
 def main() -> None:
+    _require_auth_for_non_loopback_bind()
     workspace = WorkspaceFS(WORKSPACE)
     server = CoderServer((HOST, PORT), Handler)
     server.workspace = workspace

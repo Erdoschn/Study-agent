@@ -517,6 +517,18 @@ python main.py --allow-paid
 
 only when paid-model use is explicitly intended.
 
+## API 监听与认证安全
+
+三个 HTTP API 默认只监听本机回环地址。若通过环境变量把监听地址改为局域网、0.0.0.0、:: 或其他非回环地址，启动时必须配置对应的非空 API Key；否则 API 会拒绝启动。使用 Authorization: Bearer <key> 进行认证。
+
+| API | 监听地址变量 | 必需的远程访问 Key 变量 |
+|---|---|---|
+| Study Agent API | STUDY_AGENT_HOST | STUDY_AGENT_API_KEY |
+| Coder Web API | CODER_WEB_HOST | CODER_WEB_API_KEY |
+| DeepSeek Web API | STUDY_AGENT_WEB_HOST | STUDY_AGENT_WEB_API_KEY |
+
+即使已配置 API Key，也应优先把服务保持在本机回环地址；远程访问应置于经过认证且启用 TLS 的可信代理之后。API Key 认证不能替代 TLS，也不要把 Key 放进 URL、日志或公开页面。
+
 ## Web UI / Open WebUI
 
 The repository can be exposed to Open WebUI without changing the Study Agent core.
