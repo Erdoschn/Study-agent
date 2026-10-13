@@ -600,35 +600,50 @@ class BrowserModel(ModelClient):
         try:
             before_snapshot = self._response_snapshot(page)
             self._pending_prompt = recovery_prompt
+            self._submission_baseline_message_count = self._visible_chat_message_count(page)
             self._send_prompt(page, recovery_prompt)
             answer = self._wait_for_response(page, before_snapshot)
             markdown = self._copy_latest_response_markdown(page)
             if markdown:
-                extracted = self._extract_json_object(markdown)
+                extracted = (
+                    self._extract_json_object(markdown)
+                    if role == "reasoning"
+                    else self._extract_any_json_object(markdown)
+                )
                 if extracted:
                     answer = extracted
-            if self._needs_json_recovery(answer):
+            if self._needs_json_recovery(answer, role=role):
                 preview = " ".join(str(answer or "")[:240].split())
                 debug.log(
                     "BrowserModel",
-                    "JSON RECOVERY → invalid response; failing closed with STOP",
+                    f"JSON RECOVERY → invalid response for role={role}",
                 )
-                return self._json_stop_response(
-                    "DeepSeek Web 的原始响应和一次 JSON 修复响应都不完整或无效；"
-                    "为避免执行猜测出来的文件操作，本轮已安全停止。"
-                    + (f" 响应片段：{preview}" if preview else "")
+                if role == "reasoning":
+                    return self._json_stop_response(
+                        "DeepSeek Web 的原始响应和一次 JSON 修复响应都不完整或无效；"
+                        "为避免执行猜测出来的文件操作，本轮已安全停止。"
+                        + (f" 响应片段：{preview}" if preview else "")
+                    )
+                raise RuntimeError(
+                    f"DeepSeek Web 为角色 {role} 返回的 JSON 在修复后仍不符合角色 schema；"
+                    "请检查模型输出。"
                 )
         except RunCancelled:
             raise
         except Exception as exc:
             debug.log(
                 "BrowserModel",
-                f"JSON RECOVERY → failed ({type(exc).__name__}); failing closed with STOP",
+                f"JSON RECOVERY → failed for role={role} ({type(exc).__name__})",
             )
-            return self._json_stop_response(
-                f"DeepSeek Web 的 JSON 修复失败（{type(exc).__name__}）；"
-                "为避免执行猜测出来的操作，本轮已安全停止。"
-            )
+            if role == "reasoning":
+                return self._json_stop_response(
+                    f"DeepSeek Web 的 JSON 修复失败（{type(exc).__name__}）；"
+                    "为避免执行猜测出来的操作，本轮已安全停止。"
+                )
+            raise RuntimeError(
+                f"DeepSeek Web 无法为角色 {role} 生成符合 schema 的 JSON："
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
         debug.log("BrowserModel", "JSON RECOVERY → success")
         return answer
 
