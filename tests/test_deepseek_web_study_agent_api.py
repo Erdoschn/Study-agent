@@ -336,3 +336,36 @@ def test_web_frontend_fails_closed_if_markdown_sanitizer_is_unavailable():
     assert ':escapeHtml(source).replace(/\\n/g,"<br>")' in source
     assert "replaceAll(token(i),escapeHtml(value))" in source
     assert "replaceAll(token(i),value)" not in source
+
+
+
+def test_web_api_always_cleans_factory_when_begin_run_fails():
+    events = []
+
+    class Factory:
+        def begin_run(self, cancellation_event):
+            events.append("begin")
+            raise RuntimeError("simulated attachment setup failure")
+
+        def end_run(self, cancellation_event):
+            events.append("end")
+
+    factory = Factory()
+
+    class Agent:
+        _web_model_factory = factory
+
+        def run(self, question):
+            raise AssertionError("Agent.run must not run when setup fails")
+
+    handler = object.__new__(Handler)
+    handler.server = SimpleNamespace(agent=Agent())
+
+    try:
+        handler._run("hello", lambda _event: None)
+    except RuntimeError as exc:
+        assert "simulated attachment setup failure" in str(exc)
+    else:
+        raise AssertionError("expected setup failure")
+
+    assert events == ["begin", "end"]
