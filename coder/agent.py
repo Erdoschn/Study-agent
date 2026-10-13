@@ -118,8 +118,8 @@ class CoderAgent:
         """Require language-specific validation when a task clearly targets HTML/C++/Java."""
         text = str(request or "").casefold()
         markers = (
-            "html", "css", "javascript", "front-end", "frontend", "web page",
-            "website", "c++", "cpp", "g++", "java", "javac",
+            "html", "front-end", "frontend", "web page", "website",
+            "c++", "cpp", "g++", "java", "javac",
             ".htm", ".html", ".cc", ".cpp", ".cxx", ".java",
             "网页", "网站", "前端", "页面",
         )

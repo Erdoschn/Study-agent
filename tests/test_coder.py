@@ -933,3 +933,18 @@ def test_coder_requires_build_validation_for_multilanguage_tasks():
     assert CoderAgent._request_requires_project_validation("Fix this C++ program")
     assert CoderAgent._request_requires_project_validation("修复这个 Java 页面程序")
     assert not CoderAgent._request_requires_project_validation("解释这个 Python 函数")
+
+
+def test_coder_requires_validation_when_workspace_contains_project_sources(tmp_path):
+    from coder.agent import CoderAgent
+
+    class FileList:
+        def list_files(self):
+            return ["src/Main.java", "README.md"]
+
+    agent = CoderAgent.__new__(CoderAgent)
+    agent.harness = SimpleNamespace(fs=FileList())
+    assert agent._workspace_has_project_sources() is True
+
+    agent.harness = SimpleNamespace(fs=SimpleNamespace(list_files=lambda: ["notes.md", "demo.py"]))
+    assert agent._workspace_has_project_sources() is False
