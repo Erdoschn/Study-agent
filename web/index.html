@@ -82,7 +82,12 @@ function markdown(x){
   })
  );
  const html=window.marked?marked.parse(source):escapeHtml(source).replace(/\n/g,"<br>");
- return stash.reduce((result,value,i)=>result.replaceAll(token(i),value),window.DOMPurify?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}}):html);
+ // Fail closed if the sanitizer CDN is unavailable. Never insert unsanitized
+ // Marked output as HTML, and HTML-escape raw TeX before restoring placeholders.
+ const safeHtml=window.DOMPurify
+  ?DOMPurify.sanitize(html,{USE_PROFILES:{html:true}})
+  :escapeHtml(source).replace(/\n/g,"<br>");
+ return stash.reduce((result,value,i)=>result.replaceAll(token(i),escapeHtml(value)),safeHtml);
 }
 function escapeHtml(x){const d=document.createElement("div");d.textContent=String(x);return d.innerHTML}
 async function copyMarkdown(value,button){
