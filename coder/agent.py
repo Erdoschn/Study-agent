@@ -20,6 +20,41 @@ DEFAULT_WORKSPACE = os.getenv("CODER_WORKSPACE", r"D:\Coder_workspace")
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _is_explicit_stop_confirmation(response: object) -> bool:
+    """Return True only for an affirmative reply to the STOP confirmation prompt."""
+    normalized = "".join(
+        str(response or "").casefold().split()
+    )
+    for punctuation in ("，", "。", ",", ".", "!", "！", "?", "？", "、", ":", "：", ";", "；", "（", "）", "(", ")"):
+        normalized = normalized.replace(punctuation, "")
+    if not normalized:
+        return False
+
+    # A negative phrase wins even if an affirmative-looking word is also present.
+    if any(token in normalized for token in (
+        "继续", "不要终止", "不终止", "不想终止", "别终止",
+        "不要取消", "不取消", "不想取消", "别取消", "不要结束",
+        "不结束", "不想结束", "不要停止", "不停止", "不确认",
+        "否", "no", "continue",
+    )):
+        return False
+
+    explicit_markers = (
+        "确认终止", "确认取消", "确认停止", "确认结束",
+        "确定终止", "确定取消", "确定停止",
+        "取消任务", "终止任务", "停止任务", "结束任务",
+    )
+    if any(token in normalized for token in explicit_markers):
+        return True
+
+    # The prompt is binary. Common short affirmative responses are accepted;
+    # ambiguous replies are treated as not confirmed.
+    return normalized in {
+        "是", "是的", "对", "好的", "可以", "确定", "确认",
+        "yes", "y", "ok", "okay", "confirm",
+    }
+
+
 class CoderAgent:
     """Autonomous Python coding agent with a fail-closed Harness."""
 
@@ -116,7 +151,14 @@ class CoderAgent:
             "请使用独立的目标项目 workspace。"
         )
 
-    def run(self, request: str, *, event_hook=None, user_interaction=None) -> CoderState:
+    def run(
+        self,
+        request: str,
+        *,
+        event_hook=None,
+        user_interaction=None,
+        stop_confirmation=None,
+    ) -> CoderState:
         request = str(request or "").strip()
         if not request:
             raise ValueError("Coder 请求不能为空。")
@@ -199,6 +241,9 @@ class CoderAgent:
                 raise_if_cancelled(self.cancellation_event)
                 action = decision["action"]
                 arguments = decision["arguments"]
+                if action != "STOP":
+                    state.metrics.pop("stop_confirmation_declined", None)
+                    state.metrics.pop("stop_confirmation_blocked_count", None)
 
                 # No tool may run before the first planning decision. Keep
                 # returning the invariant to the model instead of executing an
@@ -264,23 +309,112 @@ class CoderAgent:
                     reason = (
                         str(decision.get("reasoning_summary", "")).strip()
                         or str(decision.get("answer", "")).strip()
-                        or "模型无法给出有效的结构化操作，已安全停止。"
+                        or "模型无法给出有效的结构化操作。"
                     )
-                    state.finished = True
-                    state.goal_verified = False
-                    state.error = "Coder 安全停止：" + reason
-                    state.summary = state.error
+
+                    # A user may already have declined stopping. Do not let the
+                    # model immediately override that decision with another STOP.
+                    if state.metrics.get("stop_confirmation_declined"):
+                        blocked = int(state.metrics.get("stop_confirmation_blocked_count", 0)) + 1
+                        state.metrics["stop_confirmation_blocked_count"] = blocked
+                        observation = {
+                            "status": "stop_blocked_after_user_declined",
+                            "reason": reason,
+                            "next": (
+                                "用户刚刚没有确认终止。必须继续原任务，不要再次请求停止；"
+                                "请选择一个可执行动作或重新规划。"
+                            ),
+                        }
+                        state.last_observation = observation
+                        state.add_step(CoderStep(
+                            state.step_count + 1, action, arguments, observation,
+                            success=False,
+                            error="用户未确认终止；已忽略重复 STOP。",
+                        ))
+                        emit({"type": "step", "step": state.steps[-1]})
+                        if blocked >= 3:
+                            message = (
+                                "Coder 连续忽略用户的继续决定并重复请求 STOP；"
+                                "已停止自动重试，但任务未标记为已取消。"
+                            )
+                            state.error = message
+                            state.summary = message
+                            emit({"type": "error", "state": state})
+                            return state
+                        continue
+
+                    question = (
+                        f"Coder 提议结束当前任务。原因：{reason}\n\n"
+                        "请确认后再决定：回复“确认终止”则结束任务；"
+                        "回复“继续任务”则不结束并继续执行。"
+                        "只有明确的肯定回复才会终止，超时或含糊回复都按继续处理。"
+                    )
+                    confirmation_callback = (
+                        stop_confirmation
+                        if callable(stop_confirmation)
+                        else user_interaction
+                    )
+                    confirmation = (
+                        confirmation_callback(question)
+                        if callable(confirmation_callback)
+                        else None
+                    )
+                    confirmation_text = str(confirmation or "").strip()[:12_000]
+                    if confirmation_text:
+                        state.user_responses.append({
+                            "question": question,
+                            "response": confirmation_text,
+                        })
+
+                    if _is_explicit_stop_confirmation(confirmation_text):
+                        state.finished = True
+                        state.goal_verified = False
+                        state.cancelled = True
+                        state.error = None
+                        state.summary = "任务已根据用户二次确认终止。"
+                        state.metrics["cancelled"] = True
+                        state.add_step(CoderStep(
+                            state.step_count + 1,
+                            action,
+                            arguments,
+                            {
+                                "status": "confirmed_stopped",
+                                "reason": reason,
+                                "confirmation": confirmation_text,
+                            },
+                            success=True,
+                        ))
+                        emit({"type": "step", "step": state.steps[-1]})
+                        emit({"type": "cancelled", "state": state})
+                        return state
+
+                    normalized_confirmation = "".join(confirmation_text.casefold().split())
+                    explicitly_declined = any(token in normalized_confirmation for token in (
+                        "继续", "不要终止", "不终止", "不要取消", "不取消", "否", "no", "continue",
+                    ))
+                    status = "confirmation_declined" if explicitly_declined else "confirmation_unanswered"
+                    observation = {
+                        "status": status,
+                        "reason": reason,
+                        "confirmation": confirmation_text or None,
+                        "next": (
+                            "用户没有明确确认终止。保持原始任务目标，继续重规划并执行；"
+                            "不得把这次 STOP 当作已终止。"
+                        ),
+                    }
+                    state.metrics["stop_confirmation_declined"] = True
+                    state.metrics["stop_confirmation_blocked_count"] = 0
+                    state.last_observation = observation
                     state.add_step(CoderStep(
                         state.step_count + 1,
                         action,
                         arguments,
-                        {"status": "stopped", "reason": reason},
+                        observation,
                         success=False,
-                        error=reason,
+                        error="未收到明确的终止确认；继续任务。",
                     ))
                     emit({"type": "step", "step": state.steps[-1]})
-                    emit({"type": "error", "state": state})
-                    return state
+                    continue
 
                 if action == "ASK_USER":
                     question = str(
