@@ -87,3 +87,31 @@ def test_debug_tracer_redacts_goal_and_knowledge_graph_query_text(capsys):
         assert all(sensitive not in message for _module, message in received)
     assert "current=[redacted; chars=" in output
     assert "query=[redacted; chars=" in output
+
+
+
+def test_debug_tracer_redacts_calculation_and_verification_text(capsys):
+    tracer = DebugTracer(enabled=True)
+    received = []
+    tracer.bind_thread(lambda module, message: received.append((module, message)))
+
+    tracer.log(
+        "ToolExecutor",
+        "CALCULATE → expression='private salary * bonus', result_type=float, result_size≈8",
+    )
+    tracer.log(
+        "ToolExecutor",
+        "VERIFY → claim='private medical diagnosis', evidence_count=0, status=UNCERTAIN",
+    )
+    tracer.log(
+        "AgentToolLoop",
+        "VERIFY RESULT → claim='private account number', status=PASS",
+    )
+
+    output = capsys.readouterr().out
+    tracer.clear_thread_binding()
+    for sensitive in ("private salary * bonus", "private medical diagnosis", "private account number"):
+        assert sensitive not in output
+        assert all(sensitive not in message for _module, message in received)
+    assert "result_type=float" in output
+    assert "status=UNCERTAIN" in output
