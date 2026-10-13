@@ -1603,10 +1603,13 @@ class BrowserModel(ModelClient):
                             "BrowserModel",
                             f"COPY SUCCESS → markdown_chars={len(markdown)}",
                         )
+                        # Do not leave potentially sensitive answer text on the OS clipboard.
+                        self._clear_browser_clipboard(page)
                         return markdown
                     self._sleep(min(0.1, self.poll_interval))
 
                 debug.log("BrowserModel", "COPY WARNING → clipboard remained empty")
+                self._clear_browser_clipboard(page)
                 return ""
 
             self._sleep(self.poll_interval)
