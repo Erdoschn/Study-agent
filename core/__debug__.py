@@ -51,6 +51,24 @@ class DebugTracer:
                         query, suffix = rest.split(boundary, 1)
                         value = f"{prefix}{label}[redacted; chars={len(query)}]{boundary}{suffix}"
                     break
+
+        sensitive_fields = ()
+        if module == "ToolExecutor":
+            sensitive_fields = (
+                ("CALCULATE → expression=", ", result_type="),
+                ("VERIFY → claim=", ", evidence_count="),
+            )
+        elif module == "AgentToolLoop":
+            sensitive_fields = (("VERIFY RESULT → claim=", ", status="),)
+        for label, boundary in sensitive_fields:
+            if label in value and boundary in value.split(label, 1)[1]:
+                prefix, rest = value.split(label, 1)
+                sensitive, suffix = rest.split(boundary, 1)
+                value = (
+                    f"{prefix}{label}[redacted; chars={len(sensitive)}]"
+                    f"{boundary}{suffix}"
+                )
+                break
         return value
 
     def log(self, module: str, message: str) -> None:
