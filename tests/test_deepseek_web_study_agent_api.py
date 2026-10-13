@@ -501,3 +501,42 @@ def test_web_api_always_cleans_factory_when_begin_run_fails():
         raise AssertionError("expected setup failure")
 
     assert events == ["begin", "end"]
+
+
+def test_user_progress_messages_cover_agent_stages_without_exposing_raw_input():
+    from examples.deepseek_web_study_agent_api import _user_progress_message
+
+    cases = [
+        ("TaskAnalyzer", "TRY MODEL → provider=some-model", "任务类型"),
+        ("ModelRouter", "ORDER → model-a → model-b", "模型与推理强度"),
+        ("AgentReasoner", "ACTION → SEARCH", "检索资料"),
+        ("AgentReasoner", "ACTION → VERIFY", "核对关键主张"),
+        ("ToolExecutor", "EXECUTE → CALCULATE", "计算工具"),
+        ("BrowserModel", "REQUEST → model=deepseek-web, url=https://example.invalid", "等待 DeepSeek Web"),
+        ("TeachingValidator", "RESULT → status=PASS, claims=4", "质量检查已通过"),
+        ("EvidenceStore", "ADD → added=3, total=8", "新增 3 条，累计 8 条"),
+    ]
+    for module, message, expected in cases:
+        progress = _user_progress_message(module, message)
+        assert progress is not None
+        assert expected in progress
+
+    # Search queries, model prompts, filenames, and other arguments stay in
+    # local debug output and must never become browser-visible status content.
+    private_query = "PRIVATE_QUERY_VALUE_9917"
+    assert _user_progress_message("ToolExecutor", f"ARGS → {{'query': '{private_query}'}}") is None
+    progress = _user_progress_message(
+        "ToolExecutor",
+        "SEARCH RESULT → source=arxiv raw=9 unique=5 coverage=partial",
+    )
+    assert "5 条" in progress
+    assert "arxiv" not in progress
+    assert private_query not in (progress or "")
+
+
+def test_web_frontend_progress_timeline_is_deduplicated_and_bounded():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "a.statuses[a.statuses.length-1]!==status" in source
+    assert "a.statuses.length>60" in source
+    assert "arr.slice(-7,-1)" in source
+
