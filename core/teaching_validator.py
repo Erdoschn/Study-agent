@@ -71,9 +71,14 @@ class TeachingValidator:
 
     @classmethod
     def _original_request(cls, state) -> str:
-        """Remove transport-only attachment notes; keep the user's actual request."""
+        """Keep only the latest user request, excluding prior chat and transport notes."""
         request = str(getattr(state, "question", "") or "").strip()
-        return request.split(cls.ATTACHMENT_CONTEXT_MARKER, 1)[0].strip()
+        request = request.split(cls.ATTACHMENT_CONTEXT_MARKER, 1)[0].strip()
+        if "【用户】" in request:
+            request = request.rsplit("【用户】", 1)[1]
+            # _prompt() appends this directive after the final user turn.
+            request = request.split("请回答最后一个【用户】请求。", 1)[0]
+        return request.strip()
 
     @classmethod
     def _attached_file_names(cls, state) -> list[str]:
