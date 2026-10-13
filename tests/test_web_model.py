@@ -2599,3 +2599,60 @@ def test_browser_model_clicks_enabled_deepseek_composer_send_button(monkeypatch)
 
     assert model._click_send_button(Page()) is True
     assert clicked == [BrowserModel.CLICK_ACTION_TIMEOUT_MS]
+
+
+
+def test_browser_model_attachment_session_logs_no_filename_or_file_bytes(monkeypatch):
+    model = BrowserModel()
+    logs = []
+    monkeypatch.setattr(
+        web_model_module.debug, "log",
+        lambda module, message: logs.append((module, message)),
+    )
+    marker = b"PRIVATE_FILE_BYTES_4a9e8"
+    model.begin_attachment_session([{
+        "name": "confidential-financial-report.pdf",
+        "mimeType": "application/pdf",
+        "buffer": marker,
+    }])
+
+    rendered = "\n".join(message for _module, message in logs)
+    assert "confidential-financial-report.pdf" not in rendered
+    assert marker.decode() not in rendered
+    assert "count=1" in rendered
+    assert "total_bytes=" in rendered
+    model.end_attachment_session()
+
+
+def test_browser_model_attachment_session_rejects_path_and_control_names():
+    model = BrowserModel()
+    for name in ("../secret.pdf", "folder\\secret.pdf", "secret\nname.pdf"):
+        with pytest.raises(ValueError, match="文件名"):
+            model.begin_attachment_session([{
+                "name": name,
+                "mimeType": "application/pdf",
+                "buffer": b"test",
+            }])
+
+
+def test_browser_model_does_not_log_copied_response_text(monkeypatch):
+    model = BrowserModel(timeout=1)
+    sensitive = "PRIVATE_ANSWER_TEXT_9c124"
+    logs = []
+
+    class Button:
+        def click(self, *, timeout):
+            return None
+
+    monkeypatch.setattr(
+        web_model_module.debug, "log",
+        lambda module, message: logs.append(message),
+    )
+    monkeypatch.setattr(model, "_find_copy_button", lambda _page: Button())
+    monkeypatch.setattr(model, "_clear_browser_clipboard", lambda _page: "old")
+    monkeypatch.setattr(model, "_read_browser_clipboard", lambda _page: sensitive)
+    monkeypatch.setattr(model, "_sleep", lambda _seconds: None)
+
+    assert model._copy_latest_response_markdown(object()) == sensitive
+    assert sensitive not in "\n".join(logs)
+    assert all("clipboard_preview" not in item for item in logs)
