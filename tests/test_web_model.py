@@ -2206,7 +2206,7 @@ def test_browser_model_isolates_attachment_backed_agent_steps_into_fresh_session
     monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
     monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
     monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
-    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page: events.append("new_chat"))
+    monkeypatch.setattr(model, "_start_fresh_chat", lambda _page, **_kwargs: events.append("new_chat"))
     monkeypatch.setattr(model, "_upload_attachments", lambda _page, _files: events.append("upload"))
     monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
     monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
@@ -2377,3 +2377,44 @@ def test_browser_model_avoids_duplicate_send_if_composer_cleared_but_message_is_
     with pytest.raises(RuntimeError, match="输入框已清空，但当前用户消息尚未出现在页面"):
         model._send_prompt(object(), "prompt was sent but history has not rendered")
     assert clicked == []
+
+
+
+def test_browser_model_forces_separate_sessions_for_teacher_and_validator(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        cleanup_after_generate=False,
+        session_pause_seconds=0,
+        cleanup_pause_seconds=0,
+        post_cleanup_pause_seconds=0,
+    )
+    page = FakePage()
+    page.is_closed = lambda: False
+    model._page = page
+    events = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_send_browser_window_to_back", lambda _page: None)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda _page, *, force=False: events.append(("new_chat", force)),
+    )
+    monkeypatch.setattr(model, "_response_snapshot", lambda _page: [])
+    monkeypatch.setattr(model, "_send_prompt", lambda _page, prompt: events.append(("send", prompt)))
+    monkeypatch.setattr(model, "_wait_for_response", lambda _page, _snapshot: "answer")
+    monkeypatch.setattr(model, "_copy_latest_response_markdown", lambda _page: "")
+    monkeypatch.setattr(model, "_cleanup_current_chat", lambda _page: events.append(("cleanup",)))
+
+    assert model.generate("You are the Teacher (教学引擎).", "draft answer") == "answer"
+    assert model.generate("You are the Teaching Validator (校验器).", "audit answer", json_mode=True) == "answer"
+
+    assert BrowserModel._infer_session_role("You are the Teacher.") == "answer_generation"
+    assert BrowserModel._infer_session_role("You are the Teaching Validator.") == "answer_audit"
+    assert [event for event in events if event[0] == "new_chat"] == [
+        ("new_chat", True),
+        ("new_chat", True),
+    ]
+    assert len([event for event in events if event[0] == "cleanup"]) == 2
