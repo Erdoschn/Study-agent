@@ -2649,10 +2649,16 @@ def test_browser_model_does_not_log_copied_response_text(monkeypatch):
         lambda module, message: logs.append(message),
     )
     monkeypatch.setattr(model, "_find_copy_button", lambda _page: Button())
-    monkeypatch.setattr(model, "_clear_browser_clipboard", lambda _page: "old")
+    clear_calls = []
+    monkeypatch.setattr(
+        model,
+        "_clear_browser_clipboard",
+        lambda _page: clear_calls.append(True) or "old",
+    )
     monkeypatch.setattr(model, "_read_browser_clipboard", lambda _page: sensitive)
     monkeypatch.setattr(model, "_sleep", lambda _seconds: None)
 
     assert model._copy_latest_response_markdown(object()) == sensitive
+    assert len(clear_calls) == 2  # clear before copy and after reading the answer
     assert sensitive not in "\n".join(logs)
     assert all("clipboard_preview" not in item for item in logs)
