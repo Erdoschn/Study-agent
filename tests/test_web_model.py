@@ -2782,3 +2782,10 @@ def test_browser_model_does_not_log_copied_response_text(monkeypatch):
     assert len(clear_calls) == 2  # clear before copy and after reading the answer
     assert sensitive not in "\n".join(logs)
     assert all("clipboard_preview" not in item for item in logs)
+
+
+
+def test_browser_model_accepts_run_project_action_in_json_mode():
+    response = '{"action":"RUN_PROJECT","arguments":{"kind":"cpp","path":"main.cpp"}}'
+    assert BrowserModel._extract_json_object(response) == response
+    assert BrowserModel._needs_json_recovery(response) is False
