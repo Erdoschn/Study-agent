@@ -114,6 +114,33 @@ class CoderAgent:
         ))
 
     @staticmethod
+    def _request_requires_project_validation(request: str) -> bool:
+        """Require language-specific validation when a task clearly targets HTML/C++/Java."""
+        text = str(request or "").casefold()
+        markers = (
+            "html", "css", "javascript", "front-end", "frontend", "web page",
+            "website", "c++", "cpp", "g++", "java", "javac",
+            ".htm", ".html", ".cc", ".cpp", ".cxx", ".java",
+            "网页", "网站", "前端", "页面",
+        )
+        return any(marker in text for marker in markers)
+
+    def _workspace_has_project_sources(self) -> bool:
+        list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
+        if not callable(list_files):
+            return False
+        try:
+            paths = list_files()
+        except Exception:
+            return False
+        return any(
+            str(path).replace("\\", "/").casefold().endswith(
+                (".html", ".htm", ".cpp", ".cc", ".cxx", ".java")
+            )
+            for path in paths
+        )
+
+    @staticmethod
     def _request_requires_test_creation(request: str) -> bool:
         text = str(request or "").casefold()
         return any(token in text for token in (
@@ -222,13 +249,19 @@ class CoderAgent:
 
         existing_tests = self._workspace_has_tests()
         explicitly_requests_tests = self._request_requires_tests(request)
-        # The planner decides which files/tests are needed. The user's original
-        # request remains immutable in state.request and is carried to every turn.
+        requires_project_validation = (
+            self._request_requires_project_validation(request)
+            or self._workspace_has_project_sources()
+        )
+        # Preserve the Python test policy, while requiring an actual language
+        # validation for clearly identified HTML/C++/Java tasks and projects.
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
             must_create_tests=False,
-            must_pass_tests=existing_tests or explicitly_requests_tests,
+            must_pass_tests=(
+                existing_tests or explicitly_requests_tests or requires_project_validation
+            ),
         )
         started = time.monotonic()
         try:
