@@ -560,13 +560,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
             factory = getattr(self.server.agent, "_web_model_factory", None)
             begin_run = getattr(factory, "begin_run", None)
-            if callable(begin_run):
-                if attachments:
-                    begin_run(cancellation_event, attachments=attachments)
-                else:
-                    begin_run(cancellation_event)
             debug.bind_thread(log_hook)
             try:
+                # Attachments must be inside the try/finally: begin_run may fail
+                # after partially initializing a browser attachment session.
+                if callable(begin_run):
+                    if attachments:
+                        begin_run(cancellation_event, attachments=attachments)
+                    else:
+                        begin_run(cancellation_event)
                 emit("🔄 已进入 Agent Loop：分析 / 搜索 / 推理 / 教学")
                 result = _run_agent_with_cancellation(self.server.agent, question, cancellation_event)
                 emit(f"✓ Agent 完成：steps={result.step_count}, evidence={len(result.evidence)}, claims={len(result.claims)}")
@@ -575,7 +577,15 @@ class Handler(BaseHTTPRequestHandler):
                 debug.clear_thread_binding()
                 end_run = getattr(factory, "end_run", None)
                 if callable(end_run):
-                    end_run(cancellation_event)
+                    try:
+                        end_run(cancellation_event)
+                    except Exception as exc:
+                        # A cleanup failure must not mask the original Agent error;
+                        # avoid logging attachment names or request contents.
+                        debug.log(
+                            "StudyAgentWebAPI",
+                            f"RUN CLEANUP FAILED → {type(exc).__name__}",
+                        )
                 # The browser client is prewarmed once at API startup and remains
                 # available across requests. end_run() removes this request's
                 # raw attachment bytes and best-effort deletes its temporary chat.
@@ -696,12 +706,13 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
-        # Wait for HTTP handlers before disposing their shared browser session.
-        server.server_close()
+        # Stop active browser operations first; server_close() then closes the
+        # listener and joins any remaining HTTP handler threads.
         factory = getattr(agent, "_web_model_factory", None)
         close_factory = getattr(factory, "close", None)
         if callable(close_factory):
             close_factory()
+        server.server_close()
 
 
 if __name__ == "__main__":
