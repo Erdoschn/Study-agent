@@ -926,16 +926,17 @@ def test_harness_rejects_unsafe_or_wrong_language_project_runner_paths(tmp_path)
         harness.execute("RUN_PROJECT", {"kind": "java", "path": "index.html"}, state)
 
 
-def test_coder_requires_build_validation_for_multilanguage_tasks():
+def test_coder_detects_the_required_multilanguage_validator():
     from coder.agent import CoderAgent
 
-    assert CoderAgent._request_requires_project_validation("Write a responsive HTML page")
-    assert CoderAgent._request_requires_project_validation("Fix this C++ program")
-    assert CoderAgent._request_requires_project_validation("修复这个 Java 页面程序")
-    assert not CoderAgent._request_requires_project_validation("解释这个 Python 函数")
+    assert CoderAgent._request_project_validation_kind("Write a responsive HTML page") == "html"
+    assert CoderAgent._request_project_validation_kind("Fix this C++ program") == "cpp"
+    assert CoderAgent._request_project_validation_kind("修复这个 Java 程序") == "java"
+    assert CoderAgent._request_project_validation_kind("修复这个 JavaScript 文件") is None
+    assert CoderAgent._request_project_validation_kind("解释这个 Python 函数") is None
 
 
-def test_coder_requires_validation_when_workspace_contains_project_sources(tmp_path):
+def test_coder_detects_unambiguous_project_language_from_workspace():
     from coder.agent import CoderAgent
 
     class FileList:
@@ -944,7 +945,7 @@ def test_coder_requires_validation_when_workspace_contains_project_sources(tmp_p
 
     agent = CoderAgent.__new__(CoderAgent)
     agent.harness = SimpleNamespace(fs=FileList())
-    assert agent._workspace_has_project_sources() is True
+    assert agent._workspace_project_validation_kind() == "java"
 
-    agent.harness = SimpleNamespace(fs=SimpleNamespace(list_files=lambda: ["notes.md", "demo.py"]))
-    assert agent._workspace_has_project_sources() is False
+    agent.harness = SimpleNamespace(fs=SimpleNamespace(list_files=lambda: ["index.html", "src/Main.java"]))
+    assert agent._workspace_project_validation_kind() is None

@@ -730,12 +730,21 @@ class CoderHarness:
             checks.append({"check": f"required_test:{path}", "ok": self.fs.exists(path)})
         checks.append({"check": "modified_files", "ok": bool(state.modified_files) if goal.must_modify else True})
         checks.append({"check": "pytest_created", "ok": bool(state.created_tests) if goal.must_create_tests else True})
+        required_validation_kind = str(
+            getattr(state, "metrics", {}).get("required_validation_kind", "")
+        ).strip()
+        allowed_validation_kinds = (
+            {required_validation_kind}
+            if required_validation_kind in {"html", "cpp", "java", "pytest"}
+            else {"pytest", "html", "cpp", "java"}
+        )
         checks.append({
             "check": "validation_passed_after_latest_change",
+            "required_kind": required_validation_kind or None,
             "ok": bool(
                 goal.must_pass_tests
                 and state.last_test_result
-                and state.last_test_result.get("kind") in {"pytest", "html", "cpp", "java"}
+                and state.last_test_result.get("kind") in allowed_validation_kinds
                 and state.last_test_result.get("passed")
                 and state.test_generation == state.modification_generation
             ) if goal.must_pass_tests else True,

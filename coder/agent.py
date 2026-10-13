@@ -114,31 +114,40 @@ class CoderAgent:
         ))
 
     @staticmethod
-    def _request_requires_project_validation(request: str) -> bool:
-        """Require language-specific validation when a task clearly targets HTML/C++/Java."""
-        text = str(request or "").casefold()
-        markers = (
-            "html", "front-end", "frontend", "web page", "website",
-            "c++", "cpp", "g++", "java", "javac",
-            ".htm", ".html", ".cc", ".cpp", ".cxx", ".java",
-            "网页", "网站", "前端", "页面",
-        )
-        return any(marker in text for marker in markers)
+    def _request_project_validation_kind(request: str) -> str | None:
+        """Infer one concrete validator from explicit language names/extensions."""
+        text = str(request or "").casefold().replace("javascript", "")
+        # Explicit file extensions are the least ambiguous signal.
+        if any(suffix in text for suffix in (".cpp", ".cc", ".cxx")) or any(
+            token in text for token in ("c++", "cpp", "g++")
+        ):
+            return "cpp"
+        if ".java" in text or "javac" in text or "java" in text:
+            return "java"
+        if any(suffix in text for suffix in (".html", ".htm")) or any(
+            token in text for token in ("html", "front-end", "frontend", "web page", "website", "网页", "网站", "前端", "页面")
+        ):
+            return "html"
+        return None
 
-    def _workspace_has_project_sources(self) -> bool:
+    def _workspace_project_validation_kind(self) -> str | None:
         list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
         if not callable(list_files):
-            return False
+            return None
         try:
             paths = list_files()
         except Exception:
-            return False
-        return any(
-            str(path).replace("\\", "/").casefold().endswith(
-                (".html", ".htm", ".cpp", ".cc", ".cxx", ".java")
-            )
-            for path in paths
-        )
+            return None
+        kinds = set()
+        for path in paths:
+            value = str(path).replace("\\", "/").casefold()
+            if value.endswith((".html", ".htm")):
+                kinds.add("html")
+            elif value.endswith((".cpp", ".cc", ".cxx")):
+                kinds.add("cpp")
+            elif value.endswith(".java"):
+                kinds.add("java")
+        return next(iter(kinds)) if len(kinds) == 1 else None
 
     @staticmethod
     def _request_requires_test_creation(request: str) -> bool:
@@ -249,18 +258,20 @@ class CoderAgent:
 
         existing_tests = self._workspace_has_tests()
         explicitly_requests_tests = self._request_requires_tests(request)
-        requires_project_validation = (
-            self._request_requires_project_validation(request)
-            or self._workspace_has_project_sources()
+        required_validation_kind = (
+            self._request_project_validation_kind(request)
+            or self._workspace_project_validation_kind()
         )
-        # Preserve the Python test policy, while requiring an actual language
-        # validation for clearly identified HTML/C++/Java tasks and projects.
+        if required_validation_kind:
+            state.metrics["required_validation_kind"] = required_validation_kind
+        # Preserve the Python test policy, while requiring the matching validator
+        # for language-specific tasks rather than letting an unrelated test pass.
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
             must_create_tests=False,
             must_pass_tests=(
-                existing_tests or explicitly_requests_tests or requires_project_validation
+                existing_tests or explicitly_requests_tests or bool(required_validation_kind)
             ),
         )
         started = time.monotonic()
