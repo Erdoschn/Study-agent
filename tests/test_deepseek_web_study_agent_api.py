@@ -308,7 +308,7 @@ def test_multipart_upload_rejects_control_characters_in_filenames():
         'Content-Disposition: form-data; name="request"\r\n\r\n'
     ).encode() + request + (
         f"\r\n--{boundary}\r\n"
-        'Content-Disposition: form-data; name="file"; filename="bad\\x01name.pdf"\r\n'
+        'Content-Disposition: form-data; name="file"; filename="bad\x01name.pdf"\r\n'
         "Content-Type: application/pdf\r\n\r\n"
     ).encode() + b"%PDF-test" + f"\r\n--{boundary}--\r\n".encode()
     try:
@@ -327,3 +327,12 @@ def test_web_frontend_does_not_persist_api_key_and_warns_on_remote_api():
     assert "dompurify@3.4.17" in source
     assert "marked@18.1.1" in source
     assert "对话文本会保存在当前浏览器本地存储" in source
+
+
+
+def test_web_frontend_fails_closed_if_markdown_sanitizer_is_unavailable():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert "const safeHtml=window.DOMPurify" in source
+    assert ':escapeHtml(source).replace(/\\n/g,"<br>")' in source
+    assert "replaceAll(token(i),escapeHtml(value))" in source
+    assert "replaceAll(token(i),value)" not in source
