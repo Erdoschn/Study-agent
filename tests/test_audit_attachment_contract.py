@@ -70,3 +70,26 @@ def test_validator_prompt_uses_generated_questions_when_request_is_brief():
     assert any("necessary conditions" in q for q in spec["review_questions"])
     assert any("original source file" in q for q in spec["review_questions"])
     assert "transport note that should not be repeated" not in json.dumps(spec)
+
+
+
+def test_validator_extracts_only_the_latest_user_turn_from_chat_history():
+    state = _state()
+    state.question = (
+        "以下是当前 StudyAgent 对话上下文。只依据这段上下文回答最后一个用户请求。\n"
+        "【用户】\nExplain transformers.\n"
+        "【助手】\nEarlier explanation.\n"
+        "【用户】\n请根据附件计算第 2 题的电场。\n"
+        "请回答最后一个【用户】请求。\n\n"
+        "【原始文件附件】\n文件名（JSON）：[\"physics.pdf\"]\n"
+        "transport note"
+    )
+    state.task_analysis.goal = "根据附件计算第 2 题的电场"
+    payload = json.loads(TeachingValidator._build_prompt(state, "E=2 N/C"))
+    spec = payload["audit_specification"]
+
+    excerpts = json.dumps(spec["extracted_request_questions_and_requirements"], ensure_ascii=False)
+    assert "第 2 题的电场" in excerpts
+    assert "Explain transformers" not in excerpts
+    assert "Earlier explanation" not in excerpts
+    assert spec["problem_to_solve"] == "根据附件计算第 2 题的电场"
