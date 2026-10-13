@@ -186,6 +186,14 @@ class BrowserModel(ModelClient):
             content = item.get("buffer")
             if not name or not isinstance(content, (bytes, bytearray, memoryview)):
                 raise ValueError("附件缺少文件名或原始二进制内容。")
+            if (
+                "/" in name
+                or chr(92) in name
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)
+            ):
+                raise ValueError("附件文件名包含路径或不允许的控制字符。")
+            if len(name) > 240:
+                raise ValueError("附件文件名过长（上限 240 个字符）。")
             normalized.append({
                 "name": name,
                 "mimeType": mime_type,
