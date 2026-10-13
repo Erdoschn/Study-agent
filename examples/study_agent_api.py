@@ -35,6 +35,7 @@ KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
+from core.http_security import require_auth_for_non_loopback_bind as _shared_require_auth
 from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
@@ -47,6 +48,16 @@ STUDY_AGENT_BRIDGE_KEY = os.getenv("STUDY_AGENT_BRIDGE_KEY", API_KEY).strip()
 ALLOW_PAID = os.getenv("STUDY_AGENT_ALLOW_PAID", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 _RUN_LOCK = threading.Lock()
+
+
+def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
+    _shared_require_auth(
+        HOST if host is None else host,
+        API_KEY if api_key is None else api_key,
+        api_name="Study Agent API",
+        api_key_env="STUDY_AGENT_API_KEY",
+        host_env="STUDY_AGENT_HOST",
+    )
 
 
 def _run_agent_with_cancellation(agent, question: str, cancellation_event: threading.Event):
@@ -673,6 +684,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    _require_auth_for_non_loopback_bind()
     config = load_config()
     setup_debug(config)
     agent = build_agent(config)

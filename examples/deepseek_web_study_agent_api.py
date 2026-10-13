@@ -1,7 +1,6 @@
 """OpenAI-compatible API and lightweight browser UI for StudyAgent + DeepSeek Web."""
 from __future__ import annotations
 
-import ipaddress
 import json
 import mimetypes
 import os
@@ -26,6 +25,7 @@ if str(ROOT) not in sys.path:
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
+from core.http_security import is_loopback_host as _is_loopback_host, require_auth_for_non_loopback_bind as _shared_require_auth
 from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
@@ -38,17 +38,6 @@ MAX_UPLOAD_FILE_BYTES = 20 * 1024 * 1024
 MAX_UPLOAD_TOTAL_BYTES = 40 * 1024 * 1024
 MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_TOTAL_BYTES + 8 * 1024 * 1024
 _RUN_LOCK = threading.Lock()
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Return true only for localhost or an IP address on the loopback interface."""
-    normalized = str(host or "").strip().strip("[]").rstrip(".").casefold()
-    if normalized == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(normalized).is_loopback
-    except ValueError:
-        return False
 
 
 def _allowed_browser_origin(origin: str) -> bool:
@@ -79,12 +68,14 @@ def _allowed_browser_origin(origin: str) -> bool:
     )
 
 
-def _require_auth_for_non_loopback_bind(host: str = HOST, api_key: str = API_KEY) -> None:
-    if not api_key and not _is_loopback_host(host):
-        raise RuntimeError(
-            "拒绝在非本机地址上启动无鉴权的 StudyAgent Web API；"
-            "请设置 STUDY_AGENT_WEB_API_KEY，或将 STUDY_AGENT_WEB_HOST 设为 127.0.0.1。"
-        )
+def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
+    _shared_require_auth(
+        HOST if host is None else host,
+        API_KEY if api_key is None else api_key,
+        api_name="StudyAgent Web API",
+        api_key_env="STUDY_AGENT_WEB_API_KEY",
+        host_env="STUDY_AGENT_WEB_HOST",
+    )
 
 
 def parse_chat_request_body(
