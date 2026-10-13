@@ -101,13 +101,13 @@ class TeachingValidator:
             return []
         parts = [
             item.strip(" \\t-•")
-            for item in re.split(r"(?<=[。！？?!；;])\\s*|\\n+", text)
+            for item in re.split(r"(?<=[。！？?!；;])\s*|\n+", text)
             if item.strip(" \\t-•")
         ]
         focus = re.compile(
-            r"(\\?|？|\\b(?:what|why|how|which|whether|can you|could you|please|"
+            r"(\?|？|\b(?:what|why|how|which|whether|can you|could you|please|"
             r"explain|calculate|prove|compare|summarize|implement|fix|analyze|"
-            r"derive|translate|answer|show|must|should|do not|don't|only|include)\\b|"
+            r"derive|translate|answer|show|must|should|do not|don't|only|include)\b|"
             r"请|帮我|需要|必须|不要|不能|只需|仅|输出|解释|计算|证明|比较|总结|"
             r"修复|实现|分析|推导|翻译|回答|检查|求出|判断)"
             , re.IGNORECASE
