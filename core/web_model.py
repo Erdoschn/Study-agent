@@ -63,6 +63,18 @@ class BrowserModel(ModelClient):
         "Retry",
         "重试",
     )
+    DEFAULT_SEND_LABELS = (
+        "Send message", "Send", "发送消息", "发送",
+    )
+    DEFAULT_SEND_BUTTON_SELECTORS = (
+        '[data-testid="send-button"]',
+        '[data-test-id="send-button"]',
+        "#chat-input-send-button",
+        'button[aria-label*="发送"]',
+        'button[aria-label*="Send" i]',
+        'button[type="submit"]',
+        '[class*="send-button"]',
+    )
     # DeepSeek's rate-limit retry control can be rendered without an accessible
     # name. Keep the user-confirmed DOM path as a fallback after semantic lookup.
     DEFAULT_RATE_LIMIT_RETRY_XPATHS = (
@@ -80,6 +92,7 @@ class BrowserModel(ModelClient):
         "Attach file", "Attach files", "上传文件", "添加文件", "添加附件",
     )
     ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 30.0
+    SEND_CONFIRMATION_TIMEOUT_SECONDS = 2.0
     DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
     COPY_CLICK_TIMEOUT_MS = 1200
     SEND_ACTION_TIMEOUT_MS = 1500
@@ -1555,7 +1568,7 @@ class BrowserModel(ModelClient):
             raise RuntimeError("DeepSeek Web 输入框填充超时或不可操作。") from exc
 
         self._check_cancelled()
-        debug.log("BrowserModel", "SEND ENTER → submitting prompt")
+        debug.log("BrowserModel", "SEND ENTER → keyboard submission requested")
         try:
             textbox.press("Enter", timeout=self.SEND_ACTION_TIMEOUT_MS)
         except Exception as exc:
@@ -1563,9 +1576,131 @@ class BrowserModel(ModelClient):
                 "BrowserModel",
                 f"SEND ENTER SKIP → {type(exc).__name__}: {exc}",
             )
-            raise RuntimeError("DeepSeek Web 输入框发送超时或不可操作。") from exc
+            # A keyboard exception is not proof that the browser ignored the
+            # event. Continue to the page-state check before deciding whether
+            # a pointer fallback is safe.
         self._check_cancelled()
-        debug.log("BrowserModel", "SEND SUCCESS → prompt submitted")
+
+        # In production generate() sets _pending_prompt before reaching here.
+        # Keep direct unit/test callers backwards-compatible when no pending
+        # turn has been registered, but never report success for an unconfirmed
+        # real Agent submission.
+        if not self._pending_prompt:
+            debug.log("BrowserModel", "SEND ACTION ISSUED → no pending turn to verify")
+            return
+
+        if self._wait_for_submission_confirmation(page):
+            debug.log("BrowserModel", "SEND CONFIRMED → user message appeared in DeepSeek chat")
+            return
+
+        # Only click Send if the full prompt is still in the composer. This is
+        # the key duplicate-send guard: if the composer was cleared but the
+        # message node is not yet discoverable, don't blindly submit again.
+        if not self._composer_contains_prompt(textbox, prompt):
+            raise RuntimeError(
+                "DeepSeek Web 的发送状态无法确认：输入框已清空，但当前用户消息尚未出现在页面。"
+                "为避免重复发送，本次请求已中止；请检查浏览器页面和终端日志。"
+            )
+
+        debug.log(
+            "BrowserModel",
+            "SEND ENTER UNCONFIRMED → prompt still in composer; trying visible Send button",
+        )
+        if not self._click_send_button(page):
+            raise RuntimeError(
+                "按 Enter 后提示词仍留在输入框，且未找到可用的 DeepSeek 发送按钮；"
+                "本次请求没有确认发送。"
+            )
+        self._check_cancelled()
+        if not self._wait_for_submission_confirmation(page):
+            raise RuntimeError(
+                "点击 DeepSeek 发送按钮后仍未确认用户消息已提交；"
+                "本次请求已停止，不会继续等待一个尚未发出的回答。"
+            )
+        debug.log("BrowserModel", "SEND CONFIRMED → user message appeared after Send button click")
+
+    def _wait_for_submission_confirmation(self, page) -> bool:
+        """Wait until this exact pending user message is visible in chat history."""
+        if not self._pending_prompt:
+            return False
+        deadline = time.monotonic() + float(self.SEND_CONFIRMATION_TIMEOUT_SECONDS)
+        while True:
+            self._check_cancelled()
+            if self._current_user_message_index(page) is not None:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._sleep(min(self.poll_interval, remaining))
+
+    def _composer_contains_prompt(self, textbox, prompt: str) -> bool:
+        """Return whether the draft still matches the prompt we attempted to send."""
+        actual = ""
+        try:
+            actual = textbox.input_value(timeout=self.SEND_ACTION_TIMEOUT_MS)
+        except Exception:
+            try:
+                actual = textbox.evaluate(
+                    "(element) => ('value' in element ? element.value : "
+                    "(element.innerText || element.textContent || ''))"
+                )
+            except Exception:
+                return False
+        expected = self._compact_text(prompt)
+        current = self._compact_text(actual)
+        if not expected or not current:
+            return False
+        head = expected[:120]
+        tail = expected[-120:] if len(expected) > 240 else ""
+        return head in current and (not tail or tail in current)
+
+    def _click_send_button(self, page) -> bool:
+        """Click a visible, enabled Send control as a fallback to Enter."""
+        stop_tokens = ("stop", "cancel", "停止", "中止", "取消")
+        for selector in self.DEFAULT_SEND_BUTTON_SELECTORS:
+            try:
+                locator = page.locator(selector)
+                for index in range(locator.count() - 1, -1, -1):
+                    button = locator.nth(index)
+                    if not button.is_visible():
+                        continue
+                    label = " ".join(str(value or "") for value in (
+                        button.inner_text(),
+                        button.get_attribute("aria-label"),
+                        button.get_attribute("title"),
+                        button.get_attribute("data-testid"),
+                        button.get_attribute("class"),
+                    )).strip()
+                    if any(token in label.casefold() for token in stop_tokens):
+                        continue
+                    disabled = button.get_attribute("disabled")
+                    aria_disabled = str(button.get_attribute("aria-disabled") or "").casefold()
+                    if disabled is not None or aria_disabled == "true":
+                        continue
+                    is_enabled = getattr(button, "is_enabled", None)
+                    if callable(is_enabled):
+                        try:
+                            if not is_enabled():
+                                continue
+                        except Exception:
+                            pass
+                    button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    debug.log(
+                        "BrowserModel",
+                        f"SEND BUTTON CLICKED → selector={selector!r}, label={label[:80]!r}",
+                    )
+                    return True
+            except Exception as exc:
+                debug.log(
+                    "BrowserModel",
+                    f"SEND BUTTON CANDIDATE SKIP → selector={selector!r}, "
+                    f"error={type(exc).__name__}: {exc}",
+                )
+
+        if self._click_button_with_matching_label(page, self.DEFAULT_SEND_LABELS):
+            debug.log("BrowserModel", "SEND BUTTON CLICKED → accessible label")
+            return True
+        return False
 
     def _rate_limit_visible(self, page) -> bool:
         try:
