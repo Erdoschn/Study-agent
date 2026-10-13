@@ -18,20 +18,25 @@ def test_normalize_marks_major_error_for_revision():
     assert len(TeachingValidator.revision_findings(result)) == 1
 
 
-def test_minor_error_does_not_trigger_revision():
+def test_minor_confirmed_error_triggers_revision():
     result = TeachingValidator._normalize_result({
         "status": "REVISE",
         "claims": [{
-            "claim": "示例表述不够清晰",
+            "claim": "计算结果的单位转换错误",
             "verdict": "ERROR",
             "severity": "minor",
-            "correction": "可以换一种说法。",
+            "correction": "按题目要求使用正确单位。",
         }],
         "summary": "仅风格/轻微问题。",
     })
 
-    assert result["status"] == "UNCERTAIN"
-    assert TeachingValidator.revision_findings(result) == []
+    assert result["status"] == "REVISE"
+    assert TeachingValidator.revision_findings(result) == [{
+        "claim": "计算结果的单位转换错误",
+        "verdict": "ERROR",
+        "severity": "minor",
+        "correction": "按题目要求使用正确单位。",
+    }]
 
 
 def test_invalid_validator_output_becomes_uncertain():
