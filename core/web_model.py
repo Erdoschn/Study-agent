@@ -202,8 +202,8 @@ class BrowserModel(ModelClient):
         self._attachment_current_role = None
         debug.log(
             "BrowserModel",
-            "ATTACHMENT SESSION BEGIN → files="
-            + ", ".join(f"{item['name']} ({len(item['buffer'])} bytes)" for item in normalized),
+            "ATTACHMENT SESSION BEGIN → "
+            f"count={len(normalized)}, total_bytes={sum(len(item['buffer']) for item in normalized)}",
         )
 
     def end_attachment_session(self) -> None:
@@ -1590,11 +1590,10 @@ class BrowserModel(ModelClient):
                 while time.monotonic() < read_deadline:
                     markdown = self._read_browser_clipboard(page)
                     if markdown.strip() and markdown.strip() != stale_marker:
-                        preview = " ".join(markdown[:100].split())
+                        # Never log clipboard content; model answers may quote private attachments.
                         debug.log(
                             "BrowserModel",
-                            f"COPY SUCCESS → markdown_chars={len(markdown)}, "
-                            f"clipboard_preview={preview!r}",
+                            f"COPY SUCCESS → markdown_chars={len(markdown)}",
                         )
                         return markdown
                     self._sleep(min(0.1, self.poll_interval))
@@ -1706,8 +1705,7 @@ class BrowserModel(ModelClient):
                 elif time.monotonic() - stable_since >= 0.5:
                     debug.log(
                         "BrowserModel",
-                        "ATTACHMENT UPLOAD READY → files="
-                        + ", ".join(expected_names),
+                        f"ATTACHMENT UPLOAD READY → count={len(expected_names)}",
                     )
                     return
             else:
