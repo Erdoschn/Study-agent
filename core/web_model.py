@@ -324,8 +324,13 @@ class BrowserModel(ModelClient):
         json_mode: bool = False,
         reasoning_effort: str | None = None,
     ) -> str:
-        del reasoning_effort
         self._check_cancelled()
+        if reasoning_effort is not None:
+            debug.log(
+                "BrowserModel",
+                f"REASONING EFFORT REQUEST → {reasoning_effort}; "
+                "DeepSeek Web exposes a mode toggle, not a per-call effort selector",
+            )
         prompt = self._build_prompt(system_prompt, user_prompt, json_mode=json_mode)
         call_role = self._infer_session_role(system_prompt)
         role_requires_isolation = call_role in {"answer_generation", "answer_audit"}
@@ -1749,6 +1754,142 @@ class BrowserModel(ModelClient):
             "为避免模型在未收到文件时回答，已中止本次请求。"
         )
 
+    @classmethod
+    def _find_deep_thinking_toggle(cls, page):
+        """Find the visible DeepSeek Web DeepThink control by its user-facing label."""
+        label_pattern = re.compile(r"深度思考|deep\s*think", re.IGNORECASE)
+        selectors = (
+            ".ds-toggle-button",
+            '[role="switch"]',
+            'button[aria-label*="深度思考"]',
+            '[role="button"][aria-label*="深度思考"]',
+            'button[aria-label*="DeepThink" i]',
+            '[role="button"][aria-label*="DeepThink" i]',
+            "button",
+            '[role="button"]',
+        )
+        seen = set()
+        for selector in selectors:
+            try:
+                locator = page.locator(selector)
+                count = locator.count()
+            except Exception:
+                continue
+            for index in range(count):
+                try:
+                    candidate = locator.nth(index)
+                    if not candidate.is_visible():
+                        continue
+                    text_parts = []
+                    for source in ("inner_text",):
+                        try:
+                            text_parts.append(str(getattr(candidate, source)() or ""))
+                        except Exception:
+                            pass
+                    for attr in ("aria-label", "title"):
+                        try:
+                            text_parts.append(str(candidate.get_attribute(attr) or ""))
+                        except Exception:
+                            pass
+                    text = " ".join(text_parts).strip()
+                    if not label_pattern.search(text):
+                        continue
+                    # The same DOM node may appear under multiple fallback selectors.
+                    try:
+                        node_key = candidate.evaluate("(el) => el")
+                    except Exception:
+                        node_key = (selector, index, text)
+                    marker = repr(node_key)
+                    if marker in seen:
+                        continue
+                    seen.add(marker)
+                    return candidate
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _deep_thinking_enabled_state(control) -> bool | None:
+        """Read explicit accessible toggle state; never guess based on button color."""
+        true_values = {"true", "1", "yes", "on", "checked", "active", "selected"}
+        false_values = {"false", "0", "no", "off", "unchecked", "inactive", "unselected"}
+        for attr in ("aria-checked", "aria-pressed", "data-active", "data-state", "aria-selected"):
+            try:
+                raw = control.get_attribute(attr)
+            except Exception:
+                raw = None
+            if raw is None:
+                continue
+            value = str(raw).strip().casefold()
+            if value in true_values:
+                return True
+            if value in false_values:
+                return False
+        try:
+            classes = str(control.get_attribute("class") or "").casefold()
+        except Exception:
+            classes = ""
+        tokens = set(re.findall(r"[a-z0-9_-]+", classes))
+        if tokens & {"active", "is-active", "checked", "is-checked", "selected", "is-selected", "on"}:
+            return True
+        if tokens & {"inactive", "is-inactive", "unchecked", "is-unchecked", "unselected", "is-unselected", "off"}:
+            return False
+        return None
+
+    def _ensure_deep_thinking_enabled(self, page) -> None:
+        """Ensure every submitted browser-model prompt uses DeepThink mode or fail visibly."""
+        toggle = self._find_deep_thinking_toggle(page)
+        if toggle is None:
+            raise RuntimeError(
+                "未找到 DeepSeek Web 的「深度思考」开关；网页布局可能已变化。"
+                "为避免静默降级为普通模式，本次请求未发送。"
+            )
+        try:
+            is_enabled = getattr(toggle, "is_enabled", None)
+            if callable(is_enabled) and not is_enabled():
+                raise RuntimeError(
+                    "DeepSeek Web 的「深度思考」开关当前不可用；"
+                    "请检查网页所选模型、账号状态或页面提示后重试。"
+                )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+
+        state = self._deep_thinking_enabled_state(toggle)
+        if state is True:
+            debug.log("BrowserModel", "THINKING MODE → DeepThink already enabled")
+            return
+        if state is None:
+            raise RuntimeError(
+                "找到了 DeepSeek Web 的「深度思考」按钮，但无法读取开关状态。"
+                "为避免误关已开启的模式，本次请求未发送。"
+            )
+
+        try:
+            toggle.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+            debug.log("BrowserModel", "THINKING MODE → toggled DeepThink on")
+        except Exception as exc:
+            raise RuntimeError(
+                f"无法开启 DeepSeek Web 的「深度思考」模式（{type(exc).__name__}）。"
+                "本次请求未发送。"
+            ) from exc
+
+        deadline = time.monotonic() + min(3.0, max(0.5, float(self.timeout)))
+        while time.monotonic() < deadline:
+            self._check_cancelled()
+            current = self._find_deep_thinking_toggle(page)
+            if current is not None:
+                state = self._deep_thinking_enabled_state(current)
+                if state is True:
+                    debug.log("BrowserModel", "THINKING MODE → DeepThink confirmed enabled")
+                    return
+            self._sleep(min(0.1, self.poll_interval))
+        raise RuntimeError(
+            "已尝试开启 DeepSeek Web 的「深度思考」模式，但无法确认其已生效；"
+            "为避免静默使用普通模式，本次请求未发送。"
+        )
+
     def _send_prompt(self, page, prompt: str) -> None:
         textbox = self._find_visible(
             page,
@@ -1763,6 +1904,7 @@ class BrowserModel(ModelClient):
                 "可检查 BrowserModel 的输入选择器。"
             )
 
+        self._ensure_deep_thinking_enabled(page)
         self._wait_for_send_slot()
         self._check_cancelled()
         debug.log("BrowserModel", f"SEND FILL → chars={len(prompt)}")
