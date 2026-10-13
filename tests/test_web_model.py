@@ -1217,6 +1217,8 @@ def test_browser_model_waits_for_manual_login(monkeypatch):
     # Windows production code uses msvcrt.kbhit() here. Patch the model-level
     # wait hook so this unit test never blocks on the real pytest console.
     monkeypatch.setattr(model, "_wait_for_terminal_enter", fake_wait_for_enter)
+    # This test exercises manual login, not the send-confirmation implementation.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     answer = model.generate("", "hello")
 
@@ -1343,6 +1345,8 @@ def test_browser_model_uses_page_ui_without_http(monkeypatch):
         "_copy_latest_response_markdown",
         lambda _page: "",
     )
+    # This test exercises browser I/O and response collection, not the submit verifier.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     answer = model.generate(
         "You are a teacher.",
@@ -1379,6 +1383,8 @@ def test_browser_model_reuses_the_same_page_for_multiple_turns(monkeypatch):
         "_copy_latest_response_markdown",
         lambda _page: "",
     )
+    # Submission correctness is covered by dedicated fallback/duplicate-send tests.
+    monkeypatch.setattr(model, "_wait_for_submission_confirmation", lambda _page: True)
 
     first = model.generate("", "first")
     second = model.generate("", "second")
