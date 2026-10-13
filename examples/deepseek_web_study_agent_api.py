@@ -469,8 +469,9 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStudy Agent Web API stopped.")
     finally:
-        # Stop accepting/wait for in-flight HTTP handlers before closing the
-        # shared browser session they may still be using.
+        # Close the HTTP listener before releasing the shared browser
+        # session. Factory.close() also signals cancellation to an active
+        # browser operation before shutting down its dedicated worker.
         server.server_close()
         factory = getattr(agent, "_web_model_factory", None)
         close_factory = getattr(factory, "close", None)
