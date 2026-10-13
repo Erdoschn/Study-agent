@@ -5,6 +5,7 @@ from typing import Any
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .errors import AttachmentUploadError
 
 
 @dataclass
@@ -129,6 +130,10 @@ class TaskAnalyzer:
                         "TaskAnalyzer",
                         f"MODEL FAILED → {model.name}",
                     )
+                    # Attachment delivery is a required precondition for this run.
+                    # Do not fall back to a prompt that no longer has the user's files.
+                    if isinstance(exc, AttachmentUploadError):
+                        raise
 
             raise RuntimeError(
                 "所有 Task Analyzer 候选模型均调用失败：\n"

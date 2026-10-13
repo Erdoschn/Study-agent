@@ -2273,6 +2273,7 @@ def test_browser_model_attachment_upload_uses_original_binary_payload():
 
         def set_input_files(self, files, *, timeout=None):
             self.page.payloads = list(files)
+            self.page.input_file_timeout = timeout
             self.page.body_text = " ".join(item["name"] for item in files)
 
         def inner_text(self):
@@ -2302,6 +2303,9 @@ def test_browser_model_attachment_upload_uses_original_binary_payload():
     assert [item["name"] for item in page.payloads] == ["lecture.pdf", "notes.md"]
     assert page.payloads[0]["buffer"] == binary_payload
     assert page.payloads[1]["buffer"] == b"# Notes"
+    assert page.input_file_timeout == BrowserModel.ATTACHMENT_SELECT_TIMEOUT_MS
+    assert page.input_file_timeout >= 120_000
+    assert BrowserModel.ATTACHMENT_UPLOAD_TIMEOUT_SECONDS >= 120.0
 
 
 def test_browser_model_reuses_attachment_chat_for_consecutive_calls_in_same_role(monkeypatch):
