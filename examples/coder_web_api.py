@@ -9,7 +9,7 @@ Environment:
     CODER_WORKSPACE=D:\Coder_workspace
     CODER_WEB_API_KEY=optional-secret
     CODER_MAX_RUNTIME_SECONDS=1800
-    CODER_UPLOAD_MAX_BYTES=1048576
+    CODER_UPLOAD_MAX_BYTES=50331648
     CODER_STUDY_AGENT_URL=http://127.0.0.1:8000/internal/study/ask
     CODER_STUDY_AGENT_API_KEY=optional-secret
 """
