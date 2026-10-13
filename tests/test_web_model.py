@@ -77,11 +77,39 @@ class FakeLocator:
             return target.get_attribute(name)
         return ""
 
+    def input_value(self, timeout=None):
+        target = self._value()
+        if hasattr(target, "input_value"):
+            return target.input_value(timeout=timeout)
+        return "" if target is None else str(target)
+
+
+class FakeMessage:
+    def __init__(self, text, *, assistant=False):
+        self.text = text
+        self.assistant = assistant
+
+    def is_visible(self):
+        return True
+
+    def inner_text(self):
+        return self.text
+
+    def locator(self, selector):
+        if self.assistant and selector in {
+            ".ds-assistant-message-main-content",
+            ".ds-markdown",
+            '[data-message-author-role="assistant"]',
+        }:
+            return FakeLocator([self.text])
+        return FakeLocator([])
+
 
 class FakePage:
     def __init__(self, *, logged_in=True):
         self.prompt = ""
         self.responses = []
+        self.messages = []
         self.logged_in = logged_in
         self.input = FakeLocator(
             [""],
@@ -104,11 +132,18 @@ class FakePage:
             return self.input
         if selector == '[data-message-author-role="assistant"]':
             return FakeLocator(self.responses)
+        if selector == ".ds-message":
+            return FakeLocator(self.messages)
         return FakeLocator([])
 
     def _press(self, key):
         if key == "Enter":
-            self.responses.append(f"answer for: {self.input.values[0]}")
+            prompt = str(self.input.values[0] if self.input.values else "")
+            self.messages.append(FakeMessage(prompt))
+            response = f"answer for: {prompt}"
+            self.responses.append(response)
+            self.messages.append(FakeMessage(response, assistant=True))
+            self.input.values[:] = [""]
 
 
 
@@ -2154,7 +2189,7 @@ def test_browser_model_attachment_upload_uses_original_binary_payload():
     assert page.payloads[1]["buffer"] == b"# Notes"
 
 
-def test_browser_model_keeps_attachment_in_same_deepseek_chat_for_agent_steps(monkeypatch):
+def test_browser_model_isolates_attachment_backed_agent_steps_into_fresh_sessions(monkeypatch):
     model = BrowserModel(
         timeout=1,
         session_pause_seconds=0,
@@ -2183,16 +2218,17 @@ def test_browser_model_keeps_attachment_in_same_deepseek_chat_for_agent_steps(mo
         {"name": "source.pdf", "mimeType": "application/pdf", "buffer": b"original bytes"},
     ])
 
-    assert model.generate("", "first step") == "answer"
-    assert model.generate("", "second step") == "answer"
-    assert events.count("new_chat") == 1
-    assert events.count("upload") == 1
+    assert model.generate("", "answer generation") == "answer"
+    assert model.generate("", "independent answer audit") == "answer"
+    assert events.count("new_chat") == 2
+    assert events.count("upload") == 2
     assert len([event for event in events if isinstance(event, tuple) and event[0] == "send"]) == 2
-    assert "cleanup" not in events
+    assert events.count("cleanup") == 2
 
     model.end_attachment_session()
 
-    assert events.count("cleanup") == 1
+    # Sessions are deleted after each call; end-of-run cleanup is idempotent.
+    assert events.count("cleanup") == 2
     assert model._attachment_session_active is False
     assert model._attachment_files == ()
 
