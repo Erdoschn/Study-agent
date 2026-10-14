@@ -34,10 +34,10 @@ def _validate_regular_file(path: Path, *, max_bytes: int) -> bool:
 def ensure_private_directory(path: str | Path) -> Path:
     """Create a dedicated directory with private permissions and no leaf reparse points."""
     candidate = Path(path).expanduser()
-    if not candidate.is_absolute():
-        candidate = Path.cwd() / candidate
     if candidate.name in {"", ".", ".."}:
         raise PermissionError("敏感数据目录必须是专用子目录。")
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
 
     parent = candidate.parent.resolve()
     try:
