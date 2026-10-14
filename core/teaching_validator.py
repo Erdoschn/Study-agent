@@ -272,7 +272,7 @@ class TeachingValidator:
             attempts += 1
             try:
                 debug.log("TeachingValidator", f"CALL LLM → {model.name} effort={choice.effort or 'default'}")
-                raw = call_model_with_effort(self.model_router, self.model_factory.create(model), self.SYSTEM_PROMPT, prompt, json_mode=True, reasoning_effort=choice.effort, reasoning_effort_param=getattr(model, "reasoning_effort_param", None))
+                raw = call_model_with_effort(self.model_router, self.model_factory.create(model), self.SYSTEM_PROMPT, prompt, json_mode=True, reasoning_effort=choice.effort, reasoning_effort_param=getattr(model, "reasoning_effort_param", None), deep_thinking=bool(getattr(getattr(state, "task_analysis", None), "deep_thinking", False)))
                 result = self._normalize_result(self._extract_json(raw))
                 self.model_router.registry.record_success(model.name, "verification")
                 result["attempted"] = True
