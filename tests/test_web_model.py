@@ -443,6 +443,12 @@ def test_browser_model_throttles_consecutive_sends(monkeypatch):
     assert model._last_send_monotonic == 107.0
 
 
+def test_task_analyzer_system_prompt_is_classified_as_its_own_web_role():
+    from core.task_analyzer import TaskAnalyzer
+
+    assert BrowserModel._infer_session_role(TaskAnalyzer.SYSTEM_PROMPT) == "task_analysis"
+
+
 def test_browser_model_json_mode_prioritizes_structured_output_contract():
     prompt = BrowserModel._build_prompt(
         "Choose SEARCH or ANSWER.",
