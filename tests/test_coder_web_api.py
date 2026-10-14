@@ -918,3 +918,26 @@ def test_coder_plan_summary_shows_goal_scope_and_milestones():
     assert "assignment1.ipynb" in summary
     assert "inspect notebook" in summary
     assert "validation passes" in summary
+
+
+def test_coder_project_root_rejects_symlinked_projects_and_unsafe_names(tmp_path, monkeypatch):
+    import pytest
+    import examples.coder_web_api as api
+    from coder.filesystem import WorkspaceSecurityError
+
+    monkeypatch.setattr(api, "WORKSPACE", str(tmp_path))
+    real_project = tmp_path / "real-project"
+    real_project.mkdir()
+    alias = tmp_path / "project-alias"
+    try:
+        alias.symlink_to(real_project, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable in this environment")
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        api._project_root("project-alias")
+    for unsafe_name in ("../outside", "bad/name", "bad\\\\name", "name with spaces", "x" * 65):
+        with pytest.raises(WorkspaceSecurityError, match="项目名无效"):
+            api._project_root(unsafe_name)
+
+    assert api._project_root("real-project") == real_project
