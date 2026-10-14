@@ -120,14 +120,33 @@ class CoderBackupStore:
                 # walk intentionally does not trust the path to remain unchanged.
                 try:
                     source_status = source.lstat()
+                    if (
+                        stat.S_ISLNK(source_status.st_mode)
+                        or not stat.S_ISREG(source_status.st_mode)
+                        or source_status.st_size > WorkspaceFS.MAX_FILE_BYTES
+                    ):
+                        continue
+                    if os.name == "nt" and getattr(source_status, "st_file_attributes", 0) & 0x400:
+                        continue
+
+                    # Open without following a leaf symlink where the platform supports
+                    # it, then validate the opened descriptor before reading bounded bytes.
+                    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                    descriptor = os.open(source, flags)
+                    with os.fdopen(descriptor, "rb") as stream:
+                        opened_status = os.fstat(stream.fileno())
+                        if (
+                            not stat.S_ISREG(opened_status.st_mode)
+                            or opened_status.st_size > WorkspaceFS.MAX_FILE_BYTES
+                        ):
+                            continue
+                        data = stream.read(WorkspaceFS.MAX_FILE_BYTES + 1)
                 except OSError:
                     continue
-                if stat.S_ISLNK(source_status.st_mode) or not stat.S_ISREG(source_status.st_mode):
+                if len(data) > WorkspaceFS.MAX_FILE_BYTES:
                     continue
-                if os.name == "nt" and getattr(source_status, "st_file_attributes", 0) & 0x400:
-                    continue
+
                 arcname = relative.as_posix()
-                data = source.read_bytes()
                 total_bytes += len(data)
                 if total_bytes > self.MAX_ARCHIVE_TOTAL_BYTES:
                     raise WorkspaceSecurityError("备份内容总大小超过 512 MiB 安全上限。")
