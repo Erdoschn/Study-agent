@@ -104,6 +104,47 @@ class CoderBackupStore:
                     continue
                 yield source, relative
 
+    @staticmethod
+    def _read_regular_source(source: Path) -> bytes | None:
+        """Read one bounded regular file without following a leaf link where supported."""
+        descriptor: int | None = None
+        try:
+            before = source.lstat()
+            if (
+                stat.S_ISLNK(before.st_mode)
+                or not stat.S_ISREG(before.st_mode)
+                or before.st_size > WorkspaceFS.MAX_FILE_BYTES
+            ):
+                return None
+            if os.name == "nt" and getattr(before, "st_file_attributes", 0) & 0x400:
+                return None
+
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(source, flags)
+            stream = os.fdopen(descriptor, "rb")
+            descriptor = None  # the file object now owns the descriptor
+            with stream:
+                opened = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_size > WorkspaceFS.MAX_FILE_BYTES
+                    or (
+                        os.name == "nt"
+                        and getattr(opened, "st_file_attributes", 0) & 0x400
+                    )
+                ):
+                    return None
+                data = stream.read(WorkspaceFS.MAX_FILE_BYTES + 1)
+            return data if len(data) <= WorkspaceFS.MAX_FILE_BYTES else None
+        except OSError:
+            return None
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+
     def _build_archive(self, archive_path: Path, generation: int) -> int:
         entries: list[dict[str, object]] = []
         total_bytes = 0
@@ -116,40 +157,15 @@ class CoderBackupStore:
             for source, relative in self._iter_code_files(self.workspace):
                 if len(entries) >= self.MAX_ARCHIVE_FILES:
                     raise WorkspaceSecurityError("备份文件数量超过安全上限。")
-                # Re-check the leaf immediately before reading it; the initial
-                # walk intentionally does not trust the path to remain unchanged.
-                try:
-                    source_status = source.lstat()
-                    if (
-                        stat.S_ISLNK(source_status.st_mode)
-                        or not stat.S_ISREG(source_status.st_mode)
-                        or source_status.st_size > WorkspaceFS.MAX_FILE_BYTES
-                    ):
-                        continue
-                    if os.name == "nt" and getattr(source_status, "st_file_attributes", 0) & 0x400:
-                        continue
-
-                    # Open without following a leaf symlink where the platform supports
-                    # it, then validate the opened descriptor before reading bounded bytes.
-                    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-                    descriptor = os.open(source, flags)
-                    with os.fdopen(descriptor, "rb") as stream:
-                        opened_status = os.fstat(stream.fileno())
-                        if (
-                            not stat.S_ISREG(opened_status.st_mode)
-                            or opened_status.st_size > WorkspaceFS.MAX_FILE_BYTES
-                        ):
-                            continue
-                        data = stream.read(WorkspaceFS.MAX_FILE_BYTES + 1)
-                except OSError:
-                    continue
-                if len(data) > WorkspaceFS.MAX_FILE_BYTES:
+                data = self._read_regular_source(source)
+                if data is None:
                     continue
 
-                arcname = relative.as_posix()
                 total_bytes += len(data)
                 if total_bytes > self.MAX_ARCHIVE_TOTAL_BYTES:
                     raise WorkspaceSecurityError("备份内容总大小超过 512 MiB 安全上限。")
+
+                arcname = relative.as_posix()
                 archive.writestr(arcname, data)
                 entries.append({
                     "path": arcname,
