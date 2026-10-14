@@ -134,7 +134,7 @@ class AgentReasoner:
                             json_mode=True,
                             reasoning_effort=choice.effort,
                             reasoning_effort_param=getattr(choice.model, "reasoning_effort_param", None),
-                            deep_thinking=bool(getattr(state.task_analysis, "deep_thinking", False)),
+                            deep_thinking=getattr(state.task_analysis, "deep_thinking", None),
                         )
                     )
                     self.model_router.registry.record_success(model.name, "reasoning")
