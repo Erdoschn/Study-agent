@@ -17,8 +17,9 @@ def test_prompt_config_loads_role_specific_prompts():
     assert get_prompt("coder.reasoner")
     assert get_prompt("web_model.json_contract")
     assert get_prompt("web_model.json_recovery")
-    assert get_prompt("web_model.json_contract")
-    assert get_prompt("web_model.json_recovery")
+    assert get_prompt("web_model.templates.role_json_contract")
+    assert get_prompt("model_reasoning.deep_thinking_system")
+    assert get_prompt("model_reasoning.standard_system")
 
 
 def test_coder_prompt_documents_new_chat_policy():
@@ -69,3 +70,19 @@ def test_prompt_config_supports_external_override(tmp_path):
         encoding="utf-8",
     )
     assert get_prompt("study_agent.reasoner", path) == "CUSTOM"
+
+
+
+def test_task_analyzer_prompt_requires_explicit_deep_thinking_decision():
+    prompt = get_prompt("study_agent.task_analyzer")
+    assert '"deep_thinking":false' in prompt
+    assert "不要只凭问题长度" in prompt
+    assert "错误代价和额外延迟" in prompt
+
+
+def test_task_analyzer_parses_deep_thinking_as_a_boolean():
+    assert task_analyzer.TaskAnalyzer._parse('{"deep_thinking":true}').deep_thinking is True
+    assert task_analyzer.TaskAnalyzer._parse('{"deep_thinking":false}').deep_thinking is False
+    assert task_analyzer.TaskAnalyzer._parse('{"deep_thinking":"off"}').deep_thinking is False
+    # Backward compatibility for legacy model responses without the field.
+    assert task_analyzer.TaskAnalyzer._parse("{}").deep_thinking is False
