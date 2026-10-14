@@ -43,6 +43,7 @@ from coder.memory import CoderMemoryStore
 from coder.state import CoderState
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
+from core.redaction import redact_sensitive_text
 from core.http_security import (
     is_allowed_local_browser_origin,
     read_limited_request_body,
@@ -1014,10 +1015,14 @@ class Handler(BaseHTTPRequestHandler):
                     "memory": entry,
                 })
             except Exception as exc:
+                safe_error = redact_sensitive_text(
+                    f"{type(exc).__name__}: {exc}",
+                    max_chars=1000,
+                )
                 result_state = CoderState(
                     request=task,
                     project=actual_project,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=safe_error,
                 )
                 entry = memory.record_run(project=actual_project, state=result_state)
                 events.put({
