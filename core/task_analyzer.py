@@ -117,7 +117,7 @@ class TaskAnalyzer:
                     )
                     debug.log(
                         "TaskAnalyzer",
-                        f"RESULT → type={analysis.task_type}, domain={analysis.domain}, difficulty={analysis.difficulty}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}, assessment={analysis.assessment_requested}",
+                        f"RESULT → type={analysis.task_type}, domain={analysis.domain}, difficulty={analysis.difficulty}, deep_thinking={analysis.deep_thinking}, tools={analysis.required_tools}, external_facts={analysis.external_facts_needed}, assessment={analysis.assessment_requested}",
                     )
                     return analysis
                 except Exception as exc:
