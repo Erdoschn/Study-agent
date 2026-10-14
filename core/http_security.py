@@ -1,7 +1,18 @@
-"""Shared startup checks for local HTTP API bind security."""
+"""Shared defensive helpers for local HTTP APIs."""
+
 from __future__ import annotations
 
 import ipaddress
+import re
+from urllib.parse import urlsplit
+
+
+class HTTPRequestError(ValueError):
+    """A malformed or unsupported HTTP request body."""
+
+
+class RequestBodyTooLarge(HTTPRequestError):
+    """The request body exceeds the endpoint's configured size limit."""
 
 
 def is_loopback_host(host: str) -> bool:
@@ -17,6 +28,79 @@ def is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(normalized).is_loopback
     except ValueError:
         return False
+
+
+def is_allowed_local_browser_origin(origin: str, port: int) -> bool:
+    """Allow only HTTP origins hosted on loopback at the expected local port.
+
+    Requests without an Origin header are non-browser/API-client requests and
+    remain eligible for normal authentication. This is a CSRF defense, not a
+    substitute for API-key authentication when binding beyond loopback.
+    """
+    value = str(origin or "").strip()
+    if not value:
+        return True
+    try:
+        parsed = urlsplit(value)
+        effective_port = parsed.port or (80 if parsed.scheme == "http" else 443)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname is not None
+        and is_loopback_host(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and effective_port == int(port)
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def read_limited_request_body(
+    handler,
+    max_bytes: int,
+    *,
+    empty_body: bytes = b"",
+) -> bytes:
+    """Read a Content-Length-delimited request body with strict size framing.
+
+    BaseHTTPRequestHandler does not decode chunked bodies. Reject them rather
+    than accidentally treating chunk framing as JSON or leaving unread bytes
+    on a persistent connection. Reject duplicate lengths and truncated bodies.
+    """
+    if max_bytes < 0:
+        raise ValueError("max_bytes 不能为负数。")
+
+    headers = handler.headers
+    transfer_encodings = [
+        str(value).strip()
+        for value in (headers.get_all("Transfer-Encoding", []) or [])
+        if str(value).strip()
+    ]
+    if transfer_encodings:
+        raise HTTPRequestError("当前 API 不支持 Transfer-Encoding 请求体。")
+
+    lengths = headers.get_all("Content-Length", []) or []
+    if len(lengths) > 1:
+        raise HTTPRequestError("请求包含重复的 Content-Length。")
+    if not lengths:
+        return empty_body
+
+    raw_length = str(lengths[0]).strip()
+    if not re.fullmatch(r"[0-9]+", raw_length, flags=re.ASCII):
+        raise HTTPRequestError("Content-Length 格式无效。")
+    length = int(raw_length, 10)
+    if length > max_bytes:
+        raise RequestBodyTooLarge(f"请求体超过安全上限（{max_bytes} 字节）。")
+    if length == 0:
+        return empty_body
+
+    body = handler.rfile.read(length)
+    if len(body) != length:
+        raise HTTPRequestError("请求体不完整。")
+    return body
 
 
 def require_auth_for_non_loopback_bind(
