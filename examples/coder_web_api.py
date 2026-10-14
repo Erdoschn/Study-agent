@@ -43,7 +43,12 @@ from coder.memory import CoderMemoryStore
 from coder.state import CoderState
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
-from core.http_security import require_auth_for_non_loopback_bind as _shared_require_auth
+from core.http_security import (
+    is_allowed_local_browser_origin,
+    read_limited_request_body,
+    RequestBodyTooLarge,
+    require_auth_for_non_loopback_bind as _shared_require_auth,
+)
 from core.cancellation import RunCancelled, raise_if_cancelled
 from core.web_model import BrowserModel
 
@@ -247,8 +252,15 @@ def _ensure_project(
     return project
 
 
+def _allowed_browser_origin(origin: str) -> bool:
+    return is_allowed_local_browser_origin(origin, PORT)
+
+
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
-    handler.send_header("Access-Control-Allow-Origin", "*")
+    origin = str(handler.headers.get("Origin", "") or "").strip()
+    handler.send_header("Vary", "Origin")
+    if origin and _allowed_browser_origin(origin):
+        handler.send_header("Access-Control-Allow-Origin", origin)
     handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
@@ -537,6 +549,18 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return not API_KEY or self.headers.get("Authorization", "") == f"Bearer {API_KEY}"
 
+    def _origin_allowed(self) -> bool:
+        return _allowed_browser_origin(self.headers.get("Origin", ""))
+
+    def _reject_disallowed_origin(self) -> bool:
+        if self._origin_allowed():
+            return False
+        self._json(
+            {"error": {"message": "不允许此浏览器来源访问本地 Coder API。"}},
+            403,
+        )
+        return True
+
     def _json(self, payload: dict, status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -554,22 +578,27 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def _body_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > 64 * 1024:
-            raise ValueError("JSON 请求超过 64 KiB。")
-        raw = self.rfile.read(length) if length else b"{}"
-        value = json.loads(raw.decode("utf-8"))
+        raw = read_limited_request_body(
+            self,
+            64 * 1024,
+            empty_body=b"{}",
+        )
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("JSON 请求格式无效。") from exc
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
 
     def _upload(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0:
+        body = read_limited_request_body(
+            self,
+            UPLOAD_MAX_BYTES + 64 * 1024,
+            empty_body=b"",
+        )
+        if not body:
             raise ValueError("上传请求为空。")
-        if length > UPLOAD_MAX_BYTES + 64 * 1024:
-            raise WorkspaceSecurityError("上传请求超过安全大小上限。")
-        body = self.rfile.read(length)
         filename, data = parse_multipart_upload(
             self.headers.get("Content-Type", ""),
             body,
@@ -609,6 +638,8 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_OPTIONS(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
             return
@@ -621,6 +652,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path in {"/", "/coder", "/coder/"} and self._serve_frontend():
+            return
+        if self._reject_disallowed_origin():
             return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
@@ -692,6 +725,8 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
             return
@@ -850,12 +885,22 @@ class Handler(BaseHTTPRequestHandler):
                 _release_run_lock_if_unowned(control)
                 raise
         except Exception as exc:
+            if isinstance(exc, (ValueError, WorkspaceSecurityError)):
+                status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
+                message = str(exc)
+                error_type = "invalid_request_error"
+            else:
+                reference = uuid.uuid4().hex[:8]
+                debug.log(
+                    "CoderWebAPI",
+                    f"REQUEST FAILED → ref={reference}, error_type={type(exc).__name__}",
+                )
+                status = 500
+                message = f"服务器内部错误（参考编号 {reference}）。"
+                error_type = "server_error"
             self._json({
-                "error": {
-                    "message": f"{type(exc).__name__}: {exc}",
-                    "type": "server_error",
-                }
-            }, 400 if isinstance(exc, (ValueError, WorkspaceSecurityError)) else 500)
+                "error": {"message": message, "type": error_type}
+            }, status)
 
     def _stream_run(
         self,
