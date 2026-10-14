@@ -5,6 +5,8 @@ from datetime import datetime
 from threading import local
 from typing import Callable, Iterator
 
+from .redaction import redact_sensitive_text
+
 
 class DebugTracer:
     def __init__(self, enabled: bool = False):
@@ -74,6 +76,7 @@ class DebugTracer:
     def log(self, module: str, message: str) -> None:
         message = self._redact_attachment_metadata(message)
         message = self._redact_user_text(module, message)
+        message = redact_sensitive_text(message)
         sink = getattr(self._local, "sink", None)
         # API sinks translate selected internal events into user-facing status
         # updates. They must not replace terminal logging when debug is ON.
