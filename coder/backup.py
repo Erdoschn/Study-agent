@@ -36,26 +36,45 @@ class CoderBackupStore:
     })
 
     def __init__(self, workspace: str | Path):
-        self.workspace = Path(workspace).resolve()
-        self.root = (self.workspace / ".coder-backup").resolve()
+        self.workspace = Path(workspace).expanduser().resolve()
+        backup_path = self.workspace / ".coder-backup"
+
+        # Inspect the lexical path before resolving it. Resolving first would
+        # hide a symlink that points to another directory inside the workspace.
+        try:
+            status = backup_path.lstat()
+        except FileNotFoundError:
+            try:
+                backup_path.mkdir(mode=0o700)
+                status = backup_path.lstat()
+            except OSError as exc:
+                raise WorkspaceSecurityError("无法创建 Coder backup 目录。") from exc
+        except OSError as exc:
+            raise WorkspaceSecurityError("无法检查 Coder backup 目录。") from exc
+
+        if not os.path.isdir(backup_path) or backup_path.is_symlink():
+            raise WorkspaceSecurityError("备份目录必须是普通目录，禁止使用符号链接。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("备份目录禁止使用 Windows reparse point。")
+
+        self.root = backup_path.resolve()
         try:
             self.root.relative_to(self.workspace)
         except ValueError as exc:
             raise WorkspaceSecurityError("Coder backup 必须位于 workspace 内。") from exc
 
-        self.root.mkdir(parents=True, exist_ok=True)
+        if self.root.parent != self.workspace or self.root.name != ".coder-backup":
+            raise WorkspaceSecurityError("Coder backup 目录解析结果不符合预期。")
+        if os.name != "nt":
+            try:
+                os.chmod(self.root, 0o700)
+            except OSError as exc:
+                raise WorkspaceSecurityError("无法限制 Coder backup 目录权限。") from exc
+
         with self._ROOT_LOCKS_GUARD:
             self._snapshot_lock = self._ROOT_LOCKS.setdefault(
                 str(self.root).casefold(), threading.RLock()
             )
-        try:
-            status = self.root.lstat()
-        except OSError as exc:
-            raise WorkspaceSecurityError("无法检查 Coder backup 目录。") from exc
-        if status.st_mode & 0o170000 == 0o120000:
-            raise WorkspaceSecurityError("备份目录禁止使用符号链接。")
-        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
-            raise WorkspaceSecurityError("备份目录禁止使用 Windows reparse point。")
 
     @classmethod
     def _iter_code_files(cls, workspace: Path) -> Iterable[tuple[Path, Path]]:
