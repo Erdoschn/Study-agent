@@ -425,7 +425,7 @@ class BrowserModel(ModelClient):
             before_snapshot = self._response_snapshot(page)
             self._pending_prompt = prompt
             self._submission_baseline_message_count = self._visible_chat_message_count(page)
-            self._send_prompt(page, prompt, deep_thinking=requested_deep_thinking)
+            self._send_prompt_for_mode(page, prompt, requested_deep_thinking)
             answer = self._wait_for_response(page, before_snapshot)
             self._check_cancelled()
 
@@ -662,10 +662,10 @@ class BrowserModel(ModelClient):
             before_snapshot = self._response_snapshot(page)
             self._pending_prompt = recovery_prompt
             self._submission_baseline_message_count = self._visible_chat_message_count(page)
-            self._send_prompt(
+            self._send_prompt_for_mode(
                 page,
                 recovery_prompt,
-                deep_thinking=True if deep_thinking is None else bool(deep_thinking),
+                True if deep_thinking is None else bool(deep_thinking),
             )
             answer = self._wait_for_response(page, before_snapshot)
             markdown = self._copy_latest_response_markdown(page)
@@ -1895,6 +1895,26 @@ class BrowserModel(ModelClient):
         """Backward-compatible helper for callers that explicitly require DeepThink."""
         self._set_deep_thinking_state(page, True)
 
+    def _send_prompt_for_mode(self, page, prompt: str, deep_thinking: bool) -> None:
+        """Pass the mode to the sender while keeping older monkeypatched adapters compatible."""
+        import inspect
+
+        sender = self._send_prompt
+        try:
+            parameters = inspect.signature(sender).parameters.values()
+            accepts_mode = any(
+                parameter.name == "deep_thinking"
+                or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters
+            )
+        except (TypeError, ValueError):
+            accepts_mode = True
+
+        if accepts_mode:
+            sender(page, prompt, deep_thinking=bool(deep_thinking))
+        else:
+            sender(page, prompt)
+
     def _send_prompt(self, page, prompt: str, *, deep_thinking: bool = True) -> None:
         textbox = self._find_visible(
             page,
@@ -1910,7 +1930,11 @@ class BrowserModel(ModelClient):
             )
 
         self._send_button_disabled_logged = False
-        self._set_deep_thinking_state(page, deep_thinking)
+        if deep_thinking:
+            # Keep the established hook for callers/tests that customize this precondition.
+            self._ensure_deep_thinking_enabled(page)
+        else:
+            self._set_deep_thinking_state(page, False)
         self._wait_for_send_slot()
         self._check_cancelled()
         debug.log("BrowserModel", f"SEND FILL → chars={len(prompt)}")
