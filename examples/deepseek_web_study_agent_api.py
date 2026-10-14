@@ -25,7 +25,12 @@ if str(ROOT) not in sys.path:
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
-from core.http_security import is_loopback_host as _is_loopback_host, require_auth_for_non_loopback_bind as _shared_require_auth
+from core.http_security import (
+    RequestBodyTooLarge,
+    is_allowed_local_browser_origin,
+    read_limited_request_body,
+    require_auth_for_non_loopback_bind as _shared_require_auth,
+)
 from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
@@ -42,31 +47,8 @@ _RUN_LOCK = threading.Lock()
 
 
 def _allowed_browser_origin(origin: str) -> bool:
-    """Permit browser-originated API requests only from this local UI origin.
-
-    Non-browser OpenAI-compatible clients usually omit Origin and remain allowed;
-    public/LAN exposure must be protected with an explicit API key at startup.
-    """
-    value = str(origin or "").strip()
-    if not value:
-        return True
-    try:
-        parsed = urlparse(value)
-        port = parsed.port or (80 if parsed.scheme == "http" else 443)
-    except ValueError:
-        return False
-    return (
-        parsed.scheme == "http"
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.hostname is not None
-        and _is_loopback_host(parsed.hostname)
-        and port == PORT
-        and parsed.path in ("", "/")
-        and not parsed.params
-        and not parsed.query
-        and not parsed.fragment
-    )
+    """Accept only this API's loopback UI origin; non-browser clients omit Origin."""
+    return is_allowed_local_browser_origin(origin, PORT)
 
 
 def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
@@ -493,15 +475,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def _body_and_attachments(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length < 0 or length > MAX_REQUEST_BODY_BYTES:
-            raise ValueError(
-                f"请求体大小无效或超过上限（{MAX_REQUEST_BODY_BYTES // (1024 * 1024)} MiB）。"
-            )
-        raw = self.rfile.read(length) if length else b""
-        if len(raw) != length:
-            raise ValueError("请求体未完整接收。")
-        return parse_chat_request_body(raw or b"{}", self.headers.get("Content-Type", "application/json"))
+        raw = read_limited_request_body(
+            self,
+            MAX_REQUEST_BODY_BYTES,
+            empty_body=b"{}",
+        )
+        return parse_chat_request_body(
+            raw,
+            self.headers.get("Content-Type", "application/json"),
+        )
 
     def _body(self) -> dict[str, Any]:
         """Compatibility helper for JSON-only internal/tests."""
@@ -588,6 +570,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in {"/", "/index.html"} and self._serve_frontend(self.path):
             return
+        if not self._origin_allowed():
+            self._json(
+                {"error": {"message": "不允许此浏览器来源访问本地 API。", "type": "authentication_error"}},
+                403,
+            )
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
@@ -637,12 +625,13 @@ class Handler(BaseHTTPRequestHandler):
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                 })
         except ValueError as exc:
-            self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, 400)
+            status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
+            self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, status)
         except Exception as exc:
             reference = uuid.uuid4().hex[:8]
             debug.log(
                 "StudyAgentWebAPI",
-                f"REQUEST FAILED → ref={reference}, {type(exc).__name__}: {exc}",
+                f"REQUEST FAILED → ref={reference}, error_type={type(exc).__name__}",
             )
             self._json({
                 "error": {
