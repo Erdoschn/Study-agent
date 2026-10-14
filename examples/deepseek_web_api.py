@@ -19,6 +19,7 @@ import json
 import os
 import time
 import uuid
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -28,13 +29,36 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.web_model import BrowserModel
+from coder.browser_session import CoderBrowserSession
+from core.http_security import (
+    HTTPRequestError,
+    RequestBodyTooLarge,
+    is_allowed_local_browser_origin,
+    read_limited_request_body,
+    require_auth_for_non_loopback_bind,
+)
 
 
 MODEL_ID = "deepseek-web"
 HOST = os.getenv("STUDY_AGENT_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("STUDY_AGENT_WEB_PORT", "8001"))
 API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", "").strip()
+MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
+RUN_LOCK = threading.Lock()
+
+
+def _require_auth_for_non_loopback_bind() -> None:
+    require_auth_for_non_loopback_bind(
+        HOST,
+        API_KEY,
+        api_name="DeepSeek Web Model API",
+        api_key_env="STUDY_AGENT_WEB_API_KEY",
+        host_env="STUDY_AGENT_WEB_HOST",
+    )
+
+
+def _allowed_browser_origin(origin: str) -> bool:
+    return is_allowed_local_browser_origin(origin, PORT)
 
 
 def completion(answer: str) -> dict[str, Any]:
@@ -94,19 +118,43 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return self.headers.get("Authorization", "") == f"Bearer {API_KEY}"
 
+    def _origin_allowed(self) -> bool:
+        return _allowed_browser_origin(self.headers.get("Origin", ""))
+
+    def _reject_disallowed_origin(self) -> bool:
+        if self._origin_allowed():
+            return False
+        self._send_json(
+            {"error": {"message": "不允许此浏览器来源访问本地模型 API."}},
+            403,
+        )
+        return True
+
     def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
-        value = json.loads(raw.decode("utf-8"))
+        raw = read_limited_request_body(
+            self,
+            MAX_REQUEST_BODY_BYTES,
+            empty_body=b"{}",
+        )
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("请求 JSON 格式无效。") from exc
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
@@ -123,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
         raise ValueError("messages 中没有可用的 user 内容")
 
     def do_GET(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._send_json(
                 {"error": {"message": "Unauthorized", "type": "authentication_error"}},
@@ -152,6 +202,8 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._send_json(
                 {"error": {"message": "Unauthorized", "type": "authentication_error"}},
@@ -166,11 +218,21 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if not RUN_LOCK.acquire(blocking=False):
+            self._send_json(
+                {"error": {"message": "模型正在处理另一个请求，请稍后重试。"}},
+                409,
+            )
+            return
+
         try:
+            self.server.web_model.begin_run()
             request = self._read_json()
             messages = request.get("messages", [])
             if not isinstance(messages, list):
                 raise ValueError("messages 必须是数组")
+            if len(messages) > 256:
+                raise ValueError("messages 数量超过 256 条。")
 
             prompt = self._extract_prompt(messages)
             system = next(
@@ -192,13 +254,29 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json(completion(answer))
 
-        except Exception as exc:
+        except (HTTPRequestError, ValueError) as exc:
+            status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
             self._send_json({
                 "error": {
-                    "message": f"{type(exc).__name__}: {exc}",
+                    "message": str(exc),
+                    "type": "invalid_request_error",
+                }
+            }, status)
+        except Exception as exc:
+            reference = uuid.uuid4().hex[:8]
+            print(
+                f"[DeepSeekWebAPI] request failed ref={reference} "
+                f"error_type={type(exc).__name__}",
+                flush=True,
+            )
+            self._send_json({
+                "error": {
+                    "message": f"服务器内部错误（参考编号 {reference}）。",
                     "type": "server_error",
                 }
             }, 500)
+        finally:
+            RUN_LOCK.release()
 
     def _stream_answer(self, answer: str) -> None:
         completion_id = "chatcmpl-" + uuid.uuid4().hex
@@ -220,7 +298,16 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    web_model = BrowserModel()
+    # Check exposure policy before opening a browser or allocating resources.
+    _require_auth_for_non_loopback_bind()
+    web_model = CoderBrowserSession(
+        model=MODEL_ID,
+        user_data_dir=".study-agent-browser",
+        timeout=180,
+        cleanup_after_generate=False,
+        reuse_chat=True,
+        min_send_interval_seconds=5.0,
+    )
     server = WebModelServer((HOST, PORT), Handler)
     server.web_model = web_model
 
