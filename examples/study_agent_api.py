@@ -35,7 +35,14 @@ KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
 from config.loader import load_config, setup_debug
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
-from core.http_security import require_auth_for_non_loopback_bind as _shared_require_auth
+from core.http_security import (
+    HTTPRequestError,
+    RequestBodyTooLarge,
+    MAX_CHAT_MESSAGES,
+    is_allowed_local_browser_origin,
+    read_limited_request_body,
+    require_auth_for_non_loopback_bind as _shared_require_auth,
+)
 from core.cancellation import RunCancelled
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
@@ -46,8 +53,13 @@ PORT = int(os.getenv("STUDY_AGENT_PORT", "8000"))
 API_KEY = os.getenv("STUDY_AGENT_API_KEY", "").strip()
 STUDY_AGENT_BRIDGE_KEY = os.getenv("STUDY_AGENT_BRIDGE_KEY", API_KEY).strip()
 ALLOW_PAID = os.getenv("STUDY_AGENT_ALLOW_PAID", "0").strip().lower() in {"1", "true", "yes", "on"}
+MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
 
 _RUN_LOCK = threading.Lock()
+
+
+def _allowed_browser_origin(origin: str) -> bool:
+    return is_allowed_local_browser_origin(origin, PORT)
 
 
 def _require_auth_for_non_loopback_bind(host: str | None = None, api_key: str | None = None) -> None:
@@ -199,18 +211,40 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
+    def _origin_allowed(self) -> bool:
+        origin = str(self.headers.get("Origin", "") or "")
+        return is_allowed_local_browser_origin(origin, PORT)
 
     def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
-        value = json.loads(raw.decode("utf-8"))
+        raw = read_limited_request_body(
+            self,
+            MAX_REQUEST_BODY_BYTES,
+            empty_body=b"{}",
+        )
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("请求 JSON 格式无效。") from exc
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
 
     def do_GET(self) -> None:
+        if not self._origin_allowed():
+            self._send_json(
+                {"error": {"message": "不允许此浏览器来源访问本地 API。"}},
+                403,
+            )
+            return
         if not self._authorized():
             self._send_json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
@@ -231,6 +265,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
 
     def do_POST(self) -> None:
+        if not self._origin_allowed():
+            self._send_json(
+                {"error": {"message": "不允许此浏览器来源访问本地 API。"}},
+                403,
+            )
+            return
         if self.path == "/internal/study/ask":
             self._handle_bridge_request()
             return
@@ -245,6 +285,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             request = self._read_json()
             messages = request.get("messages", [])
+            if not isinstance(messages, list):
+                raise ValueError("messages 必须是数组")
+            if len(messages) > MAX_CHAT_MESSAGES:
+                raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
             question = next(
                 (
                     str(item.get("content", "")).strip()
@@ -274,12 +318,25 @@ class Handler(BaseHTTPRequestHandler):
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
                 self._send_json(self._completion(answer))
-        except Exception as exc:
-            # Streaming responses already sent their headers. _stream_run handles
-            # its own SSE errors; only ordinary JSON requests reach this branch.
+        except (HTTPRequestError, ValueError) as exc:
+            status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
             self._send_json({
                 "error": {
-                    "message": f"{type(exc).__name__}: {exc}",
+                    "message": str(exc),
+                    "type": "invalid_request_error",
+                }
+            }, status)
+        except Exception as exc:
+            # Never reflect raw model/provider exceptions to API clients.
+            reference = uuid.uuid4().hex[:8]
+            print(
+                f"[StudyAgentAPI] request failed ref={reference} "
+                f"error_type={type(exc).__name__}",
+                flush=True,
+            )
+            self._send_json({
+                "error": {
+                    "message": f"服务器内部错误（参考编号 {reference}）。",
                     "type": "server_error",
                 }
             }, 500)
@@ -345,10 +402,20 @@ class Handler(BaseHTTPRequestHandler):
                 "learner_context": graph_context,
                 "evidence": evidence,
             })
+        except ValueError as exc:
+            self._send_json({
+                "error": {"message": str(exc), "type": "invalid_request_error"}
+            }, 400)
         except Exception as exc:
+            reference = uuid.uuid4().hex[:8]
+            print(
+                f"[StudyAgentAPI] bridge request failed ref={reference} "
+                f"error_type={type(exc).__name__}",
+                flush=True,
+            )
             self._send_json({
                 "error": {
-                    "message": f"{type(exc).__name__}: {exc}",
+                    "message": f"内部错误（参考编号 {reference}）。",
                     "type": "bridge_error",
                 }
             }, 500)
@@ -600,7 +667,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Content-Encoding", "identity")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
 
         events: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -621,8 +689,13 @@ class Handler(BaseHTTPRequestHandler):
                 result = self._run_agent(question, emit, cancellation_event)
                 events.put(("result", result))
             except Exception as exc:
-                print(f"❌ Agent 执行失败：{type(exc).__name__}: {exc}", flush=True)
-                events.put(("error", exc))
+                reference = uuid.uuid4().hex[:8]
+                print(
+                    f"[StudyAgentAPI] agent run failed ref={reference} "
+                    f"error_type={type(exc).__name__}",
+                    flush=True,
+                )
+                events.put(("error", reference))
             finally:
                 events.put(("done", sentinel))
 
@@ -663,7 +736,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._write_sse(b"data: [DONE]\n\n")
                 elif kind == "error":
                     self._write_sse(sse_event(chunk(
-                        reasoning=f"❌ Agent 执行失败：{value}\n\n",
+                        reasoning=f"❌ Agent 执行失败（参考编号 {value}）。\n\n",
                         completion_id=completion_id,
                     )))
                     self._write_sse(sse_event(chunk(

@@ -230,3 +230,42 @@ def test_goal_verifier_requires_backup_for_latest_verified_generation(tmp_path):
 def backup_text(harness: CoderHarness, path: str) -> str:
     with ZipFile(harness.backup.root / harness.backup.ARCHIVE_NAME) as archive:
         return archive.read(path).decode("utf-8")
+
+
+def test_backup_rejects_symlink_to_an_internal_directory(tmp_path):
+    import pytest
+    from coder.filesystem import WorkspaceSecurityError
+
+    real_directory = tmp_path / "other"
+    real_directory.mkdir()
+    backup_link = tmp_path / ".coder-backup"
+    try:
+        backup_link.symlink_to(real_directory, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable in this environment")
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        CoderBackupStore(tmp_path)
+
+    assert not (real_directory / "latest.zip").exists()
+
+
+def test_backup_rejects_symlinked_archive_files(tmp_path):
+    import pytest
+    from coder.filesystem import WorkspaceSecurityError
+
+    store = CoderBackupStore(tmp_path)
+    external_archive = tmp_path / "external-archive.zip"
+    external_archive.write_bytes(b"do-not-read-or-overwrite")
+    archive_link = store.root / store.ARCHIVE_NAME
+    try:
+        archive_link.symlink_to(external_archive)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable in this environment")
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        store.read_manifest()
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        store.snapshot(1)
+    assert external_archive.read_bytes() == b"do-not-read-or-overwrite"

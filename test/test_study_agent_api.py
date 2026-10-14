@@ -285,8 +285,8 @@ def test_chat_requires_user_message():
             {"model": MODEL_ID, "stream": False, "messages": []},
         )
         payload = json.loads(raw)
-        assert status == 500
-        assert payload["error"]["type"] == "server_error"
+        assert status == 400
+        assert payload["error"]["type"] == "invalid_request_error"
         assert "messages 中没有可用的 user 内容" in payload["error"]["message"]
     finally:
         server.shutdown()
@@ -313,3 +313,30 @@ def test_follow_up_generation_is_deterministic_and_does_not_need_agent():
     second = Handler._build_follow_ups(messages)
     assert first == second
     assert len(first) == 3
+
+
+def test_chat_rejects_excessive_message_count_before_running_agent():
+    from core.http_security import MAX_CHAT_MESSAGES
+
+    server, _ = _start_server()
+    try:
+        status, _, raw = _request(
+            server,
+            "POST",
+            "/v1/chat/completions",
+            {
+                "model": MODEL_ID,
+                "stream": False,
+                "messages": [
+                    {"role": "user", "content": "hello"}
+                    for _ in range(MAX_CHAT_MESSAGES + 1)
+                ],
+            },
+        )
+        payload = json.loads(raw)
+        assert status == 400
+        assert payload["error"]["type"] == "invalid_request_error"
+        assert str(MAX_CHAT_MESSAGES) in payload["error"]["message"]
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import zipfile
 import uuid
 import threading
@@ -30,32 +31,55 @@ class CoderBackupStore:
     ARCHIVE_NAME = "latest.zip"
     MANIFEST_NAME = "backup-manifest.json"
     EDITABLE_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
+    MAX_ARCHIVE_FILES = 10_000
+    MAX_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024
+    MAX_ARCHIVE_BYTES = 768 * 1024 * 1024
+    MAX_MANIFEST_BYTES = 16 * 1024 * 1024
     SKIP_DIRS = frozenset({
         ".git", ".venv", "__pycache__", ".pytest_cache",
         ".mypy_cache", ".ruff_cache", ".idea",
     })
 
     def __init__(self, workspace: str | Path):
-        self.workspace = Path(workspace).resolve()
-        self.root = (self.workspace / ".coder-backup").resolve()
+        self.workspace = Path(workspace).expanduser().resolve()
+        backup_path = self.workspace / ".coder-backup"
+
+        # Inspect the lexical path before resolving it. Resolving first would
+        # hide a symlink that points to another directory inside the workspace.
+        try:
+            status = backup_path.lstat()
+        except FileNotFoundError:
+            try:
+                backup_path.mkdir(mode=0o700)
+                status = backup_path.lstat()
+            except OSError as exc:
+                raise WorkspaceSecurityError("无法创建 Coder backup 目录。") from exc
+        except OSError as exc:
+            raise WorkspaceSecurityError("无法检查 Coder backup 目录。") from exc
+
+        if not os.path.isdir(backup_path) or backup_path.is_symlink():
+            raise WorkspaceSecurityError("备份目录必须是普通目录，禁止使用符号链接。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("备份目录禁止使用 Windows reparse point。")
+
+        self.root = backup_path.resolve()
         try:
             self.root.relative_to(self.workspace)
         except ValueError as exc:
             raise WorkspaceSecurityError("Coder backup 必须位于 workspace 内。") from exc
 
-        self.root.mkdir(parents=True, exist_ok=True)
+        if self.root.parent != self.workspace or self.root.name != ".coder-backup":
+            raise WorkspaceSecurityError("Coder backup 目录解析结果不符合预期。")
+        if os.name != "nt":
+            try:
+                os.chmod(self.root, 0o700)
+            except OSError as exc:
+                raise WorkspaceSecurityError("无法限制 Coder backup 目录权限。") from exc
+
         with self._ROOT_LOCKS_GUARD:
             self._snapshot_lock = self._ROOT_LOCKS.setdefault(
                 str(self.root).casefold(), threading.RLock()
             )
-        try:
-            status = self.root.lstat()
-        except OSError as exc:
-            raise WorkspaceSecurityError("无法检查 Coder backup 目录。") from exc
-        if status.st_mode & 0o170000 == 0o120000:
-            raise WorkspaceSecurityError("备份目录禁止使用符号链接。")
-        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
-            raise WorkspaceSecurityError("备份目录禁止使用 Windows reparse point。")
 
     @classmethod
     def _iter_code_files(cls, workspace: Path) -> Iterable[tuple[Path, Path]]:
@@ -80,8 +104,50 @@ class CoderBackupStore:
                     continue
                 yield source, relative
 
+    @staticmethod
+    def _read_regular_source(source: Path) -> bytes | None:
+        """Read one bounded regular file without following a leaf link where supported."""
+        descriptor: int | None = None
+        try:
+            before = source.lstat()
+            if (
+                stat.S_ISLNK(before.st_mode)
+                or not stat.S_ISREG(before.st_mode)
+                or before.st_size > WorkspaceFS.MAX_FILE_BYTES
+            ):
+                return None
+            if os.name == "nt" and getattr(before, "st_file_attributes", 0) & 0x400:
+                return None
+
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(source, flags)
+            stream = os.fdopen(descriptor, "rb")
+            descriptor = None  # the file object now owns the descriptor
+            with stream:
+                opened = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or opened.st_size > WorkspaceFS.MAX_FILE_BYTES
+                    or (
+                        os.name == "nt"
+                        and getattr(opened, "st_file_attributes", 0) & 0x400
+                    )
+                ):
+                    return None
+                data = stream.read(WorkspaceFS.MAX_FILE_BYTES + 1)
+            return data if len(data) <= WorkspaceFS.MAX_FILE_BYTES else None
+        except OSError:
+            return None
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+
     def _build_archive(self, archive_path: Path, generation: int) -> int:
         entries: list[dict[str, object]] = []
+        total_bytes = 0
         with zipfile.ZipFile(
             archive_path,
             mode="w",
@@ -89,8 +155,17 @@ class CoderBackupStore:
             compresslevel=6,
         ) as archive:
             for source, relative in self._iter_code_files(self.workspace):
+                if len(entries) >= self.MAX_ARCHIVE_FILES:
+                    raise WorkspaceSecurityError("备份文件数量超过安全上限。")
+                data = self._read_regular_source(source)
+                if data is None:
+                    continue
+
+                total_bytes += len(data)
+                if total_bytes > self.MAX_ARCHIVE_TOTAL_BYTES:
+                    raise WorkspaceSecurityError("备份内容总大小超过 512 MiB 安全上限。")
+
                 arcname = relative.as_posix()
-                data = source.read_bytes()
                 archive.writestr(arcname, data)
                 entries.append({
                     "path": arcname,
@@ -113,16 +188,41 @@ class CoderBackupStore:
             )
         return len(entries)
 
+    def _assert_safe_archive_file(self, archive: Path) -> bool:
+        """Reject archive symlinks/special files before any manifest or entry read."""
+        try:
+            status = archive.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise WorkspaceSecurityError("无法检查 Coder backup archive。") from exc
+        if stat.S_ISLNK(status.st_mode):
+            raise WorkspaceSecurityError("备份 archive 禁止使用符号链接。")
+        if not stat.S_ISREG(status.st_mode):
+            raise WorkspaceSecurityError("备份 archive 必须是普通文件。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("备份 archive 禁止使用 Windows reparse point。")
+        if status.st_size > self.MAX_ARCHIVE_BYTES:
+            raise WorkspaceSecurityError("备份 archive 超过 768 MiB 安全上限。")
+        return True
+
     def _read_archive_manifest(self, archive: Path) -> dict:
-        if not archive.is_file():
+        if not self._assert_safe_archive_file(archive):
             return {}
         try:
             with zipfile.ZipFile(archive, "r") as zf:
-                data = json.loads(zf.read(self.MANIFEST_NAME).decode("utf-8"))
+                info = zf.getinfo(self.MANIFEST_NAME)
+                if info.file_size > self.MAX_MANIFEST_BYTES:
+                    raise RuntimeError("Coder backup manifest 超过 16 MiB 安全上限。")
+                data = json.loads(zf.read(info).decode("utf-8"))
+        except RuntimeError:
+            raise
         except (OSError, KeyError, ValueError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
             raise RuntimeError(f"Coder backup archive 损坏：{archive.name}") from exc
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not isinstance(data.get("files", []), list):
             raise RuntimeError(f"Coder backup manifest 格式非法：{archive.name}")
+        if len(data.get("files", [])) > self.MAX_ARCHIVE_FILES:
+            raise RuntimeError("Coder backup manifest 文件条目超过安全上限。")
         return data
 
     def _snapshot(self, archive: Path, generation: int, *, immutable: bool) -> BackupSnapshot:
@@ -135,7 +235,7 @@ class CoderBackupStore:
         # newer last-known-good archive even when each individual replace is
         # atomic.
         with self._snapshot_lock:
-            if archive.exists():
+            if self._assert_safe_archive_file(archive):
                 current = self._read_archive_manifest(archive)
                 current_generation = int(current.get("generation", -1))
                 if immutable or current_generation > generation:
@@ -148,7 +248,7 @@ class CoderBackupStore:
             archive_tmp = self.root / f".{archive.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
             try:
                 file_count = self._build_archive(archive_tmp, generation)
-                if immutable and archive.exists():
+                if immutable and self._assert_safe_archive_file(archive):
                     try:
                         archive_tmp.unlink()
                     except FileNotFoundError:

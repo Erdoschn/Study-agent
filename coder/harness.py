@@ -15,6 +15,7 @@ from .filesystem import WorkspaceFS, WorkspaceSecurityError
 from .state import CoderGoal, CoderState
 from .study_bridge import StudyAgentBridge
 from .knowledge_graph import CoderKnowledgeGraph
+from core.redaction import SECRET_PATTERNS, PATH_EXFIL_PATTERNS
 
 
 class CoderHarness:
@@ -38,16 +39,8 @@ class CoderHarness:
         "READ_DIFF": frozenset(),
         "VERIFY_GOAL": frozenset(),
     }
-    _SECRET_PATTERNS = (
-        re.compile(r"(?i)(?:password|passwd|api[_ -]?key|secret|token|private[_ -]?key)\s*[:=]"),
-        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-        re.compile(r"(?<![A-Za-z0-9])(sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})(?![A-Za-z0-9])"),
-        re.compile(r"(?<![A-Za-z0-9])(AIza[0-9A-Za-z_-]{30,}|(?:AKIA|ASIA)[A-Z0-9]{16})(?![A-Za-z0-9])"),
-    )
-    _PATH_EXFIL_PATTERNS = (
-        re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/home/|/users/|/workspace/|file://)"),
-        re.compile(r"(?<!\w)(?:\.{1,2}[\\/])"),
-    )
+    _SECRET_PATTERNS = SECRET_PATTERNS
+    _PATH_EXFIL_PATTERNS = PATH_EXFIL_PATTERNS
     MAX_SEARCH_QUERY_BYTES = 240
     # Existing framework files should not be silently replaced by a much shorter
     # model-generated rewrite. Small files and normal refactors remain allowed;

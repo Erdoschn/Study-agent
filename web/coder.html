@@ -634,7 +634,9 @@ async function run(){
         const e=JSON.parse(data);
         if(e.id&&!state.activeRunId)state.activeRunId=String(e.id).trim();
         if(state.cancelRequested&&state.activeRunId&&!state.cancelling)void requestCancel();
-        if(e.type==="preparing"){
+        if(e.type==="warning"){
+          appendStep("MEMORY",false,e.message||"本地记忆暂时不可用，但任务会继续。");
+        }else if(e.type==="preparing"){
           appendStep("PREPARING",true,e.message||"正在准备…");
         }else if(e.type==="named"){
           const namedProject=String(e.project||"").trim();

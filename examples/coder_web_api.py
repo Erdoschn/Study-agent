@@ -43,7 +43,13 @@ from coder.memory import CoderMemoryStore
 from coder.state import CoderState
 from coder.browser_session import CoderBrowserSession
 from core.__debug__ import debug
-from core.http_security import require_auth_for_non_loopback_bind as _shared_require_auth
+from core.redaction import redact_sensitive_text
+from core.http_security import (
+    is_allowed_local_browser_origin,
+    read_limited_request_body,
+    RequestBodyTooLarge,
+    require_auth_for_non_loopback_bind as _shared_require_auth,
+)
 from core.cancellation import RunCancelled, raise_if_cancelled
 from core.web_model import BrowserModel
 
@@ -191,13 +197,89 @@ def _llm_project_name(
     return "coder-project"
 
 def _project_root(name: str) -> Path:
-    candidate = Path(name)
-    if candidate.name != name or name in {".", ".."} or "/" in name or "\\" in name:
+    """Resolve a single safe project directory without following project links."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or len(name) > PROJECT_NAME_MAX
+        or name in {".", ".."}
+        or name != _project_name(name)
+        or "/" in name
+        or "\\" in name
+    ):
         raise WorkspaceSecurityError("项目名无效。")
+
     root = WorkspaceFS(WORKSPACE).root
-    target = (root / name).resolve()
-    target.relative_to(root)
+    candidate = root / name
+    try:
+        status = candidate.lstat()
+    except FileNotFoundError:
+        status = None
+    except OSError as exc:
+        raise WorkspaceSecurityError("无法检查项目目录。") from exc
+
+    if status is not None:
+        if candidate.is_symlink():
+            raise WorkspaceSecurityError("项目目录禁止使用符号链接。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("项目目录禁止使用 Windows reparse point。")
+
+    target = candidate.resolve(strict=False)
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise WorkspaceSecurityError("项目目录越出 workspace。") from exc
+    if len(relative.parts) != 1 or relative.name != name:
+        raise WorkspaceSecurityError("项目目录必须是 workspace 的直接子目录。")
     return target
+
+def _report_memory_warning(emit, exc: Exception) -> None:
+    """Report persistence degradation without exposing stored values or paths."""
+    reference = uuid.uuid4().hex[:8]
+    debug.log(
+        "CoderWebAPI",
+        f"MEMORY STORE WARNING → ref={reference}, error_type={type(exc).__name__}",
+    )
+    emit({
+        "type": "warning",
+        "message": (
+            f"任务仍可继续，但历史记忆无法读取或保存（参考编号 {reference}）。"
+            "当前任务结果和文件操作不受影响。"
+        ),
+    })
+
+
+def _load_coder_memory(workspace_root, emit):
+    """Load optional feedback without letting corrupt history block a coding task."""
+    try:
+        store = CoderMemoryStore(workspace_root)
+        feedback = store.recent_feedback()
+        return store, feedback
+    except Exception as exc:
+        _report_memory_warning(emit, exc)
+        return None, []
+
+
+def _record_coder_run_safely(memory, project: str, state, emit):
+    """Persist diagnostics best-effort; failures must not strand an SSE run."""
+    metrics = getattr(state, "metrics", None)
+    if not isinstance(metrics, dict):
+        metrics = None
+    if memory is None:
+        if metrics is not None:
+            metrics["memory_persisted"] = False
+        return None
+    try:
+        entry = memory.record_run(project=project, state=state)
+    except Exception as exc:
+        if metrics is not None:
+            metrics["memory_persisted"] = False
+        _report_memory_warning(emit, exc)
+        return None
+    if metrics is not None:
+        metrics["memory_persisted"] = True
+    return entry
+
 
 def _list_projects() -> list[dict]:
     root = WorkspaceFS(WORKSPACE).root
@@ -247,8 +329,15 @@ def _ensure_project(
     return project
 
 
+def _allowed_browser_origin(origin: str) -> bool:
+    return is_allowed_local_browser_origin(origin, PORT)
+
+
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
-    handler.send_header("Access-Control-Allow-Origin", "*")
+    origin = str(handler.headers.get("Origin", "") or "").strip()
+    handler.send_header("Vary", "Origin")
+    if origin and _allowed_browser_origin(origin):
+        handler.send_header("Access-Control-Allow-Origin", origin)
     handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
@@ -537,6 +626,18 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return not API_KEY or self.headers.get("Authorization", "") == f"Bearer {API_KEY}"
 
+    def _origin_allowed(self) -> bool:
+        return _allowed_browser_origin(self.headers.get("Origin", ""))
+
+    def _reject_disallowed_origin(self) -> bool:
+        if self._origin_allowed():
+            return False
+        self._json(
+            {"error": {"message": "不允许此浏览器来源访问本地 Coder API。"}},
+            403,
+        )
+        return True
+
     def _json(self, payload: dict, status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -554,22 +655,27 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def _body_json(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > 64 * 1024:
-            raise ValueError("JSON 请求超过 64 KiB。")
-        raw = self.rfile.read(length) if length else b"{}"
-        value = json.loads(raw.decode("utf-8"))
+        raw = read_limited_request_body(
+            self,
+            64 * 1024,
+            empty_body=b"{}",
+        )
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("JSON 请求格式无效。") from exc
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
 
     def _upload(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0:
+        body = read_limited_request_body(
+            self,
+            UPLOAD_MAX_BYTES + 64 * 1024,
+            empty_body=b"",
+        )
+        if not body:
             raise ValueError("上传请求为空。")
-        if length > UPLOAD_MAX_BYTES + 64 * 1024:
-            raise WorkspaceSecurityError("上传请求超过安全大小上限。")
-        body = self.rfile.read(length)
         filename, data = parse_multipart_upload(
             self.headers.get("Content-Type", ""),
             body,
@@ -609,6 +715,8 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_OPTIONS(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
             return
@@ -621,6 +729,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path in {"/", "/coder", "/coder/"} and self._serve_frontend():
+            return
+        if self._reject_disallowed_origin():
             return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
@@ -692,6 +802,8 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        if self._reject_disallowed_origin():
+            return
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized"}}, 401)
             return
@@ -850,12 +962,22 @@ class Handler(BaseHTTPRequestHandler):
                 _release_run_lock_if_unowned(control)
                 raise
         except Exception as exc:
+            if isinstance(exc, (ValueError, WorkspaceSecurityError)):
+                status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
+                message = str(exc)
+                error_type = "invalid_request_error"
+            else:
+                reference = uuid.uuid4().hex[:8]
+                debug.log(
+                    "CoderWebAPI",
+                    f"REQUEST FAILED → ref={reference}, error_type={type(exc).__name__}",
+                )
+                status = 500
+                message = f"服务器内部错误（参考编号 {reference}）。"
+                error_type = "server_error"
             self._json({
-                "error": {
-                    "message": f"{type(exc).__name__}: {exc}",
-                    "type": "server_error",
-                }
-            }, 400 if isinstance(exc, (ValueError, WorkspaceSecurityError)) else 500)
+                "error": {"message": message, "type": error_type}
+            }, status)
 
     def _stream_run(
         self,
@@ -887,8 +1009,12 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             actual_project = str(project).strip() if project is not None else ""
             result_state = None
-            memory = CoderMemoryStore(self.server.workspace.root)
+            memory = None
             try:
+                memory, recent_feedback = _load_coder_memory(
+                    self.server.workspace.root,
+                    emit,
+                )
                 browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
                     actual_project = _resolve_existing_project(actual_project)
@@ -910,7 +1036,6 @@ class Handler(BaseHTTPRequestHandler):
                     # Naming may have used a chat; every coding task starts in
                     # its own Coder conversation while reusing the same browser.
                     browser_model.new_chat()
-                recent_feedback = memory.recent_feedback()
                 emit({
                     "type": "started",
                     "project": actual_project,
@@ -944,8 +1069,8 @@ class Handler(BaseHTTPRequestHandler):
                         event_hook=agent_event_hook,
                         user_interaction=ask_user,
                     )
-                    entry = memory.record_run(project=actual_project, state=result_state)
-                    events.put({"type": "result", "state": result_state, "memory": entry})
+                    entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
+                    events.put({"type": "result", "state": result_state, "memory": entry or {}})
                 finally:
                     debug.clear_thread_binding()
             except RunCancelled:
@@ -957,7 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
                     summary="任务已被用户中止。",
                 )
                 result_state.metrics["cancelled"] = True
-                entry = memory.record_run(project=actual_project, state=result_state)
+                entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
                 events.put({
                     "type": "cancelled",
                     "project": actual_project,
@@ -966,15 +1091,19 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({
                     "type": "result",
                     "state": result_state,
-                    "memory": entry,
+                    "memory": entry or {},
                 })
             except Exception as exc:
+                safe_error = redact_sensitive_text(
+                    f"{type(exc).__name__}: {exc}",
+                    max_chars=1000,
+                )
                 result_state = CoderState(
                     request=task,
                     project=actual_project,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=safe_error,
                 )
-                entry = memory.record_run(project=actual_project, state=result_state)
+                entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
                 events.put({
                     "type": "error",
                     "error": result_state.error,
@@ -983,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({
                     "type": "result",
                     "state": result_state,
-                    "memory": entry,
+                    "memory": entry or {},
                 })
             finally:
                 events.put({"type": "done"})
@@ -1027,6 +1156,13 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "preparing",
                         "message": event.get("message", "正在准备…"),
+                    }))
+                    self.wfile.flush()
+                elif kind == "warning":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "warning",
+                        "message": event.get("message", "本地记忆暂时不可用。"),
                     }))
                     self.wfile.flush()
                 elif kind == "ask_user":
