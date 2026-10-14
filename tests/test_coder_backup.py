@@ -248,3 +248,24 @@ def test_backup_rejects_symlink_to_an_internal_directory(tmp_path):
         CoderBackupStore(tmp_path)
 
     assert not (real_directory / "latest.zip").exists()
+
+
+def test_backup_rejects_symlinked_archive_files(tmp_path):
+    import pytest
+    from coder.filesystem import WorkspaceSecurityError
+
+    store = CoderBackupStore(tmp_path)
+    external_archive = tmp_path / "external-archive.zip"
+    external_archive.write_bytes(b"do-not-read-or-overwrite")
+    archive_link = store.root / store.ARCHIVE_NAME
+    try:
+        archive_link.symlink_to(external_archive)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable in this environment")
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        store.read_manifest()
+
+    with pytest.raises(WorkspaceSecurityError, match="符号链接"):
+        store.snapshot(1)
+    assert external_archive.read_bytes() == b"do-not-read-or-overwrite"
