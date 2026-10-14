@@ -6,6 +6,8 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
+
+from core.storage_security import ensure_safe_sqlite_path
 from typing import Any
 
 
@@ -24,7 +26,8 @@ class CoderKnowledgeGraph:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
+        safe_path = ensure_safe_sqlite_path(self.path)
+        connection = sqlite3.connect(str(safe_path))
         connection.execute("PRAGMA journal_mode=WAL")
         return connection
 
