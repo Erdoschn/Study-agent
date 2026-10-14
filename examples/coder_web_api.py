@@ -1070,7 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
                         user_interaction=ask_user,
                     )
                     entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
-                    events.put({"type": "result", "state": result_state, "memory": entry or {}}
+                    events.put({"type": "result", "state": result_state, "memory": entry or {}})
                 finally:
                     debug.clear_thread_binding()
             except RunCancelled:
