@@ -10,6 +10,7 @@ from typing import Any
 from .__debug__ import debug
 from .reasoner import ModelClient
 from .prompt_config import get_prompt
+from .storage_security import ensure_private_directory
 from .cancellation import RunCancelled, raise_if_cancelled
 from .errors import AttachmentUploadError
 
@@ -798,7 +799,9 @@ class BrowserModel(ModelClient):
                 "pip install playwright && playwright install"
             ) from exc
 
-        Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
+        # Browser profiles contain persistent login cookies; they must not
+        # follow a pre-existing symlink or inherit world-readable permissions.
+        self.user_data_dir = str(ensure_private_directory(self.user_data_dir))
         edge_windows_before = self._edge_window_handles()
         self._playwright = sync_playwright().start()
 
