@@ -19,6 +19,7 @@ class TaskAnalysis:
     external_facts_needed: bool = False
     answer_strategy: str = ""
     difficulty: int = 3
+    deep_thinking: bool = False
     assessment_requested: bool = False
     assessment_concept: str = ""
     assessment_difficulty: str = "graduate"
@@ -92,6 +93,8 @@ class TaskAnalyzer:
                         json_mode=True,
                         reasoning_effort=choice.effort,
                         reasoning_effort_param=getattr(choice.model, "reasoning_effort_param", None),
+                        # The analyzer must make this decision before later calls use it.
+                        deep_thinking=False,
                     )
                     analysis = self._parse(raw)
                     analysis.domain = self._normalize_domain(question, analysis.domain)
@@ -167,13 +170,8 @@ class TaskAnalyzer:
 
     @staticmethod
     def _is_explicit_assessment_request(question: str) -> bool:
-        text = str(question or "").strip().lower()
-        markers = (
-            "出题", "给我一道题", "给我一题", "来一道题", "来道题",
-            "测试我", "测试一下", "测测我", "测一下", "考考我", "检查", "创建测试", "检验一下", "检验我的理解",
-            "做题", "quiz", "test me", "give me a question", "assess me",
-        )
-        return any(marker in text for marker in markers)
+        # Keep the class-level compatibility API while sharing one marker list.
+        return is_explicit_assessment_request(question)
 
     @staticmethod
     def _extract_assessment_concept(question: str, domain: str) -> str:
@@ -289,6 +287,15 @@ class TaskAnalyzer:
             external_text = str(raw_external).strip().lower()
             external_facts_needed = external_text in {"true", "1", "yes", "y", "on"}
 
+        raw_deep_thinking = data.get("deep_thinking", False)
+        if isinstance(raw_deep_thinking, bool):
+            deep_thinking = raw_deep_thinking
+        elif isinstance(raw_deep_thinking, (int, float)):
+            deep_thinking = bool(raw_deep_thinking)
+        else:
+            deep_text = str(raw_deep_thinking).strip().lower()
+            deep_thinking = deep_text in {"true", "1", "yes", "y", "on"}
+
         requested_raw = data.get("assessment_requested", False)
         if isinstance(requested_raw, bool):
             assessment_requested = requested_raw
@@ -311,6 +318,7 @@ class TaskAnalyzer:
             external_facts_needed=external_facts_needed,
             answer_strategy=str(data.get("answer_strategy", "")).strip(),
             difficulty=difficulty,
+            deep_thinking=deep_thinking,
             assessment_requested=assessment_requested,
             assessment_concept=assessment_concept,
             assessment_difficulty=assessment_difficulty,
