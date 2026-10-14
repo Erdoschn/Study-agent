@@ -197,12 +197,40 @@ def _llm_project_name(
     return "coder-project"
 
 def _project_root(name: str) -> Path:
-    candidate = Path(name)
-    if candidate.name != name or name in {".", ".."} or "/" in name or "\\" in name:
+    """Resolve a single safe project directory without following project links."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or len(name) > PROJECT_NAME_MAX
+        or name in {".", ".."}
+        or name != _project_name(name)
+        or "/" in name
+        or "\\" in name
+    ):
         raise WorkspaceSecurityError("项目名无效。")
+
     root = WorkspaceFS(WORKSPACE).root
-    target = (root / name).resolve()
-    target.relative_to(root)
+    candidate = root / name
+    try:
+        status = candidate.lstat()
+    except FileNotFoundError:
+        status = None
+    except OSError as exc:
+        raise WorkspaceSecurityError("无法检查项目目录。") from exc
+
+    if status is not None:
+        if candidate.is_symlink():
+            raise WorkspaceSecurityError("项目目录禁止使用符号链接。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("项目目录禁止使用 Windows reparse point。")
+
+    target = candidate.resolve(strict=False)
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise WorkspaceSecurityError("项目目录越出 workspace。") from exc
+    if len(relative.parts) != 1 or relative.name != name:
+        raise WorkspaceSecurityError("项目目录必须是 workspace 的直接子目录。")
     return target
 
 def _list_projects() -> list[dict]:
