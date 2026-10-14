@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core.redaction import redact_sensitive_text
 from .knowledge_graph import CoderKnowledgeGraph
 
 
@@ -21,13 +24,52 @@ class CoderMemoryStore:
     VERSION = 1
     MAX_RUNS = 200
     MAX_KNOWLEDGE = 100
+    MAX_FILE_BYTES = 16 * 1024 * 1024
+    _ROOT_LOCKS: dict[str, threading.RLock] = {}
+    _ROOT_LOCKS_GUARD = threading.Lock()
 
     def __init__(self, workspace_root: str | Path):
         self.root = Path(workspace_root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / ".coder-memory.json"
+        with self._ROOT_LOCKS_GUARD:
+            self._lock = self._ROOT_LOCKS.setdefault(
+                str(self.root).casefold(),
+                threading.RLock(),
+            )
+        self._ensure_safe_memory_path()
         self.knowledge_graph = CoderKnowledgeGraph(self.root)
-        self._lock = threading.Lock()
+
+    def _ensure_safe_memory_path(self) -> None:
+        """Reject links and special files instead of following them for read/write."""
+        try:
+            status = self.path.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise PermissionError("无法检查 Coder memory 文件。") from exc
+        if stat.S_ISLNK(status.st_mode):
+            raise PermissionError("Coder memory 文件禁止使用符号链接。")
+        if not stat.S_ISREG(status.st_mode):
+            raise PermissionError("Coder memory 路径必须是普通文件。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise PermissionError("Coder memory 文件禁止使用 Windows reparse point。")
+        if status.st_size > self.MAX_FILE_BYTES:
+            raise PermissionError("Coder memory 文件超过 16 MiB 安全上限。")
+
+    @staticmethod
+    def _sanitize_data(value: Any) -> Any:
+        """Redact credentials and host paths recursively before data is exposed or stored."""
+        if isinstance(value, str):
+            return redact_sensitive_text(value)
+        if isinstance(value, list):
+            return [CoderMemoryStore._sanitize_data(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: CoderMemoryStore._sanitize_data(item)
+                for key, item in value.items()
+            }
+        return value
 
     def load(self) -> dict[str, Any]:
         with self._lock:
@@ -61,30 +103,40 @@ class CoderMemoryStore:
         }
 
     def _load_unlocked(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return {
+        self._ensure_safe_memory_path()
+        try:
+            with self.path.open("r", encoding="utf-8") as handle:
+                value = json.load(handle)
+        except FileNotFoundError:
+            value = {
                 "version": self.VERSION,
                 "runs": [],
                 "strategies": [],
                 "experiences": [],
                 "technologies": [],
             }
-        try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            value = {}
+        except (OSError, ValueError) as exc:
+            # Never silently replace a corrupt history with an empty database.
+            raise RuntimeError(
+                "Coder memory 无法读取或 JSON 格式无效；为避免数据丢失，已拒绝覆盖。"
+            ) from exc
         if not isinstance(value, dict):
-            value = {}
+            raise RuntimeError("Coder memory 顶层格式无效；已拒绝覆盖。")
         value.setdefault("version", self.VERSION)
         for key in ("runs", "strategies", "experiences", "technologies"):
-            if not isinstance(value.get(key), list):
-                value[key] = []
-        return value
+            rows = value.get(key)
+            if not isinstance(rows, list):
+                raise RuntimeError(f"Coder memory 字段 {key} 格式无效；已拒绝覆盖。")
+            value[key] = [item for item in rows if isinstance(item, dict)]
+        sanitized = self._sanitize_data(value)
+        if sanitized != value:
+            self._write_unlocked(sanitized)
+        return sanitized
 
     def record_feedback(self, *, run_id: str, feedback: str) -> dict[str, Any] | None:
         """Attach explicit user feedback to a completed run."""
         run_id = str(run_id or "").strip()
-        feedback = " ".join(str(feedback or "").split()).strip()
+        feedback = redact_sensitive_text(" ".join(str(feedback or "").split()).strip(), max_chars=4000)
         if not run_id or not feedback:
             raise ValueError("run_id 和 feedback 不能为空。")
         if len(feedback.encode("utf-8")) > 16 * 1024:
@@ -127,12 +179,29 @@ class CoderMemoryStore:
         return feedback
 
     def _write_unlocked(self, data: dict[str, Any]) -> None:
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        temp.replace(self.path)
+        self._ensure_safe_memory_path()
+        safe_data = self._sanitize_data(data)
+        payload = json.dumps(safe_data, ensure_ascii=False, indent=2) + "\n"
+        encoded = payload.encode("utf-8")
+        if len(encoded) > self.MAX_FILE_BYTES:
+            raise ValueError("Coder memory 写入超过 16 MiB 安全上限。")
+
+        # A unique sibling file plus os.replace avoids cross-instance temp-file
+        # races and keeps readers from observing partial JSON.
+        temp = self.root / f".coder-memory.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        try:
+            with temp.open("x", encoding="utf-8", newline="") as handle:
+                if os.name != "nt":
+                    os.chmod(temp, 0o600)
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, self.path)
+        finally:
+            try:
+                temp.unlink()
+            except FileNotFoundError:
+                pass
 
     @staticmethod
     def _build_run(*, project: str, state: Any) -> dict[str, Any]:
@@ -144,7 +213,7 @@ class CoderMemoryStore:
             if error:
                 failures.append({
                     "action": str(getattr(step, "action", "")),
-                    "error": error[:500],
+                    "error": redact_sensitive_text(error, max_chars=500),
                 })
 
         extensions = set()
@@ -189,7 +258,7 @@ class CoderMemoryStore:
             last_test = dict(last_test)
             for key in ("stdout", "stderr"):
                 if key in last_test:
-                    last_test[key] = str(last_test[key] or "")[-5000:]
+                    last_test[key] = redact_sensitive_text(last_test[key] or "")[-2000:]
         else:
             last_test = None
 
@@ -197,12 +266,12 @@ class CoderMemoryStore:
             "id": "run-" + uuid.uuid4().hex,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "project": str(project),
-            "request": str(getattr(state, "request", ""))[:2000],
+            "request": redact_sensitive_text(getattr(state, "request", ""), max_chars=2000),
             "finished": bool(getattr(state, "finished", False)),
             "verified": bool(getattr(state, "goal_verified", False)),
             "cancelled": bool(getattr(state, "cancelled", False)),
-            "error": str(getattr(state, "error", "") or "")[:1000],
-            "summary": str(getattr(state, "summary", "") or "")[:4000],
+            "error": redact_sensitive_text(getattr(state, "error", "") or "", max_chars=1000),
+            "summary": redact_sensitive_text(getattr(state, "summary", "") or "", max_chars=4000),
             "step_count": int(getattr(state, "step_count", 0)),
             "modified_files": sorted(getattr(state, "modified_files", set()) or set()),
             "created_tests": sorted(getattr(state, "created_tests", set()) or set()),
