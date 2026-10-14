@@ -6,14 +6,14 @@ import re
 
 
 SECRET_PATTERNS = (
-    re.compile(r"(?i)(?:password|passwd|api[_ -]?key|secret|token|private[_ -]?key)\\s*[:=]"),
+    re.compile(r"(?i)(?:password|passwd|api[_ -]?key|secret|token|private[_ -]?key)\s*[:=]"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"(?<![A-Za-z0-9])(sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})(?![A-Za-z0-9])"),
     re.compile(r"(?<![A-Za-z0-9])(AIza[0-9A-Za-z_-]{30,}|(?:AKIA|ASIA)[A-Z0-9]{16})(?![A-Za-z0-9])"),
 )
 PATH_EXFIL_PATTERNS = (
-    re.compile(r"(?i)(?:[A-Za-z]:[\\\\/]|\\\\\\\\|/home/|/users/|/workspace/|file://)"),
-    re.compile(r"(?<!\\w)(?:\\.{1,2}[\\\\/])"),
+    re.compile(r"(?i)(?:[A-Za-z]:[\\/]|\\\\|/home/|/users/|/workspace/|file://)"),
+    re.compile(r"(?<!\w)(?:\.{1,2}[\\/])"),
 )
 
 _PRIVATE_KEY_BLOCK = re.compile(
@@ -22,13 +22,13 @@ _PRIVATE_KEY_BLOCK = re.compile(
 )
 _CREDENTIAL_ASSIGNMENT = re.compile(
     r"""(?ix)
-    \\b(password|passwd|api[_ -]?key|secret|token|private[_ -]?key|authorization|cookie|set-cookie)
-    \\b\\s*[:=]\\s*
-    (?:"[^"]*"|'[^']*'|[^\\s,;]+)
+    \b(password|passwd|api[_ -]?key|secret|token|private[_ -]?key|authorization|cookie|set-cookie)
+    \b\s*[:=]\s*
+    (?:"[^"]*"|'[^']*'|[^\s,;]+)
     """
 )
-_BEARER_CREDENTIAL = re.compile(r"(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{12,}")
-_PATH_VALUE = re.compile(r"(?i)(?:[A-Z]:[\\\\/]|\\\\\\\\|/home/|/users/|/workspace/|file://)[^\\s\\"'<>]+")
+_BEARER_CREDENTIAL = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}")
+_PATH_VALUE = re.compile(r"(?i)(?:[A-Z]:[\\/]|\\\\|/home/|/users/|/workspace/|file://)[^\s\"'<>]+")
 _TOKEN_PATTERNS = tuple(pattern for pattern in SECRET_PATTERNS[2:])
 
 
