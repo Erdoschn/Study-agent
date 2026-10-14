@@ -162,3 +162,23 @@ def test_study_bridge_redirect_handler_never_follows_redirects():
         Message(),
         "https://attacker.example/collect",
     ) is None
+
+
+def test_study_bridge_redacts_credentials_and_host_paths_before_egress():
+    context = StudyAgentBridge._limit_context({
+        "request": "debug api_key=super-secret at C:\\Users\\Alice\\project.py",
+        "goal": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345",
+        "last_test_result": "token=private-token-value failed at /home/alice/project.py",
+        "last_observation": "ordinary failure summary",
+    })
+
+    serialized = json.dumps(context, ensure_ascii=False)
+    for sensitive in (
+        "super-secret",
+        "C:\\Users\\Alice\\project.py",
+        "abcdefghijklmnopqrstuvwxyz012345",
+        "private-token-value",
+        "/home/alice/project.py",
+    ):
+        assert sensitive not in serialized
+    assert "ordinary failure summary" in serialized
