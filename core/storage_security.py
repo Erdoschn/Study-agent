@@ -31,6 +31,40 @@ def _validate_regular_file(path: Path, *, max_bytes: int) -> bool:
     return True
 
 
+def ensure_private_directory(path: str | Path) -> Path:
+    """Create a dedicated directory with private permissions and no leaf reparse points."""
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    if candidate.name in {"", ".", ".."}:
+        raise PermissionError("敏感数据目录必须是专用子目录。")
+
+    parent = candidate.parent.resolve()
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        candidate = parent / candidate.name
+        try:
+            status = candidate.lstat()
+        except FileNotFoundError:
+            candidate.mkdir(mode=0o700)
+            status = candidate.lstat()
+    except OSError as exc:
+        raise PermissionError("无法创建或检查敏感数据目录。") from exc
+
+    if stat.S_ISLNK(status.st_mode):
+        raise PermissionError("敏感数据目录禁止使用符号链接。")
+    if not stat.S_ISDIR(status.st_mode):
+        raise PermissionError("敏感数据路径必须是普通目录。")
+    if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+        raise PermissionError("敏感数据目录禁止使用 Windows reparse point。")
+    if os.name != "nt":
+        try:
+            os.chmod(candidate, 0o700)
+        except OSError as exc:
+            raise PermissionError("无法限制敏感数据目录权限。") from exc
+    return candidate.resolve()
+
+
 def ensure_safe_sqlite_path(path: str | Path) -> Path:
     """Create a private DB file atomically when absent and reject unsafe DB/sidecar paths.
 
