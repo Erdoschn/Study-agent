@@ -663,10 +663,10 @@ class BrowserModel(ModelClient):
             self._pending_prompt = recovery_prompt
             self._submission_baseline_message_count = self._visible_chat_message_count(page)
             self._send_prompt(
-            page,
-            recovery_prompt,
-            deep_thinking=True if deep_thinking is None else bool(deep_thinking),
-        )
+                page,
+                recovery_prompt,
+                deep_thinking=True if deep_thinking is None else bool(deep_thinking),
+            )
             answer = self._wait_for_response(page, before_snapshot)
             markdown = self._copy_latest_response_markdown(page)
             if markdown:
