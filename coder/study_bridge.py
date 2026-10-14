@@ -79,11 +79,14 @@ class StudyAgentBridge:
         *,
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        question = str(question or "").strip()
+        question = redact_sensitive_text(
+            str(question or "").strip(),
+            max_chars=8000,
+        )
         if not question:
             raise ValueError("ASK_STUDY_AGENT 需要 question。")
         payload = {
-            "question": question[:8000],
+            "question": question,
             "context": self._limit_context(context),
             "requester": "coder",
         }
@@ -146,17 +149,26 @@ class StudyAgentBridge:
         if not isinstance(context, dict):
             return {}
         value = dict(context)
-        value["request"] = str(value.get("request", ""))[:2000]
-        value["goal"] = str(value.get("goal", ""))[:2000]
+        value["request"] = redact_sensitive_text(value.get("request", ""), max_chars=2000)
+        value["goal"] = redact_sensitive_text(value.get("goal", ""), max_chars=2000)
         value["modified_files"] = [
-            str(item)[:200] for item in list(value.get("modified_files", []))[:20]
+            redact_sensitive_text(item, max_chars=200)
+            for item in list(value.get("modified_files", []))[:20]
         ]
         value["created_tests"] = [
-            str(item)[:200] for item in list(value.get("created_tests", []))[:20]
+            redact_sensitive_text(item, max_chars=200)
+            for item in list(value.get("created_tests", []))[:20]
         ]
-        value["last_test_result"] = str(value.get("last_test_result", ""))[:6000]
-        value["last_observation"] = str(value.get("last_observation", ""))[:6000]
+        value["last_test_result"] = redact_sensitive_text(
+            value.get("last_test_result", ""),
+            max_chars=6000,
+        )
+        value["last_observation"] = redact_sensitive_text(
+            value.get("last_observation", ""),
+            max_chars=6000,
+        )
         value["recent_actions"] = [
-            str(item)[:100] for item in list(value.get("recent_actions", []))[-12:]
+            redact_sensitive_text(item, max_chars=100)
+            for item in list(value.get("recent_actions", []))[-12:]
         ]
         return value
