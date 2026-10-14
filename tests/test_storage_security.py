@@ -90,3 +90,18 @@ def test_private_directory_rejects_symlinks_and_non_directories(tmp_path):
 
     with pytest.raises(PermissionError, match="专用子目录"):
         ensure_private_directory(".")
+
+
+def test_sqlite_guard_rejects_symlinked_parent_directories(tmp_path):
+    target = tmp_path / "external-parent"
+    target.mkdir()
+    link = tmp_path / "linked-parent"
+    _symlink_or_skip(link, target)
+
+    with pytest.raises(PermissionError, match="符号链接"):
+        ensure_safe_sqlite_path(link / "graph.sqlite3")
+
+    with pytest.raises(PermissionError, match="符号链接"):
+        ensure_private_directory(link / "browser-profile")
+
+    assert list(target.iterdir()) == []
