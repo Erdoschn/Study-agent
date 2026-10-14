@@ -508,7 +508,7 @@ class BrowserModel(ModelClient):
         allowed_actions = {
             "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
             "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",
-            "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "ASK_STUDY_AGENT", "ASK_USER",
+            "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "RUN_PROJECT", "ASK_STUDY_AGENT", "ASK_USER",
             "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",
         }
 
@@ -610,7 +610,7 @@ class BrowserModel(ModelClient):
         return str(data.get("action", "")).upper() not in {
             "SEARCH", "CALCULATE", "VERIFY", "ASSESS", "ANSWER", "STOP",
             "PLAN", "LIST_FILES", "READ_FILE", "WRITE_FILE", "WRITE_NOTEBOOK",
-            "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST",
+            "PATCH_FILE", "PATCH_NOTEBOOK", "CREATE_TEST", "RUN_PYTHON", "RUN_PYTEST", "RUN_PROJECT",
             "ASK_STUDY_AGENT", "ASK_USER", "READ_DIFF", "VERIFY_GOAL", "FINISH", "NEW_CHAT",
         }
 

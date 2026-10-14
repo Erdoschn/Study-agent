@@ -592,9 +592,11 @@ Study-agent/
 ```
 
 
-## Python Coder Agent
+## Multi-language Coder Agent
 
-仓库现在额外提供一个独立的 Python Coding Agent。它复用现有 BrowserModel 调用 DeepSeek Web，但拥有独立的 Coding Harness，不会把代码执行权限加入 StudyAgent 的普通工具系统。
+仓库提供一个独立的多语言 Coding Agent。它复用现有 BrowserModel 调用 DeepSeek Web，但拥有独立的 Coding Harness，不会把代码执行权限加入 StudyAgent 的普通工具系统。
+
+当前支持 Python/Notebook、HTML/CSS/JavaScript、C++ 和 Java 源码。HTML 验证会检查本地资源引用、重复 id 与识别到的 JavaScript 语法；C++ 以 C++17 编译运行；Java 使用 JDK 编译运行。它不会自动启动完整浏览器做视觉测试，也不会联网安装 Maven、Gradle、npm 等第三方依赖。
 
 固定工作空间：
 
@@ -629,16 +631,16 @@ Finish
 安全边界：
 
 - Coder 文件 API 只接受 workspace 相对路径，拒绝绝对路径、`..`、reparse point、敏感凭据文件以及 workspace 外的路径。
-- 模型不能提交 shell command；RUN_PYTHON / RUN_PYTEST 只接受经过 Harness 校验的相对文件路径。
-- Python 执行要求本地镜像 `study-agent-coder-python:1` 已存在，运行时使用 `--pull=never`、`--network none`、只读镜像根文件系统、丢弃 Linux capabilities、禁止提权、CPU/RAM/PID/输出上限。
+- 模型不能提交任意 shell command；RUN_PYTHON / RUN_PYTEST 使用经过 Harness 校验的相对路径，RUN_PROJECT 仅允许固定的 `html` / `cpp` / `java` 验证流程。
+- 需要本地镜像 `study-agent-coder-multilang:1`，运行时使用 `--pull=never`、`--network none`、只读镜像根文件系统、丢弃 Linux capabilities、禁止提权、CPU/RAM/PID/输出上限。容器预装 C++ 编译器、JDK 和 Node.js。
 - 容器拿到的是经过过滤的 workspace 副本，而不是原始 workspace 的可写挂载；敏感文件不会进入执行环境。
-- Coder 默认必须实际修改代码、创建 pytest，并在最后一次修改之后通过 pytest，才能进入 FINISH。
-- 没有可信 Docker 沙箱时，Coder 不执行 Python/pytest，而是 fail-closed。
+- 需要验证的编码任务必须在最后一次修改之后通过对应的 pytest / HTML / C++ / Java 验证，才能进入 FINISH。
+- 没有可信 Docker 沙箱时，Coder 不执行代码/编译项目，而是 fail-closed。
 
 构建安全执行镜像（首次使用）：
 
 ```powershell
-docker build -t study-agent-coder-python:1 coder
+docker build -t study-agent-coder-multilang:1 coder
 ```
 
 运行：

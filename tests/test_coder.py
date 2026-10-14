@@ -272,12 +272,24 @@ def test_workspace_rejects_invalid_notebook_cell(tmp_path):
         fs.write_notebook("demo.ipynb", bad)
 
 
-def test_workspace_allows_only_python_writes(tmp_path):
+def test_workspace_allows_supported_language_source_files_but_not_arbitrary_binaries(tmp_path):
     fs = WorkspaceFS(tmp_path)
     with pytest.raises(WorkspaceSecurityError):
         fs.write_text("notes.txt", "no")
     fs.write_text("src/a.py", "print(1)")
+    fs.write_text("web/index.html", "<html><body>Hello</body></html>")
+    fs.write_text("web/style.css", "body { color: red; }")
+    fs.write_text("web/app.js", "console.log('hi');")
+    fs.write_text("cpp/main.cpp", "int main() { return 0; }")
+    fs.write_text("java/Main.java", "class Main { public static void main(String[] args) {} }")
+    fs.write_text("Makefile", "all:\n\tg++ main.cpp -o main")
     assert fs.read_text("src/a.py") == "print(1)"
+    assert fs.read_text("web/index.html").startswith("<html>")
+    assert fs.read_text("cpp/main.cpp").startswith("int main")
+    assert fs.read_text("java/Main.java").startswith("class Main")
+    assert fs.read_text("Makefile").startswith("all:")
+    with pytest.raises(WorkspaceSecurityError):
+        fs.write_text("output.exe", "not a supported source")
 
 
 def test_harness_rejects_destructive_existing_notebook_rewrite(tmp_path):
@@ -860,3 +872,80 @@ def test_coder_agent_blocks_unchanged_retry_after_tool_failure(tmp_path):
     assert state.metrics["repeated_failed_action_blocked"] == 1
     assert any(step.observation.get("status") == "repeat_blocked" for step in state.steps if isinstance(step.observation, dict))
     assert any(step.action == "PLAN" and "unique patch" in str(step.observation) for step in state.steps)
+
+
+
+def test_harness_exposes_multi_language_project_runner(tmp_path):
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    specs = {spec["name"]: spec for spec in harness.tool_specs()}
+    assert "RUN_PROJECT" in specs
+    properties = specs["RUN_PROJECT"]["parameters"]["properties"]
+    assert properties["kind"]["enum"] == ["html", "cpp", "java"]
+    assert "command" not in properties
+
+
+def test_harness_run_project_validates_source_paths_and_records_result(tmp_path):
+    from coder.sandbox import SandboxResult
+    from coder.state import CoderState
+
+    (tmp_path / "main.cpp").write_text(
+        '#include <iostream>\nint main(){int x=0; std::cin >> x; std::cout << x*2;}\n',
+        encoding="utf-8",
+    )
+
+    class FakeSandbox:
+        def __init__(self):
+            self.calls = []
+
+        def run_project(self, kind, path, *, sources=(), args=(), stdin_text="", cancellation_event=None):
+            self.calls.append((kind, path, list(sources), list(args), stdin_text))
+            return SandboxResult(0, "42", "", False, False)
+
+    fake = FakeSandbox()
+    harness = CoderHarness(str(tmp_path), sandbox=fake)
+    state = CoderState("run C++ program")
+    result = harness.execute(
+        "RUN_PROJECT",
+        {"kind": "cpp", "path": "main.cpp", "args": [], "stdin": "21\n"},
+        state,
+    )
+    assert fake.calls == [("cpp", "main.cpp", [], [], "21\n")]
+    assert result["passed"] is True
+    assert result["kind"] == "cpp"
+    assert state.test_generation == state.modification_generation
+
+
+def test_harness_rejects_unsafe_or_wrong_language_project_runner_paths(tmp_path):
+    from coder.state import CoderState
+
+    harness = CoderHarness(str(tmp_path), sandbox=SimpleNamespace())
+    state = CoderState("run project")
+    with pytest.raises(WorkspaceSecurityError):
+        harness.execute("RUN_PROJECT", {"kind": "cpp", "path": "../outside.cpp"}, state)
+    with pytest.raises(ValueError, match="扩展名"):
+        harness.execute("RUN_PROJECT", {"kind": "java", "path": "index.html"}, state)
+
+
+def test_coder_detects_the_required_multilanguage_validator():
+    from coder.agent import CoderAgent
+
+    assert CoderAgent._request_project_validation_kind("Write a responsive HTML page") == "html"
+    assert CoderAgent._request_project_validation_kind("Fix this C++ program") == "cpp"
+    assert CoderAgent._request_project_validation_kind("修复这个 Java 程序") == "java"
+    assert CoderAgent._request_project_validation_kind("修复这个 JavaScript 文件") is None
+    assert CoderAgent._request_project_validation_kind("解释这个 Python 函数") is None
+
+
+def test_coder_detects_unambiguous_project_language_from_workspace():
+    from coder.agent import CoderAgent
+
+    class FileList:
+        def list_files(self):
+            return ["src/Main.java", "README.md"]
+
+    agent = CoderAgent.__new__(CoderAgent)
+    agent.harness = SimpleNamespace(fs=FileList())
+    assert agent._workspace_project_validation_kind() == "java"
+
+    agent.harness = SimpleNamespace(fs=SimpleNamespace(list_files=lambda: ["index.html", "src/Main.java"]))
+    assert agent._workspace_project_validation_kind() is None

@@ -258,11 +258,15 @@ def test_harness_writes_only_valid_notebook(tmp_path):
     assert state.modified_files == {"analysis.ipynb"}
 
 
-def test_reasoner_parser_accepts_notebook_action():
+def test_reasoner_parser_accepts_notebook_and_project_actions():
     result = CoderReasoner._parse(
         '{"action":"WRITE_NOTEBOOK","arguments":{"path":"demo.ipynb","content":"{}"}}'
     )
     assert result["action"] == "WRITE_NOTEBOOK"
+    project = CoderReasoner._parse(
+        '{"action":"RUN_PROJECT","arguments":{"kind":"cpp","path":"main.cpp"}}'
+    )
+    assert project["action"] == "RUN_PROJECT"
 
 
 def test_create_test_rejects_notebook_target(tmp_path):
@@ -347,3 +351,60 @@ def test_sandbox_command_security_contract():
     assert '"--security-opt", "no-new-privileges:true"' in text
     assert '"--user", "65534:65534"' in text
     assert '"--pull=never"' in text
+    assert '"study-agent-coder-multilang:1"' in text
+    assert '"--tmpfs", "/build:rw,exec,nosuid,nodev,size=512m' in text
+
+
+
+@pytest.mark.skipif(not _docker_image_ready(), reason="Coder Docker image is not built")
+def test_real_sandbox_compiles_and_runs_cpp_with_stdin(tmp_path):
+    (tmp_path / "main.cpp").write_text(
+        '#include <iostream>\nint main(){long long x=0; if(!(std::cin>>x)) return 2; std::cout << x*2 << "\\n";}\n',
+        encoding="utf-8",
+    )
+    result = DockerPythonSandbox(tmp_path, timeout_seconds=90).run_project(
+        "cpp", "main.cpp", stdin_text="21\n"
+    )
+    assert result.passed, result.stderr
+    assert "42" in result.stdout
+
+
+@pytest.mark.skipif(not _docker_image_ready(), reason="Coder Docker image is not built")
+def test_real_sandbox_compiles_java_project_with_multiple_sources(tmp_path):
+    util = tmp_path / "src" / "math"
+    util.mkdir(parents=True)
+    (util / "Doubler.java").write_text(
+        "package math; public class Doubler { public static int apply(int x) { return x * 2; } }\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "src" / "Main.java"
+    main.write_text(
+        "import math.Doubler; public class Main { public static void main(String[] args) { "
+        "System.out.println(Doubler.apply(Integer.parseInt(args[0]))); } }\n",
+        encoding="utf-8",
+    )
+    result = DockerPythonSandbox(tmp_path, timeout_seconds=90).run_project(
+        "java", "src/Main.java", sources=["src/math/Doubler.java"], args=["21"]
+    )
+    assert result.passed, result.stderr
+    assert "42" in result.stdout
+
+
+@pytest.mark.skipif(not _docker_image_ready(), reason="Coder Docker image is not built")
+def test_real_sandbox_checks_html_local_resources_and_script_syntax(tmp_path):
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><html><head><link rel="stylesheet" href="app.css">'
+        '</head><body><main id="root"></main><script src="app.js"></script>'
+        '<script>const value = 1;</script></body></html>',
+        encoding="utf-8",
+    )
+    (tmp_path / "app.css").write_text("main { display: block; }", encoding="utf-8")
+    (tmp_path / "app.js").write_text("const ready = true;", encoding="utf-8")
+    result = DockerPythonSandbox(tmp_path, timeout_seconds=60).run_project("html", "index.html")
+    assert result.passed, result.stderr
+    assert "HTML 检查通过" in result.stdout
+
+    (tmp_path / "app.js").write_text("const = invalid;", encoding="utf-8")
+    result = DockerPythonSandbox(tmp_path, timeout_seconds=60).run_project("html", "index.html")
+    assert not result.passed
+    assert "JavaScript 语法检查失败" in result.stderr

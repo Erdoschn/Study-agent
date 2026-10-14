@@ -261,7 +261,7 @@ async function health(){
     setHealth(false,"API 离线");
   }
 }
-function fileType(path){const m=/\.([^.]+)$/.exec(String(path||""));const ext=m?m[1].toLowerCase():"";const types={py:"Python",ipynb:"Notebook",js:"JavaScript",jsx:"React",ts:"TypeScript",tsx:"React TS",html:"HTML",htm:"HTML",css:"CSS",json:"JSON",md:"Markdown",txt:"文本",yml:"YAML",yaml:"YAML",toml:"TOML",xml:"XML",csv:"CSV",sql:"SQL",java:"Java",c:"C",h:"C/C++ 头文件",cpp:"C++",rs:"Rust",go:"Go",sh:"Shell",bat:"批处理",ps1:"PowerShell",pdf:"PDF",png:"图片",jpg:"图片",jpeg:"图片",svg:"SVG"};return types[ext]||(ext?ext.toUpperCase():"文件")}
+function fileType(path){const m=/\.([^.]+)$/.exec(String(path||""));const ext=m?m[1].toLowerCase():"";const types={py:"Python",ipynb:"Notebook",js:"JavaScript",jsx:"React",ts:"TypeScript",tsx:"React TS",html:"HTML",htm:"HTML",css:"CSS",json:"JSON",md:"Markdown",txt:"文本",yml:"YAML",yaml:"YAML",toml:"TOML",xml:"XML",csv:"CSV",sql:"SQL",java:"Java",c:"C",h:"C/C++ 头文件",cpp:"C++",cc:"C++",cxx:"C++",hpp:"C++ 头文件",hxx:"C++ 头文件",rs:"Rust",go:"Go",sh:"Shell",bat:"批处理",ps1:"PowerShell",pdf:"PDF",png:"图片",jpg:"图片",jpeg:"图片",svg:"SVG"};return types[ext]||(ext?ext.toUpperCase():"文件")}
 function renderFiles(files){const box=$("files");box.textContent="";if(!files.length){box.innerHTML='<div class="empty">项目里还没有可读文件</div>';return}for(const path of files){const b=document.createElement("button");b.className="file";const label=document.createElement("span");label.textContent=path;label.style.overflowWrap="anywhere";const e=document.createElement("span");e.className="ext";e.textContent=fileType(path);b.append(label,e);b.title="查看 "+path;b.onclick=()=>openFile(path);box.append(b)}}
 function renderHistory(runs){
   const box=$("history");box.textContent="";

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -18,7 +19,11 @@ from core.cancellation import raise_if_cancelled
 READABLE_EXTENSIONS = {
     ".py", ".pyi", ".txt", ".md", ".rst", ".json", ".toml",
     ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml", ".ipynb",
+    ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".c", ".h", ".cc",
+    ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".java", ".properties",
+    ".gradle", ".kts", ".sql", ".svg",
 }
+SPECIAL_TEXT_FILENAMES = {"makefile", "gnumakefile", "dockerfile", "containerfile"}
 BLOCKED_NAMES = {
     ".env", ".env.local", ".env.production", ".git-credentials",
     "id_rsa", "id_ed25519",
@@ -41,8 +46,13 @@ class SandboxResult:
 
 
 class DockerPythonSandbox:
-    IMAGE = "study-agent-coder-python:1"
+    IMAGE = "study-agent-coder-multilang:1"
     MAX_OUTPUT_BYTES = 65_536
+    PROJECT_SUFFIXES = {
+        "html": {".html", ".htm"},
+        "cpp": {".cc", ".cpp", ".cxx"},
+        "java": {".java"},
+    }
 
     def __init__(
         self,
@@ -141,7 +151,10 @@ class DockerPythonSandbox:
                     continue
                 if source.suffix.casefold() in BLOCKED_SUFFIXES:
                     continue
-                if source.suffix.casefold() not in READABLE_EXTENSIONS:
+                if (
+                    source.suffix.casefold() not in READABLE_EXTENSIONS
+                    and name_key not in SPECIAL_TEXT_FILENAMES
+                ):
                     continue
                 destination = target_dir / name
                 if source.stat().st_size > 1_048_576:
@@ -206,17 +219,115 @@ class DockerPythonSandbox:
                 cancellation_event=cancellation_event,
             )
 
+    def run_project(
+        self,
+        kind: str,
+        path: str,
+        *,
+        sources: Iterable[str] = (),
+        args: Iterable[str] = (),
+        stdin_text: str = "",
+        cancellation_event: Event | None = None,
+    ) -> SandboxResult:
+        """Validate HTML or compile/run C++/Java via fixed sandbox actions."""
+        raise_if_cancelled(cancellation_event)
+        kind = str(kind or "").casefold()
+        if kind not in self.PROJECT_SUFFIXES:
+            raise ValueError("RUN_PROJECT.kind 只支持 html / cpp / java。")
+
+        source_paths: list[str] = []
+        for raw in [path, *list(sources)]:
+            value = str(raw)
+            normalized = value.replace("\\", "/")
+            parts = [part for part in normalized.split("/") if part not in {"", "."}]
+            if (
+                not parts
+                or any(part == ".." or part.startswith("-") for part in parts)
+                or normalized.startswith("/")
+                or ":" in value
+                or "::" in value
+            ):
+                raise PermissionError("RUN_PROJECT 路径非法。")
+            if Path(normalized).suffix.casefold() not in self.PROJECT_SUFFIXES[kind]:
+                raise ValueError(f"RUN_PROJECT {kind} 源文件扩展名无效：{value}")
+            if normalized not in source_paths:
+                source_paths.append(normalized)
+            if len(source_paths) > 50:
+                raise ValueError("RUN_PROJECT 最多允许 50 个源文件。")
+        if kind == "html" and len(source_paths) != 1:
+            raise ValueError("HTML 检查只接受一个入口页面；本地 CSS/JS 引用会自动检查。")
+
+        program_args = list(args)
+        if len(program_args) > 16 or any(not isinstance(value, str) for value in program_args):
+            raise ValueError("RUN_PROJECT.args 必须是最多 16 个字符串。")
+        if any("\0" in value for value in program_args):
+            raise ValueError("RUN_PROJECT.args 不能包含 NUL 字符。")
+        if sum(len(value.encode("utf-8")) for value in program_args) > 4096:
+            raise ValueError("RUN_PROJECT.args 总长度超过 4096 字节。")
+        stdin_text = str(stdin_text or "")
+        if len(stdin_text.encode("utf-8")) > 16_384:
+            raise ValueError("RUN_PROJECT.stdin 超过 16 KiB。")
+        if kind == "html" and (program_args or stdin_text):
+            raise ValueError("HTML 检查不接受程序参数或标准输入。")
+
+        payload = json.dumps(
+            {
+                "kind": kind,
+                "path": source_paths[0],
+                "sources": source_paths,
+                "args": program_args,
+                "stdin": stdin_text,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        name = "coder-sandbox-" + uuid.uuid4().hex[:20]
+        with self._stage_workspace(cancellation_event=cancellation_event) as staged:
+            command = [
+                "docker", "run", "--interactive", "--rm", "--init", "--pull=never",
+                "--name", name,
+                "--user", "65534:65534",
+                "--network", "none",
+                "--read-only",
+                "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges:true",
+                "--pids-limit", str(self.pids),
+                "--memory", self.memory,
+                "--cpus", self.cpus,
+                "--ulimit", "nofile=256:256",
+                "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=128m,uid=65534,gid=65534,mode=700",
+                "--tmpfs", "/sandbox:rw,nosuid,nodev,noexec,size=512m,uid=65534,gid=65534,mode=700",
+                "--tmpfs", "/build:rw,exec,nosuid,nodev,size=512m,uid=65534,gid=65534,mode=700",
+                "--mount",
+                f"type=bind,src={staged},dst=/workspace,readonly",
+                self.IMAGE,
+                "project",
+            ]
+            result = self._run_limited(
+                command,
+                name,
+                stdin_payload=payload,
+                cancellation_event=cancellation_event,
+            )
+        if result.stderr.startswith("CODER_TIMEOUT:"):
+            result.timed_out = True
+        if result.stderr.startswith("CODER_OUTPUT_LIMIT:"):
+            result.output_limited = True
+        return result
+
     def _run_limited(
         self,
         command: list[str],
         name: str,
         *,
+        stdin_payload: bytes | None = None,
         cancellation_event: Event | None = None,
     ) -> SandboxResult:
         try:
             proc = subprocess.Popen(
                 command,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE if stdin_payload is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
@@ -246,6 +357,23 @@ class DockerPythonSandbox:
         for thread in threads:
             thread.start()
 
+        input_thread = None
+        if stdin_payload is not None and proc.stdin is not None:
+            def write_input():
+                try:
+                    proc.stdin.write(stdin_payload)
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+                finally:
+                    try:
+                        proc.stdin.close()
+                    except OSError:
+                        pass
+
+            input_thread = Thread(target=write_input, daemon=True)
+            input_thread.start()
+
         started = time.monotonic()
         timed_out = False
         cancelled = False
@@ -266,6 +394,8 @@ class DockerPythonSandbox:
         returncode = proc.wait()
         for thread in threads:
             thread.join(timeout=1.0)
+        if input_thread is not None:
+            input_thread.join(timeout=0.2)
         if cancelled or timed_out or exceeded.is_set():
             subprocess.run(
                 ["docker", "rm", "-f", name],

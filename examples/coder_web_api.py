@@ -276,6 +276,7 @@ def _step_summary(step) -> str:
         "CREATE_TEST": f"新增测试 {path}" if path else "新增测试",
         "RUN_PYTHON": f"运行 {str(args.get('script_path', '')).strip()}" if args.get("script_path") else "运行 Python",
         "RUN_PYTEST": "运行 pytest",
+        "RUN_PROJECT": f"验证 {str(args.get('kind', '')).upper()} 项目 {str(args.get('path', '')).strip()}".strip(),
         "ASK_STUDY_AGENT": "咨询 Study Agent",
         "READ_DIFF": "检查代码修改",
         "VERIFY_GOAL": "验证任务完成条件",

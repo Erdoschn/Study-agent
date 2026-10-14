@@ -30,7 +30,9 @@ def test_coder_prompt_documents_new_chat_policy():
 
 def test_coder_prompt_is_independent_from_study_agent_role():
     prompt = get_prompt("coder.reasoner")
-    assert "独立的 Python Coding Agent 决策器" in prompt
+    assert "独立的多语言 Coding Agent 决策器" in prompt
+    assert "HTML/CSS/JavaScript、C++ 和 Java" in prompt
+    assert "RUN_PROJECT" in prompt
     assert "不负责控制宿主应用、上层工作流或其他 Agent" in prompt
     assert "StudyAgent" not in prompt
     assert "StudyAgent 的 Python Coding Agent" not in prompt

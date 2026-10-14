@@ -56,7 +56,7 @@ def _is_explicit_stop_confirmation(response: object) -> bool:
 
 
 class CoderAgent:
-    """Autonomous Python coding agent with a fail-closed Harness."""
+    """Autonomous multi-language coding agent with a fail-closed Harness."""
 
     def __init__(
         self,
@@ -112,6 +112,42 @@ class CoderAgent:
             r"(?i)\btests?\b|\bpytest\b|测试|回归|单元测试",
             str(request or ""),
         ))
+
+    @staticmethod
+    def _request_project_validation_kind(request: str) -> str | None:
+        """Infer one concrete validator from explicit language names/extensions."""
+        text = str(request or "").casefold().replace("javascript", "")
+        # Explicit file extensions are the least ambiguous signal.
+        if any(suffix in text for suffix in (".cpp", ".cc", ".cxx")) or any(
+            token in text for token in ("c++", "cpp", "g++")
+        ):
+            return "cpp"
+        if ".java" in text or "javac" in text or "java" in text:
+            return "java"
+        if any(suffix in text for suffix in (".html", ".htm")) or any(
+            token in text for token in ("html", "front-end", "frontend", "web page", "website", "网页", "网站", "前端", "页面")
+        ):
+            return "html"
+        return None
+
+    def _workspace_project_validation_kind(self) -> str | None:
+        list_files = getattr(getattr(self.harness, "fs", None), "list_files", None)
+        if not callable(list_files):
+            return None
+        try:
+            paths = list_files()
+        except Exception:
+            return None
+        kinds = set()
+        for path in paths:
+            value = str(path).replace("\\", "/").casefold()
+            if value.endswith((".html", ".htm")):
+                kinds.add("html")
+            elif value.endswith((".cpp", ".cc", ".cxx")):
+                kinds.add("cpp")
+            elif value.endswith(".java"):
+                kinds.add("java")
+        return next(iter(kinds)) if len(kinds) == 1 else None
 
     @staticmethod
     def _request_requires_test_creation(request: str) -> bool:
@@ -222,13 +258,21 @@ class CoderAgent:
 
         existing_tests = self._workspace_has_tests()
         explicitly_requests_tests = self._request_requires_tests(request)
-        # The planner decides which files/tests are needed. The user's original
-        # request remains immutable in state.request and is carried to every turn.
+        required_validation_kind = (
+            self._request_project_validation_kind(request)
+            or self._workspace_project_validation_kind()
+        )
+        if required_validation_kind:
+            state.metrics["required_validation_kind"] = required_validation_kind
+        # Preserve the Python test policy, while requiring the matching validator
+        # for language-specific tasks rather than letting an unrelated test pass.
         state.goal = CoderGoal(
             description=request,
             must_modify=True,
             must_create_tests=False,
-            must_pass_tests=existing_tests or explicitly_requests_tests,
+            must_pass_tests=(
+                existing_tests or explicitly_requests_tests or bool(required_validation_kind)
+            ),
         )
         started = time.monotonic()
         try:
@@ -585,7 +629,7 @@ class CoderAgent:
             state.metrics["modified_files"] = len(state.modified_files)
             state.metrics["chat_resets"] = state.chat_resets
             state.metrics["test_runs"] = sum(
-                1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST"}
+                1 for step in state.steps if step.action in {"RUN_PYTHON", "RUN_PYTEST", "RUN_PROJECT"}
             )
             emit({"type": "finished", "state": state})
             return state

@@ -67,7 +67,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Build Coder sandbox image
-        run: docker build --pull=false -t study-agent-coder-python:1 coder
+        run: docker build --pull=false -t study-agent-coder-multilang:1 coder
 
       - name: Run Coder security tests
         shell: bash

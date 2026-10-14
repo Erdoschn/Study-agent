@@ -15,10 +15,17 @@ class WorkspaceSecurityError(PermissionError):
 class WorkspaceFS:
     """Fail-closed filesystem boundary for the fixed Coder workspace."""
 
-    EDITABLE_EXTENSIONS = frozenset({".py", ".pyi", ".ipynb"})
-    READABLE_EXTENSIONS = frozenset({
-        ".py", ".pyi", ".txt", ".md", ".rst", ".json", ".toml",
-        ".ini", ".cfg", ".yaml", ".yml", ".csv", ".tsv", ".xml", ".ipynb",
+    EDITABLE_EXTENSIONS = frozenset({
+        ".py", ".pyi", ".ipynb", ".html", ".htm", ".css", ".js", ".mjs",
+        ".cjs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx",
+        ".java", ".properties", ".gradle", ".kts", ".sql", ".svg",
+    })
+    READABLE_EXTENSIONS = EDITABLE_EXTENSIONS | frozenset({
+        ".txt", ".md", ".rst", ".json", ".toml", ".ini", ".cfg",
+        ".yaml", ".yml", ".csv", ".tsv", ".xml",
+    })
+    SPECIAL_TEXT_FILENAMES = frozenset({
+        "makefile", "gnumakefile", "dockerfile", "containerfile",
     })
     BLOCKED_NAMES = frozenset({
         ".env", ".env.local", ".env.production", ".git-credentials",
@@ -124,8 +131,8 @@ class WorkspaceFS:
         ):
             raise WorkspaceSecurityError(f"禁止访问敏感文件：{rel}")
         allowed = self.EDITABLE_EXTENSIONS if write else self.READABLE_EXTENSIONS
-        if suffix not in allowed:
-            raise WorkspaceSecurityError(f"Coder 当前只允许 Python/安全文本文件：{rel}")
+        if suffix not in allowed and name not in self.SPECIAL_TEXT_FILENAMES:
+            raise WorkspaceSecurityError(f"Coder 当前不允许访问这种文件类型：{rel}")
         if test and (not rel.parts or rel.parts[0].casefold() != "tests"):
             raise WorkspaceSecurityError("CREATE_TEST 只能写入 workspace/tests。")
 
@@ -136,7 +143,7 @@ class WorkspaceFS:
         if not target.is_file():
             raise FileNotFoundError(rel.as_posix())
         if target.stat().st_size > self.MAX_FILE_BYTES:
-            raise WorkspaceSecurityError("文件超过安全读取上限（16 MiB）。")
+            raise WorkspaceSecurityError("文件超过安全读取上限（48 MiB）。")
         return target.read_text(encoding="utf-8")
 
     def read_text_range(
