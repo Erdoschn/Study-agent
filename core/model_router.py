@@ -3,6 +3,7 @@ from typing import Any
 
 from .__debug__ import debug
 from .model_registry import ModelInfo, ModelRegistry
+from .prompt_config import get_prompt
 
 
 @dataclass
@@ -45,6 +46,16 @@ def get_model_choices(
     ]
 
 
+def _with_reasoning_mode(system_prompt: str, deep_thinking: bool) -> str:
+    """Put mode guidance in the API system role; browser clients control their UI toggle."""
+    key = "model_reasoning.deep_thinking_system" if deep_thinking else "model_reasoning.standard_system"
+    instruction = get_prompt(key)
+    current = str(system_prompt or "").rstrip()
+    if instruction in current:
+        return current
+    return f"{current}\n\n{instruction}".strip()
+
+
 def call_model_with_effort(
     router,
     client,
@@ -54,18 +65,43 @@ def call_model_with_effort(
     json_mode: bool = False,
     reasoning_effort: str | None = None,
     reasoning_effort_param: str | None = None,
+    deep_thinking: bool | None = None,
 ) -> str:
-    """Compatibility adapter for lightweight routers/clients used by tests and integrations."""
+    """Compatibility adapter for model calls with a task-selected reasoning mode."""
+    import inspect
+
     method = getattr(router, "call_model", None)
     if callable(method):
-        return method(
-            client,
-            system_prompt,
-            user_prompt,
-            json_mode=json_mode,
-            reasoning_effort=reasoning_effort,
-            reasoning_effort_param=reasoning_effort_param,
-        )
+        kwargs = {
+            "json_mode": json_mode,
+            "reasoning_effort": reasoning_effort,
+            "reasoning_effort_param": reasoning_effort_param,
+        }
+        if deep_thinking is not None:
+            try:
+                parameters = inspect.signature(method).parameters
+            except (TypeError, ValueError):
+                parameters = {}
+            if "deep_thinking" in parameters:
+                kwargs["deep_thinking"] = deep_thinking
+            else:
+                system_prompt = _with_reasoning_mode(system_prompt, deep_thinking)
+        return method(client, system_prompt, user_prompt, **kwargs)
+
+    if deep_thinking is not None:
+        try:
+            supports_mode = "deep_thinking" in inspect.signature(client.generate).parameters
+        except (TypeError, ValueError):
+            supports_mode = False
+        if supports_mode:
+            return client.generate(
+                system_prompt,
+                user_prompt,
+                json_mode=json_mode,
+                **({"reasoning_effort": reasoning_effort} if reasoning_effort and reasoning_effort_param else {}),
+                deep_thinking=deep_thinking,
+            )
+        system_prompt = _with_reasoning_mode(system_prompt, deep_thinking)
     if reasoning_effort is None or not reasoning_effort_param:
         return client.generate(system_prompt, user_prompt, json_mode=json_mode)
     return client.generate(
@@ -130,12 +166,13 @@ class ModelRouter:
                 return []
 
             difficulty = self._difficulty(task_analysis)
+            deep_thinking = self._deep_thinking(task_analysis)
             choices = [
                 ModelSelection(
                     model=model,
-                    effort=self._select_effort(model, difficulty),
+                    effort=self._select_effort(model, difficulty, deep_thinking=deep_thinking),
                     reason=(
-                        f"difficulty={difficulty}, "
+                        f"difficulty={difficulty}, deep_thinking={deep_thinking if deep_thinking is not None else 'legacy'}, "
                         f"call_reliability={model.call_reliability_score(capability):.3f}"
                     ),
                 )
@@ -205,7 +242,11 @@ class ModelRouter:
         model: ModelInfo,
         task_analysis: Any = None,
     ) -> str | None:
-        return self._select_effort(model, self._difficulty(task_analysis))
+        return self._select_effort(
+            model,
+            self._difficulty(task_analysis),
+            deep_thinking=self._deep_thinking(task_analysis),
+        )
 
     @staticmethod
     def call_model(
@@ -215,31 +256,33 @@ class ModelRouter:
         json_mode: bool = False,
         reasoning_effort: str | None = None,
         reasoning_effort_param: str | None = "reasoning_effort",
+        deep_thinking: bool | None = None,
     ) -> str:
-        """Call clients with effort when supported; keep lightweight test adapters compatible."""
+        """Call a client using the analyzer-selected mode and the correct prompt channel."""
         import inspect
 
-        if reasoning_effort is None or not reasoning_effort_param:
-            return client.generate(system_prompt, user_prompt, json_mode=json_mode)
-
+        client_prompt = str(system_prompt or "")
+        kwargs = {}
         try:
-            params = inspect.signature(client.generate).parameters.values()
-            supports_effort = any(
-                p.kind == inspect.Parameter.VAR_KEYWORD
-                or p.name == "reasoning_effort"
-                for p in params
+            params = inspect.signature(client.generate).parameters
+            supports_effort = (
+                reasoning_effort_param in params
+                or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
             )
+            supports_deep_toggle = "deep_thinking" in params
         except (TypeError, ValueError):
             supports_effort = True
+            supports_deep_toggle = False
 
-        if supports_effort:
-            return client.generate(
-                system_prompt,
-                user_prompt,
-                json_mode=json_mode,
-                **{reasoning_effort_param: reasoning_effort},
-            )
-        return client.generate(system_prompt, user_prompt, json_mode=json_mode)
+        if deep_thinking is not None:
+            if supports_deep_toggle:
+                kwargs["deep_thinking"] = deep_thinking
+            else:
+                client_prompt = _with_reasoning_mode(client_prompt, deep_thinking)
+
+        if reasoning_effort is not None and reasoning_effort_param and supports_effort:
+            kwargs[reasoning_effort_param] = reasoning_effort
+        return client.generate(client_prompt, user_prompt, json_mode=json_mode, **kwargs)
 
     @staticmethod
     def _score(model: ModelInfo, capability: str, analysis: Any = None, plan: Any = None) -> float:
@@ -257,8 +300,26 @@ class ModelRouter:
         except (TypeError, ValueError):
             return 3
 
+    @staticmethod
+    def _deep_thinking(analysis: Any = None) -> bool | None:
+        # None preserves compatibility with older callers whose analysis predates this field.
+        if analysis is None or not hasattr(analysis, "deep_thinking"):
+            return None
+        value = getattr(analysis, "deep_thinking", None)
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().casefold() in {"true", "1", "yes", "y", "on"}
+
     @classmethod
-    def _select_effort(cls, model: ModelInfo, difficulty: int) -> str | None:
+    def _select_effort(
+        cls,
+        model: ModelInfo,
+        difficulty: int,
+        *,
+        deep_thinking: bool | None = None,
+    ) -> str | None:
         supported = [
             effort
             for effort in model.reasoning_efforts
@@ -266,6 +327,10 @@ class ModelRouter:
         ]
         if not supported:
             return None
+
+        if deep_thinking is False:
+            # A negative analyzer decision must cap effort at the lowest supported mode.
+            return min(supported, key=cls.EFFORT_ORDER.index)
 
         scores = model.benchmark_scores
         measured = [
