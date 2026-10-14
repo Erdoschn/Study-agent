@@ -31,6 +31,36 @@ def _validate_regular_file(path: Path, *, max_bytes: int) -> bool:
     return True
 
 
+def _ensure_directory_chain(path: Path) -> Path:
+    """Create and validate each directory component without following links."""
+    candidate = path.expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    current = Path(candidate.anchor)
+    for part in candidate.parts[1:]:
+        current = current / part
+        try:
+            status = current.lstat()
+        except FileNotFoundError:
+            try:
+                current.mkdir(mode=0o700)
+                status = current.lstat()
+            except FileExistsError:
+                status = current.lstat()
+            except OSError as exc:
+                raise PermissionError("无法创建存储目录组件。") from exc
+        except OSError as exc:
+            raise PermissionError("无法检查存储目录组件。") from exc
+
+        if stat.S_ISLNK(status.st_mode):
+            raise PermissionError(f"存储目录路径禁止使用符号链接：{current.name}")
+        if not stat.S_ISDIR(status.st_mode):
+            raise PermissionError(f"存储目录组件不是目录：{current.name}")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise PermissionError(f"存储目录禁止使用 Windows reparse point：{current.name}")
+    return candidate
+
+
 def ensure_private_directory(path: str | Path) -> Path:
     """Create a dedicated directory with private permissions and no leaf reparse points."""
     candidate = Path(path).expanduser()
@@ -39,9 +69,8 @@ def ensure_private_directory(path: str | Path) -> Path:
     if not candidate.is_absolute():
         candidate = Path.cwd() / candidate
 
-    parent = candidate.parent.resolve()
+    parent = _ensure_directory_chain(candidate.parent)
     try:
-        parent.mkdir(parents=True, exist_ok=True)
         candidate = parent / candidate.name
         try:
             status = candidate.lstat()
@@ -73,7 +102,8 @@ def ensure_safe_sqlite_path(path: str | Path) -> Path:
     the database file. This is defense in depth; it does not replace OS access control.
     """
     db_path = Path(path).expanduser()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    parent = _ensure_directory_chain(db_path.parent)
+    db_path = parent / db_path.name
 
     if not _validate_regular_file(db_path, max_bytes=MAX_SQLITE_FILE_BYTES):
         flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
