@@ -4,7 +4,7 @@ import pytest
 
 from coder.knowledge_graph import CoderKnowledgeGraph
 from core.knowledge_graph import KnowledgeGraph
-from core.storage_security import ensure_safe_sqlite_path
+from core.storage_security import ensure_private_directory, ensure_safe_sqlite_path
 
 
 def _symlink_or_skip(link, target):
@@ -68,3 +68,25 @@ def test_coder_knowledge_graph_rejects_symlinked_database(tmp_path):
         CoderKnowledgeGraph(tmp_path)
 
     assert target.read_bytes() == b"not a database"
+
+
+def test_private_directory_uses_restricted_permissions(tmp_path):
+    path = ensure_private_directory(tmp_path / "browser-profile")
+
+    assert path.is_dir()
+    assert not path.is_symlink()
+    if __import__("os").name != "nt":
+        assert path.stat().st_mode & 0o077 == 0
+
+
+def test_private_directory_rejects_symlinks_and_non_directories(tmp_path):
+    target = tmp_path / "real-profile"
+    target.mkdir()
+    link = tmp_path / "profile-link"
+    _symlink_or_skip(link, target)
+
+    with pytest.raises(PermissionError, match="符号链接"):
+        ensure_private_directory(link)
+
+    with pytest.raises(PermissionError, match="专用子目录"):
+        ensure_private_directory(".")
