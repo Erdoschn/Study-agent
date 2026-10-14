@@ -305,7 +305,9 @@ class ModelRouter:
         # None preserves compatibility with older callers whose analysis predates this field.
         if analysis is None or not hasattr(analysis, "deep_thinking"):
             return None
-        value = getattr(analysis, "deep_thinking", False)
+        value = getattr(analysis, "deep_thinking", None)
+        if value is None:
+            return None
         if isinstance(value, bool):
             return value
         return str(value).strip().casefold() in {"true", "1", "yes", "y", "on"}
