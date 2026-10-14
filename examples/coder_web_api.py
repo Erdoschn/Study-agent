@@ -233,6 +233,54 @@ def _project_root(name: str) -> Path:
         raise WorkspaceSecurityError("项目目录必须是 workspace 的直接子目录。")
     return target
 
+def _report_memory_warning(emit, exc: Exception) -> None:
+    """Report persistence degradation without exposing stored values or paths."""
+    reference = uuid.uuid4().hex[:8]
+    debug.log(
+        "CoderWebAPI",
+        f"MEMORY STORE WARNING → ref={reference}, error_type={type(exc).__name__}",
+    )
+    emit({
+        "type": "warning",
+        "message": (
+            f"任务仍可继续，但历史记忆无法读取或保存（参考编号 {reference}）。"
+            "当前任务结果和文件操作不受影响。"
+        ),
+    })
+
+
+def _load_coder_memory(workspace_root, emit):
+    """Load optional feedback without letting corrupt history block a coding task."""
+    try:
+        store = CoderMemoryStore(workspace_root)
+        feedback = store.recent_feedback()
+        return store, feedback
+    except Exception as exc:
+        _report_memory_warning(emit, exc)
+        return None, []
+
+
+def _record_coder_run_safely(memory, project: str, state, emit):
+    """Persist diagnostics best-effort; failures must not strand an SSE run."""
+    metrics = getattr(state, "metrics", None)
+    if not isinstance(metrics, dict):
+        metrics = None
+    if memory is None:
+        if metrics is not None:
+            metrics["memory_persisted"] = False
+        return None
+    try:
+        entry = memory.record_run(project=project, state=state)
+    except Exception as exc:
+        if metrics is not None:
+            metrics["memory_persisted"] = False
+        _report_memory_warning(emit, exc)
+        return None
+    if metrics is not None:
+        metrics["memory_persisted"] = True
+    return entry
+
+
 def _list_projects() -> list[dict]:
     root = WorkspaceFS(WORKSPACE).root
     projects = []
@@ -961,8 +1009,12 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             actual_project = str(project).strip() if project is not None else ""
             result_state = None
-            memory = CoderMemoryStore(self.server.workspace.root)
+            memory = None
             try:
+                memory, recent_feedback = _load_coder_memory(
+                    self.server.workspace.root,
+                    emit,
+                )
                 browser_model = getattr(self.server, "coder_browser_model", None)
                 if actual_project:
                     actual_project = _resolve_existing_project(actual_project)
@@ -984,7 +1036,6 @@ class Handler(BaseHTTPRequestHandler):
                     # Naming may have used a chat; every coding task starts in
                     # its own Coder conversation while reusing the same browser.
                     browser_model.new_chat()
-                recent_feedback = memory.recent_feedback()
                 emit({
                     "type": "started",
                     "project": actual_project,
@@ -1018,8 +1069,8 @@ class Handler(BaseHTTPRequestHandler):
                         event_hook=agent_event_hook,
                         user_interaction=ask_user,
                     )
-                    entry = memory.record_run(project=actual_project, state=result_state)
-                    events.put({"type": "result", "state": result_state, "memory": entry})
+                    entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
+                    events.put({"type": "result", "state": result_state, "memory": entry or {}}
                 finally:
                     debug.clear_thread_binding()
             except RunCancelled:
@@ -1031,7 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
                     summary="任务已被用户中止。",
                 )
                 result_state.metrics["cancelled"] = True
-                entry = memory.record_run(project=actual_project, state=result_state)
+                entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
                 events.put({
                     "type": "cancelled",
                     "project": actual_project,
@@ -1040,7 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({
                     "type": "result",
                     "state": result_state,
-                    "memory": entry,
+                    "memory": entry or {},
                 })
             except Exception as exc:
                 safe_error = redact_sensitive_text(
@@ -1052,7 +1103,7 @@ class Handler(BaseHTTPRequestHandler):
                     project=actual_project,
                     error=safe_error,
                 )
-                entry = memory.record_run(project=actual_project, state=result_state)
+                entry = _record_coder_run_safely(memory, actual_project, result_state, emit)
                 events.put({
                     "type": "error",
                     "error": result_state.error,
@@ -1061,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
                 events.put({
                     "type": "result",
                     "state": result_state,
-                    "memory": entry,
+                    "memory": entry or {},
                 })
             finally:
                 events.put({"type": "done"})
@@ -1105,6 +1156,13 @@ class Handler(BaseHTTPRequestHandler):
                         "id": cid,
                         "type": "preparing",
                         "message": event.get("message", "正在准备…"),
+                    }))
+                    self.wfile.flush()
+                elif kind == "warning":
+                    self.wfile.write(_sse({
+                        "id": cid,
+                        "type": "warning",
+                        "message": event.get("message", "本地记忆暂时不可用。"),
                     }))
                     self.wfile.flush()
                 elif kind == "ask_user":
