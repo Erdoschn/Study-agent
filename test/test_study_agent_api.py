@@ -285,8 +285,8 @@ def test_chat_requires_user_message():
             {"model": MODEL_ID, "stream": False, "messages": []},
         )
         payload = json.loads(raw)
-        assert status == 500
-        assert payload["error"]["type"] == "server_error"
+        assert status == 400
+        assert payload["error"]["type"] == "invalid_request_error"
         assert "messages 中没有可用的 user 内容" in payload["error"]["message"]
     finally:
         server.shutdown()
