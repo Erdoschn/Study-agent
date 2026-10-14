@@ -33,6 +33,7 @@ from coder.browser_session import CoderBrowserSession
 from core.http_security import (
     HTTPRequestError,
     RequestBodyTooLarge,
+    MAX_CHAT_MESSAGES,
     is_allowed_local_browser_origin,
     read_limited_request_body,
     require_auth_for_non_loopback_bind,
@@ -231,8 +232,8 @@ class Handler(BaseHTTPRequestHandler):
             messages = request.get("messages", [])
             if not isinstance(messages, list):
                 raise ValueError("messages 必须是数组")
-            if len(messages) > 256:
-                raise ValueError("messages 数量超过 256 条。")
+            if len(messages) > MAX_CHAT_MESSAGES:
+                raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
 
             prompt = self._extract_prompt(messages)
             system = next(
