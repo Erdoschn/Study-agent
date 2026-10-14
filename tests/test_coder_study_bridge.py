@@ -85,7 +85,7 @@ def test_study_agent_bridge_posts_context_and_returns_answer(monkeypatch):
             return False
 
         def read(self, limit):
-            assert limit == 1_048_576
+            assert limit == 1_048_577
             return json.dumps({
                 "answer": "Study answer",
                 "domain": "Python",
@@ -103,7 +103,15 @@ def test_study_agent_bridge_posts_context_and_returns_answer(monkeypatch):
         seen["body"] = json.loads(request.data.decode("utf-8"))
         return FakeResponse()
 
-    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    class FakeOpener:
+        def open(self, request, timeout):
+            return fake_urlopen(request, timeout)
+
+    def fake_build_opener(handler):
+        assert isinstance(handler, module._NoRedirectHandler)
+        return FakeOpener()
+
+    monkeypatch.setattr(module.urllib.request, "build_opener", fake_build_opener)
     bridge = StudyAgentBridge(
         "http://127.0.0.1:8000/internal/study/ask",
         timeout=7,
@@ -122,3 +130,35 @@ def test_study_agent_bridge_posts_context_and_returns_answer(monkeypatch):
     assert seen["body"]["requester"] == "coder"
     assert seen["body"]["question"] == "Explain dependency injection."
     assert seen["body"]["context"]["request"] == "build app"
+
+
+def test_study_bridge_rejects_insecure_remote_or_credential_bearing_urls():
+    import pytest
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        StudyAgentBridge("http://study-agent.example/internal/study/ask")
+
+    with pytest.raises(ValueError, match="无凭据"):
+        StudyAgentBridge("https://user:password@study-agent.example/internal/study/ask")
+
+    with pytest.raises(ValueError, match="无凭据"):
+        StudyAgentBridge("https://study-agent.example/internal/study/ask?api_key=secret")
+
+
+def test_study_bridge_redirect_handler_never_follows_redirects():
+    import io
+    from email.message import Message
+    from urllib.request import Request
+
+    import coder.study_bridge as module
+
+    handler = module._NoRedirectHandler()
+    request = Request("http://127.0.0.1:8000/internal/study/ask")
+    assert handler.redirect_request(
+        request,
+        io.BytesIO(b""),
+        302,
+        "Found",
+        Message(),
+        "https://attacker.example/collect",
+    ) is None
