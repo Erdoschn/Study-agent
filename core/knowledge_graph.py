@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from .storage_security import ensure_safe_sqlite_path
 import math
 import re
 import time
@@ -113,8 +115,8 @@ class KnowledgeGraph:
 
         if self.storage_path is None:
             return None
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(str(self.storage_path))
+        safe_path = ensure_safe_sqlite_path(self.storage_path)
+        connection = sqlite3.connect(str(safe_path))
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
