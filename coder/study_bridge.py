@@ -5,9 +5,45 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlsplit
+
+from core.http_security import is_loopback_host
+from core.redaction import redact_sensitive_text
 
 
 DEFAULT_STUDY_AGENT_URL = "http://127.0.0.1:8000/internal/study/ask"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never forward a bridge request or its Authorization header via redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _validate_bridge_url(url: str) -> str:
+    value = str(url or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(value)
+        # Force validation of an explicit port now rather than during the request.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("Study Agent Bridge URL 格式无效。") from exc
+
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "Study Agent Bridge URL 必须是无凭据、无查询参数的 HTTP(S) endpoint。"
+        )
+    if not is_loopback_host(parsed.hostname) and parsed.scheme.casefold() != "https":
+        raise ValueError("非本机 Study Agent Bridge 必须使用 HTTPS。")
+    return value
 
 
 class StudyAgentBridge:
@@ -20,10 +56,9 @@ class StudyAgentBridge:
         timeout: float | None = None,
         api_key: str | None = None,
     ):
-        self.url = str(
-            url
-            or os.getenv("CODER_STUDY_AGENT_URL", DEFAULT_STUDY_AGENT_URL)
-        ).strip().rstrip("/")
+        self.url = _validate_bridge_url(
+            url or os.getenv("CODER_STUDY_AGENT_URL", DEFAULT_STUDY_AGENT_URL)
+        )
         self.timeout = max(
             1.0,
             float(
@@ -65,23 +100,33 @@ class StudyAgentBridge:
         if self.api_key:
             request.add_header("Authorization", f"Bearer {self.api_key}")
 
+        # Do not follow redirects: the bridge may carry an Authorization header
+        # and the endpoint is expected to respond directly with its JSON payload.
+        opener = urllib.request.build_opener(_NoRedirectHandler())
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read(1_048_576)
+            with opener.open(request, timeout=self.timeout) as response:
+                raw = response.read(1_048_577)
         except urllib.error.HTTPError as exc:
-            detail = exc.read(4096).decode("utf-8", errors="replace")
+            # A response one byte over the limit is rejected; never parse a clipped JSON body.
+            detail = redact_sensitive_text(
+                exc.read(4096).decode("utf-8", errors="replace"),
+                max_chars=500,
+            )
             raise RuntimeError(
-                f"Study Agent Bridge HTTP {exc.code}: {detail[:1000]}"
+                f"Study Agent Bridge HTTP {exc.code}: {detail}"
             ) from exc
         except urllib.error.URLError as exc:
+            reason = redact_sensitive_text(exc.reason, max_chars=300)
             raise RuntimeError(
-                f"Study Agent Bridge 无法连接 {self.url}: {exc.reason}"
+                f"Study Agent Bridge 无法连接配置的 endpoint：{reason}"
             ) from exc
         except TimeoutError as exc:
             raise TimeoutError(
                 f"Study Agent Bridge 请求超时（{self.timeout:.0f}s）。"
             ) from exc
 
+        if len(raw) > 1_048_576:
+            raise RuntimeError("Study Agent Bridge 响应超过 1 MiB 安全上限。")
         try:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
