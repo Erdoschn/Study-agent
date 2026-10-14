@@ -136,11 +136,12 @@ class CoderMemoryStore:
     def record_feedback(self, *, run_id: str, feedback: str) -> dict[str, Any] | None:
         """Attach explicit user feedback to a completed run."""
         run_id = str(run_id or "").strip()
-        feedback = redact_sensitive_text(" ".join(str(feedback or "").split()).strip(), max_chars=4000)
-        if not run_id or not feedback:
+        raw_feedback = " ".join(str(feedback or "").split()).strip()
+        if not run_id or not raw_feedback:
             raise ValueError("run_id 和 feedback 不能为空。")
-        if len(feedback.encode("utf-8")) > 16 * 1024:
+        if len(raw_feedback.encode("utf-8")) > 16 * 1024:
             raise ValueError("用户评价超过 16 KiB。")
+        feedback = redact_sensitive_text(raw_feedback, max_chars=4000)
 
         with self._lock:
             data = self._load_unlocked()
