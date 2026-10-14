@@ -8,6 +8,9 @@ import time
 from urllib.parse import urlsplit
 
 
+MAX_CHAT_MESSAGES = 256
+
+
 class HTTPRequestError(ValueError):
     """A malformed or unsupported HTTP request body."""
 
