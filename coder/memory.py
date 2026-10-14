@@ -56,6 +56,11 @@ class CoderMemoryStore:
             raise PermissionError("Coder memory 文件禁止使用 Windows reparse point。")
         if status.st_size > self.MAX_FILE_BYTES:
             raise PermissionError("Coder memory 文件超过 16 MiB 安全上限。")
+        if os.name != "nt":
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError as exc:
+                raise PermissionError("无法限制 Coder memory 文件权限。") from exc
 
     @staticmethod
     def _sanitize_data(value: Any) -> Any:
