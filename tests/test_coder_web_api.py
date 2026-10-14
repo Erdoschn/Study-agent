@@ -941,3 +941,47 @@ def test_coder_project_root_rejects_symlinked_projects_and_unsafe_names(tmp_path
             api._project_root(unsafe_name)
 
     assert api._project_root("real-project") == real_project
+
+
+def test_coder_memory_failure_does_not_block_task_execution_or_sse_completion(monkeypatch, tmp_path):
+    import examples.coder_web_api as api
+
+    emitted = []
+
+    def corrupt_store(_workspace):
+        raise RuntimeError("sensitive database path should never be returned")
+
+    monkeypatch.setattr(api, "CoderMemoryStore", corrupt_store)
+    memory, feedback = api._load_coder_memory(tmp_path, emitted.append)
+
+    assert memory is None
+    assert feedback == []
+    assert emitted[0]["type"] == "warning"
+    assert "sensitive database path" not in emitted[0]["message"]
+    assert "参考编号" in emitted[0]["message"]
+
+    class BrokenMemory:
+        def record_run(self, **_kwargs):
+            raise OSError("api_key=should-not-leak")
+
+    state = SimpleNamespace(metrics={})
+    entry = api._record_coder_run_safely(
+        BrokenMemory(),
+        "demo-project",
+        state,
+        emitted.append,
+    )
+
+    assert entry is None
+    assert state.metrics["memory_persisted"] is False
+    assert emitted[-1]["type"] == "warning"
+    assert "should-not-leak" not in emitted[-1]["message"]
+
+
+def test_coder_frontend_displays_persistence_warnings_without_stopping_run():
+    import examples.coder_web_api as api
+
+    frontend = _frontend_path("/").read_text(encoding="utf-8")
+    assert 'elif kind == "warning"' in Path(api.__file__).read_text(encoding="utf-8")
+    assert 'e.type==="warning"' in frontend
+    assert 'appendStep("MEMORY",false' in frontend
