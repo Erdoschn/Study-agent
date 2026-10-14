@@ -42,7 +42,7 @@ def is_allowed_local_browser_origin(origin: str, port: int) -> bool:
         return True
     try:
         parsed = urlsplit(value)
-        effective_port = parsed.port or (80 if parsed.scheme == "http" else 443)
+        effective_port = parsed.port if parsed.port is not None else (80 if parsed.scheme == "http" else 443)
     except ValueError:
         return False
     return (
