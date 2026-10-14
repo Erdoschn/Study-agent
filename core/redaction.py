@@ -24,7 +24,7 @@ _CREDENTIAL_ASSIGNMENT = re.compile(
     r"""(?ix)
     \b(password|passwd|api[_ -]?key|secret|token|private[_ -]?key|authorization|cookie|set-cookie)
     \b\s*[:=]\s*
-    (?:"[^"]*"|'[^']*'|[^\s,;]+)
+    (?:"[^"]*"|'[^']*'|Bearer\\s+[A-Za-z0-9._~+/=-]{8,}|[^\\s,;]+)
     """
 )
 _BEARER_CREDENTIAL = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}")
