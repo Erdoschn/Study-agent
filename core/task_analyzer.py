@@ -19,7 +19,7 @@ class TaskAnalysis:
     external_facts_needed: bool = False
     answer_strategy: str = ""
     difficulty: int = 3
-    deep_thinking: bool = False
+    deep_thinking: bool | None = None
     assessment_requested: bool = False
     assessment_concept: str = ""
     assessment_difficulty: str = "graduate"
