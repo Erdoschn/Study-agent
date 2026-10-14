@@ -944,6 +944,7 @@ def test_coder_project_root_rejects_symlinked_projects_and_unsafe_names(tmp_path
 
 
 def test_coder_memory_failure_does_not_block_task_execution_or_sse_completion(monkeypatch, tmp_path):
+    from types import SimpleNamespace
     import examples.coder_web_api as api
 
     emitted = []
