@@ -119,3 +119,26 @@ def test_debug_tracer_redacts_calculation_and_verification_text(capsys):
         assert all(sensitive not in message for _module, message in received)
     assert "result_type=float" in output
     assert "status=UNCERTAIN" in output
+
+
+def test_debug_tracer_redacts_credentials_and_host_paths_from_all_sinks(capsys):
+    tracer = DebugTracer(enabled=True)
+    received = []
+    tracer.bind_thread(lambda module, message: received.append((module, message)))
+
+    tracer.log(
+        "Provider",
+        "Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345 "
+        "api_key=do-not-log-this C:\\Users\\Alice\\private.txt",
+    )
+
+    output = capsys.readouterr().out
+    tracer.clear_thread_binding()
+    combined = output + repr(received)
+    for secret in (
+        "abcdefghijklmnopqrstuvwxyz012345",
+        "do-not-log-this",
+        "C:\\Users\\Alice\\private.txt",
+    ):
+        assert secret not in combined
+    assert "[REDACTED" in combined
