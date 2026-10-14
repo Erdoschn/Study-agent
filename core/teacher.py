@@ -201,7 +201,7 @@ class Teacher:
             prompt,
             reasoning_effort=effort,
             reasoning_effort_param=getattr(model, "reasoning_effort_param", None),
-            deep_thinking=bool(getattr(getattr(state, "task_analysis", None), "deep_thinking", False)),
+            deep_thinking=getattr(getattr(state, "task_analysis", None), "deep_thinking", None),
         )
         self.model_router.registry.record_success(model.name, "teaching")
         debug.log(
