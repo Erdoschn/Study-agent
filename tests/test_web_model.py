@@ -109,7 +109,7 @@ class FakeThinkingToggle:
 
     def click(self, timeout=None):
         self.click_count += 1
-        self.enabled = True
+        self.enabled = not self.enabled
 
 
 class FakeMessage:
@@ -199,6 +199,28 @@ def test_browser_model_does_not_toggle_deep_thinking_off_when_already_enabled():
     model._ensure_deep_thinking_enabled(page)
 
     assert page.deep_thinking_toggle.enabled is True
+    assert page.deep_thinking_toggle.click_count == 0
+
+
+def test_browser_model_disables_deep_thinking_when_task_requests_standard_mode():
+    model = BrowserModel(timeout=1, min_send_interval_seconds=0)
+    page = FakePage()
+
+    model._send_prompt(page, "simple definition", deep_thinking=False)
+
+    assert page.deep_thinking_toggle.enabled is False
+    assert page.deep_thinking_toggle.click_count == 1
+    assert page.messages[0].inner_text() == "simple definition"
+
+
+def test_browser_model_does_not_toggle_standard_mode_when_already_disabled():
+    model = BrowserModel(timeout=1, min_send_interval_seconds=0)
+    page = FakePage()
+    page.deep_thinking_toggle.enabled = False
+
+    model._send_prompt(page, "simple definition", deep_thinking=False)
+
+    assert page.deep_thinking_toggle.enabled is False
     assert page.deep_thinking_toggle.click_count == 0
 
 
