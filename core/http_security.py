@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import time
 from urllib.parse import urlsplit
 
 
@@ -63,15 +64,19 @@ def read_limited_request_body(
     max_bytes: int,
     *,
     empty_body: bytes = b"",
+    read_timeout_seconds: float = 60.0,
 ) -> bytes:
-    """Read a Content-Length-delimited request body with strict size framing.
+    """Read a bounded Content-Length body with unambiguous framing and a deadline.
 
     BaseHTTPRequestHandler does not decode chunked bodies. Reject them rather
     than accidentally treating chunk framing as JSON or leaving unread bytes
-    on a persistent connection. Reject duplicate lengths and truncated bodies.
+    on a persistent connection. Reject duplicate lengths, malformed lengths,
+    truncated bodies, and clients that hold a handler open while drip-feeding.
     """
     if max_bytes < 0:
         raise ValueError("max_bytes 不能为负数。")
+    if read_timeout_seconds <= 0:
+        raise ValueError("read_timeout_seconds 必须大于 0。")
 
     headers = handler.headers
     transfer_encodings = [
@@ -91,16 +96,43 @@ def read_limited_request_body(
     raw_length = str(lengths[0]).strip()
     if not re.fullmatch(r"[0-9]+", raw_length, flags=re.ASCII):
         raise HTTPRequestError("Content-Length 格式无效。")
+    # Avoid expensive conversions of attacker-controlled megabyte-sized integers.
+    if len(raw_length) > 20:
+        raise RequestBodyTooLarge("Content-Length 数值超过安全范围。")
     length = int(raw_length, 10)
     if length > max_bytes:
         raise RequestBodyTooLarge(f"请求体超过安全上限（{max_bytes} 字节）。")
     if length == 0:
         return empty_body
 
-    body = handler.rfile.read(length)
-    if len(body) != length:
-        raise HTTPRequestError("请求体不完整。")
-    return body
+    connection = getattr(handler, "connection", None)
+    gettimeout = getattr(connection, "gettimeout", None)
+    settimeout = getattr(connection, "settimeout", None)
+    original_timeout = gettimeout() if callable(gettimeout) else None
+    deadline = time.monotonic() + float(read_timeout_seconds)
+    chunks: list[bytes] = []
+    remaining = length
+    try:
+        while remaining:
+            if time.monotonic() >= deadline:
+                raise HTTPRequestError("接收请求体超时。")
+            if callable(settimeout):
+                settimeout(max(0.05, deadline - time.monotonic()))
+            try:
+                chunk = handler.rfile.read(min(64 * 1024, remaining))
+            except (TimeoutError, OSError) as exc:
+                raise HTTPRequestError("接收请求体超时或连接中断。") from exc
+            if not chunk:
+                raise HTTPRequestError("请求体不完整。")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        if callable(settimeout):
+            try:
+                settimeout(original_timeout)
+            except OSError:
+                pass
+    return b"".join(chunks)
 
 
 def require_auth_for_non_loopback_bind(
