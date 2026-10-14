@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import zipfile
 import uuid
 import threading
@@ -30,6 +31,10 @@ class CoderBackupStore:
     ARCHIVE_NAME = "latest.zip"
     MANIFEST_NAME = "backup-manifest.json"
     EDITABLE_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
+    MAX_ARCHIVE_FILES = 10_000
+    MAX_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024
+    MAX_ARCHIVE_BYTES = 768 * 1024 * 1024
+    MAX_MANIFEST_BYTES = 16 * 1024 * 1024
     SKIP_DIRS = frozenset({
         ".git", ".venv", "__pycache__", ".pytest_cache",
         ".mypy_cache", ".ruff_cache", ".idea",
@@ -101,6 +106,7 @@ class CoderBackupStore:
 
     def _build_archive(self, archive_path: Path, generation: int) -> int:
         entries: list[dict[str, object]] = []
+        total_bytes = 0
         with zipfile.ZipFile(
             archive_path,
             mode="w",
@@ -108,8 +114,23 @@ class CoderBackupStore:
             compresslevel=6,
         ) as archive:
             for source, relative in self._iter_code_files(self.workspace):
+                if len(entries) >= self.MAX_ARCHIVE_FILES:
+                    raise WorkspaceSecurityError("备份文件数量超过安全上限。")
+                # Re-check the leaf immediately before reading it; the initial
+                # walk intentionally does not trust the path to remain unchanged.
+                try:
+                    source_status = source.lstat()
+                except OSError:
+                    continue
+                if stat.S_ISLNK(source_status.st_mode) or not stat.S_ISREG(source_status.st_mode):
+                    continue
+                if os.name == "nt" and getattr(source_status, "st_file_attributes", 0) & 0x400:
+                    continue
                 arcname = relative.as_posix()
                 data = source.read_bytes()
+                total_bytes += len(data)
+                if total_bytes > self.MAX_ARCHIVE_TOTAL_BYTES:
+                    raise WorkspaceSecurityError("备份内容总大小超过 512 MiB 安全上限。")
                 archive.writestr(arcname, data)
                 entries.append({
                     "path": arcname,
@@ -132,16 +153,41 @@ class CoderBackupStore:
             )
         return len(entries)
 
+    def _assert_safe_archive_file(self, archive: Path) -> bool:
+        """Reject archive symlinks/special files before any manifest or entry read."""
+        try:
+            status = archive.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise WorkspaceSecurityError("无法检查 Coder backup archive。") from exc
+        if stat.S_ISLNK(status.st_mode):
+            raise WorkspaceSecurityError("备份 archive 禁止使用符号链接。")
+        if not stat.S_ISREG(status.st_mode):
+            raise WorkspaceSecurityError("备份 archive 必须是普通文件。")
+        if os.name == "nt" and getattr(status, "st_file_attributes", 0) & 0x400:
+            raise WorkspaceSecurityError("备份 archive 禁止使用 Windows reparse point。")
+        if status.st_size > self.MAX_ARCHIVE_BYTES:
+            raise WorkspaceSecurityError("备份 archive 超过 768 MiB 安全上限。")
+        return True
+
     def _read_archive_manifest(self, archive: Path) -> dict:
-        if not archive.is_file():
+        if not self._assert_safe_archive_file(archive):
             return {}
         try:
             with zipfile.ZipFile(archive, "r") as zf:
-                data = json.loads(zf.read(self.MANIFEST_NAME).decode("utf-8"))
+                info = zf.getinfo(self.MANIFEST_NAME)
+                if info.file_size > self.MAX_MANIFEST_BYTES:
+                    raise RuntimeError("Coder backup manifest 超过 16 MiB 安全上限。")
+                data = json.loads(zf.read(info).decode("utf-8"))
+        except RuntimeError:
+            raise
         except (OSError, KeyError, ValueError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
             raise RuntimeError(f"Coder backup archive 损坏：{archive.name}") from exc
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or not isinstance(data.get("files", []), list):
             raise RuntimeError(f"Coder backup manifest 格式非法：{archive.name}")
+        if len(data.get("files", [])) > self.MAX_ARCHIVE_FILES:
+            raise RuntimeError("Coder backup manifest 文件条目超过安全上限。")
         return data
 
     def _snapshot(self, archive: Path, generation: int, *, immutable: bool) -> BackupSnapshot:
@@ -154,7 +200,7 @@ class CoderBackupStore:
         # newer last-known-good archive even when each individual replace is
         # atomic.
         with self._snapshot_lock:
-            if archive.exists():
+            if self._assert_safe_archive_file(archive):
                 current = self._read_archive_manifest(archive)
                 current_generation = int(current.get("generation", -1))
                 if immutable or current_generation > generation:
@@ -167,7 +213,7 @@ class CoderBackupStore:
             archive_tmp = self.root / f".{archive.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
             try:
                 file_count = self._build_archive(archive_tmp, generation)
-                if immutable and archive.exists():
+                if immutable and self._assert_safe_archive_file(archive):
                     try:
                         archive_tmp.unlink()
                     except FileNotFoundError:
