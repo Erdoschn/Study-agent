@@ -5,6 +5,7 @@ from typing import Any
 from .__debug__ import debug
 from .model_registry import ModelInfo
 from .reasoner import OpenAICompatibleClient
+from .browser_automation_config import deep_merge_config
 
 
 class ModelClientFactory:
@@ -157,6 +158,27 @@ class ModelClientFactory:
         else:
             response_selectors = None
 
+        browser_automation = self.config.get("browser_automation", {})
+        if not isinstance(browser_automation, dict):
+            browser_automation = {}
+        provider_automation = provider.get("browser_automation", {})
+        if not isinstance(provider_automation, dict):
+            provider_automation = {}
+        global_timing = browser_automation.get("timing", {})
+        if not isinstance(global_timing, dict):
+            global_timing = {}
+        provider_timing = provider_automation.get("timing", {})
+        if not isinstance(provider_timing, dict):
+            provider_timing = {}
+        global_ui = browser_automation.get("ui", {})
+        if not isinstance(global_ui, dict):
+            global_ui = {}
+        provider_ui = provider_automation.get("ui", {})
+        if not isinstance(provider_ui, dict):
+            provider_ui = {}
+        timing_config = deep_merge_config(global_timing, provider_timing)
+        ui_config = deep_merge_config(global_ui, provider_ui)
+
         client = CoderBrowserSession(
             model=model.model,
             url=provider.get("url"),
@@ -170,9 +192,8 @@ class ModelClientFactory:
             post_cleanup_pause_seconds=float(provider.get("post_cleanup_pause_seconds", 1.5)),
             cleanup_after_generate=bool(provider.get("cleanup_after_generate", True)),
             reuse_chat=bool(provider.get("reuse_chat", False)),
-            min_send_interval_seconds=float(
-                provider.get("min_send_interval_seconds", 5.0)
-            ),
+            timing_config=timing_config,
+            ui_config=ui_config,
             debug_mode=False,
         )
         if cancellation_event is not None:
