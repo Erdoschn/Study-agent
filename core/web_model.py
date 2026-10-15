@@ -211,10 +211,13 @@ class BrowserModel(ModelClient):
             ("DEFAULT_DEEP_THINKING_SELECTORS", "deep_thinking"),
         ):
             fallback = getattr(type(self), attribute)
-            setting_container = labels if key in {
-                "new_chat", "more", "delete_chat", "stop_generating",
-                "continue_generating", "rate_limit", "resend", "send",
-                "send_exclude", "cookie_accept", "attachment", "deep_thinking",
+            setting_container = labels if attribute in {
+                "DEFAULT_NEW_CHAT_LABELS", "DEFAULT_MORE_LABELS",
+                "DEFAULT_DELETE_LABELS", "DEFAULT_STOP_LABELS",
+                "DEFAULT_CONTINUE_LABELS", "DEFAULT_RATE_LIMIT_LABELS",
+                "DEFAULT_RESEND_LABELS", "DEFAULT_SEND_LABELS",
+                "DEFAULT_SEND_EXCLUDE_LABELS", "DEFAULT_COOKIE_ACCEPT_LABELS",
+                "DEFAULT_ATTACHMENT_LABELS", "DEFAULT_DEEP_THINKING_LABELS",
             } else selectors
             setattr(self, attribute, _config_sequence(setting_container, key, fallback))
 
@@ -1210,7 +1213,7 @@ class BrowserModel(ModelClient):
     def _dismiss_cookie_banner(self, page) -> bool:
         """Dismiss a visible cookie-consent overlay without bypassing security checks."""
         try:
-            banner = page.locator(".cookie_banner-wrap")
+            banner = page.locator(self.COOKIE_BANNER_SELECTOR)
             if banner.count() == 0:
                 return False
             for index in range(banner.count() - 1, -1, -1):
@@ -1248,10 +1251,7 @@ class BrowserModel(ModelClient):
         """
         if self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         ) is not None:
             return
 
@@ -1267,10 +1267,7 @@ class BrowserModel(ModelClient):
 
         if self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         ) is None:
             raise RuntimeError(
                 "登录后仍未找到 DeepSeek Web 输入框。"
@@ -1311,8 +1308,7 @@ class BrowserModel(ModelClient):
         match = re.search(r"/a/chat/s/([^/?#]+)", str(url or ""))
         return match.group(1) if match else None
 
-    @staticmethod
-    def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+    def _click_first_visible(self, page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
         """Resolve and click a matching visible control, tolerating DOM rerenders.
 
         DeepSeek can rerender the sidebar after a locator is highlighted. Keep
@@ -1333,12 +1329,12 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         return False
                     try:
-                        candidate.scroll_into_view_if_needed(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                        candidate.scroll_into_view_if_needed(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                     except (AttributeError, TypeError):
                         # Lightweight test doubles and older locator wrappers
                         # may not expose scroll_into_view_if_needed.
                         pass
-                    candidate.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                    candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                     return True
                 except Exception as exc:
                     debug.log(
@@ -1359,7 +1355,7 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", f"CLICK LOCATOR SKIP → {type(exc).__name__}: {exc}")
 
         try:
-            buttons = page.locator("button, [role='button']")
+            buttons = page.locator(self.BUTTON_CONTAINER_SELECTOR)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 try:
@@ -1394,7 +1390,7 @@ class BrowserModel(ModelClient):
         # still identifies the previous conversation, even if its messages were
         # cleared or hidden.
         if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
-            visible_messages = page.locator(".ds-message")
+            visible_messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             has_visible_message = False
             for index in range(visible_messages.count() - 1, -1, -1):
                 try:
@@ -1431,7 +1427,7 @@ class BrowserModel(ModelClient):
 
             # Also accept a cleared message list: some DeepSeek UI states
             # create the new session lazily and update the URL later.
-            visible_messages = page.locator(".ds-message")
+            visible_messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             has_visible_message = False
             for index in range(visible_messages.count() - 1, -1, -1):
                 try:
@@ -1471,7 +1467,7 @@ class BrowserModel(ModelClient):
 
         row_link = None
         try:
-            links = page.locator(f'a[href*="/a/chat/s/{session_id}"]')
+            links = page.locator(self.HISTORY_SESSION_LINK_TEMPLATE.format(session_id=session_id))
             for index in range(links.count() - 1, -1, -1):
                 candidate = links.nth(index)
                 if candidate.is_visible():
@@ -1502,7 +1498,7 @@ class BrowserModel(ModelClient):
         deadline = time.monotonic() + min(15.0, float(self.timeout))
         while time.monotonic() < deadline:
             try:
-                if page.locator(f'a[href*="/a/chat/s/{session_id}"]').count() == 0:
+                if page.locator(self.HISTORY_SESSION_LINK_TEMPLATE.format(session_id=session_id)).count() == 0:
                     if self.post_cleanup_pause_seconds:
                         self._sleep(self.post_cleanup_pause_seconds)
                     debug.log("BrowserModel", f"CLEANUP SUCCESS → session={session_id}")
@@ -1517,10 +1513,8 @@ class BrowserModel(ModelClient):
 
         # Prefer the observed three-dot SVG path scoped to this history row.
         # The path avoids generated CSS hashes and is less brittle than child indexes.
-        icon_selector = (
-            '[role="button"]:has(svg path[d^="'
-            + self.DEFAULT_MORE_ICON_PATH_PREFIX
-            + '"])'
+        icon_selector = self.SVG_PATH_BUTTON_TEMPLATE.format(
+            path=self.DEFAULT_MORE_ICON_PATH_PREFIX
         )
         try:
             buttons = row_link.locator(icon_selector)
@@ -1556,7 +1550,7 @@ class BrowserModel(ModelClient):
         try:
             parent = row_link.locator("xpath=..")
             for _ in range(6):
-                buttons = parent.locator("button, [role='button']")
+                buttons = parent.locator(self.BUTTON_CONTAINER_SELECTOR)
                 for index in range(buttons.count() - 1, -1, -1):
                     button = buttons.nth(index)
                     if not button.is_visible():
@@ -1569,7 +1563,7 @@ class BrowserModel(ModelClient):
                     if any(pattern.search(text) for pattern in patterns):
                         button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
                         return True
-                parent = parent.locator("xpath=..")
+                parent = parent.locator(f"xpath={self.HISTORY_ROW_PARENT_XPATH}")
         except Exception:
             pass
         return False
@@ -1581,7 +1575,7 @@ class BrowserModel(ModelClient):
         if message is None and user_index is not None:
             return None
         if message is None:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, -1, -1):
                 try:
                     candidate = messages.nth(index)
@@ -1618,10 +1612,8 @@ class BrowserModel(ModelClient):
                 )
                 return None
 
-            copy_selector = (
-                '[role="button"]:has(svg path[d^="'
-                + self.DEFAULT_COPY_PATH_PREFIX
-                + '"])'
+            copy_selector = self.SVG_PATH_BUTTON_TEMPLATE.format(
+                path=self.DEFAULT_COPY_PATH_PREFIX
             )
             buttons = item.locator(copy_selector)
             for index in range(buttons.count() - 1, -1, -1):
@@ -1808,7 +1800,7 @@ class BrowserModel(ModelClient):
         if not payloads:
             return
 
-        file_inputs = page.locator('input[type="file"]')
+        file_inputs = page.locator(self.FILE_INPUT_SELECTOR)
         if file_inputs.count() <= 0:
             clicked = self._click_first_visible(
                 page, self.DEFAULT_ATTACHMENT_LABELS, role="button"
@@ -1823,7 +1815,7 @@ class BrowserModel(ModelClient):
             )
             while time.monotonic() < deadline:
                 self._check_cancelled()
-                file_inputs = page.locator('input[type="file"]')
+                file_inputs = page.locator(self.FILE_INPUT_SELECTOR)
                 if file_inputs.count() > 0:
                     break
                 self._sleep(min(0.1, self.poll_interval))
@@ -1861,7 +1853,7 @@ class BrowserModel(ModelClient):
         while time.monotonic() < deadline:
             self._check_cancelled()
             try:
-                body = self._compact_text(page.locator("body").inner_text()).casefold()
+                body = self._compact_text(page.locator(self.BODY_SELECTOR).inner_text()).casefold()
             except Exception:
                 body = ""
             names_visible = all(name in body for name in expected_names)
@@ -2063,10 +2055,7 @@ class BrowserModel(ModelClient):
     def _send_prompt(self, page, prompt: str, *, deep_thinking: bool = True) -> None:
         textbox = self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         )
         if textbox is None:
             raise RuntimeError(
@@ -2139,7 +2128,7 @@ class BrowserModel(ModelClient):
 
     def _visible_chat_message_count(self, page) -> int | None:
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             return messages.count()
         except Exception:
             return None
@@ -2150,7 +2139,7 @@ class BrowserModel(ModelClient):
         if baseline is None:
             return False
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             count = messages.count()
             if count <= baseline:
                 return False
@@ -2279,7 +2268,7 @@ class BrowserModel(ModelClient):
 
     def _click_send_button(self, page) -> bool:
         """Click a visible, enabled Send control as a fallback to Enter."""
-        stop_tokens = ("stop", "cancel", "停止", "中止", "取消")
+        stop_tokens = tuple(token.casefold() for token in self.DEFAULT_SEND_EXCLUDE_LABELS)
         for selector in self.DEFAULT_SEND_BUTTON_SELECTORS:
             try:
                 locator = page.locator(selector)
@@ -2300,7 +2289,7 @@ class BrowserModel(ModelClient):
                     # DeepSeek's current div[role=button] marks the disabled state
                     # through a CSS class, not necessarily disabled/aria-disabled
                     # attributes. Playwright is_enabled() alone cannot catch that.
-                    if "ds-button--disabled" in class_name.split():
+                    if self.DISABLED_BUTTON_CLASS in class_name.split():
                         if not getattr(self, "_send_button_disabled_logged", False):
                             debug.log(
                                 "BrowserModel",
@@ -2339,7 +2328,7 @@ class BrowserModel(ModelClient):
 
     def _rate_limit_visible(self, page) -> bool:
         try:
-            body = page.locator("body")
+            body = page.locator(self.BODY_SELECTOR)
             if body.count() <= 0:
                 return False
             text = self._compact_text(body.inner_text())
@@ -2418,7 +2407,7 @@ class BrowserModel(ModelClient):
         import re as _re
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in labels]
         try:
-            buttons = page.locator("button, [role='button']")
+            buttons = page.locator(self.BUTTON_CONTAINER_SELECTOR)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 if not button.is_visible():
@@ -2502,7 +2491,7 @@ class BrowserModel(ModelClient):
         head = prompt[:120]
         tail = prompt[-120:] if len(prompt) > 240 else ""
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, -1, -1):
                 message = messages.nth(index)
                 if not message.is_visible():
@@ -2524,7 +2513,7 @@ class BrowserModel(ModelClient):
             return None
 
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, user_index, -1):
                 message = messages.nth(index)
                 if not message.is_visible():
