@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from core.__debug__ import debug
+from core.browser_automation_config import (
+    deep_merge_config,
+    load_browser_automation_config,
+)
 
 
 CONFIG_PATH = (
@@ -154,6 +158,13 @@ def load_config() -> dict[str, Any]:
 
     if not isinstance(config, dict):
         raise ValueError("providers.json 顶层必须是 JSON 对象。")
+    browser_automation_override = config.get("browser_automation", {})
+    if not isinstance(browser_automation_override, dict):
+        raise ValueError("providers.json 的 browser_automation 必须是对象。")
+    config["browser_automation"] = deep_merge_config(
+        load_browser_automation_config(),
+        browser_automation_override,
+    )
     _merge_model_profiles(config)
     _refresh_provider_models(config)
     debug.log(
