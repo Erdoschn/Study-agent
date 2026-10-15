@@ -86,8 +86,10 @@ class BrowserModel(ModelClient):
         "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]",
     )
     RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = 5.0
+    RATE_LIMIT_RETRY_COOLDOWN_SECONDS = 20.0
     MAX_CONTINUE_GENERATIONS = 3
-    MAX_RATE_LIMIT_RETRIES = 3
+    # The web UI retry is bounded to one attempt after a cooldown.
+    MAX_RATE_LIMIT_RETRIES = 1
     DEFAULT_COOKIE_ACCEPT_LABELS = (
         "Accept", "Accept all", "Agree", "I agree",
         "同意", "接受", "全部接受", "同意全部",
@@ -125,7 +127,7 @@ class BrowserModel(ModelClient):
         post_cleanup_pause_seconds: float = 1.5,
         cleanup_after_generate: bool = True,
         reuse_chat: bool = False,
-        min_send_interval_seconds: float = 5.0,
+        min_send_interval_seconds: float = 6.0,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         invalid_json_grace_seconds: float = 3.0,
@@ -2208,17 +2210,33 @@ class BrowserModel(ModelClient):
     def _retry_rate_limited_prompt(self, page) -> bool:
         if not self._rate_limit_visible(page):
             return False
-        # Honour the minimum send interval before attempting the web UI retry.
+
+        # A fixed cooldown is for bounded recovery, not randomized human-behavior
+        # simulation. Do not click the retry control before this wait completes.
+        debug.log(
+            "BrowserModel",
+            f"RATE LIMIT → cooldown {self.RATE_LIMIT_RETRY_COOLDOWN_SECONDS:.0f}s "
+            "before checking for one explicit UI retry",
+        )
+        self._sleep(self.RATE_LIMIT_RETRY_COOLDOWN_SECONDS)
+
+        # If the notice cleared, the original request may have completed. Never
+        # resubmit simply because the UI was slow; continue response polling.
+        if not self._rate_limit_visible(page):
+            debug.log(
+                "BrowserModel",
+                "RATE LIMIT → notice cleared during cooldown; no resend performed",
+            )
+            return False
+
         self._wait_for_send_slot()
         if not self._click_rate_limit_retry_button(page):
             debug.log(
                 "BrowserModel",
-                "RATE LIMIT → retry button not found "
-                f"(labels + XPath checked for up to "
-                f"{self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS:.1f}s)",
+                "RATE LIMIT → no usable explicit retry control after cooldown",
             )
             return False
-        debug.log("BrowserModel", "RATE LIMIT → resend requested")
+        debug.log("BrowserModel", "RATE LIMIT → one explicit UI retry requested")
         return True
 
     def _click_rate_limit_retry_button(self, page) -> bool:
@@ -2479,10 +2497,12 @@ class BrowserModel(ModelClient):
         rate_limit_retries = 0
 
         while time.monotonic() < deadline:
-            if (
-                rate_limit_retries < self.MAX_RATE_LIMIT_RETRIES
-                and self._rate_limit_visible(page)
-            ):
+            if self._rate_limit_visible(page):
+                if rate_limit_retries >= self.MAX_RATE_LIMIT_RETRIES:
+                    raise RuntimeError(
+                        "等待冷却并进行一次重试后，DeepSeek Web 仍提示限流；"
+                        "为避免重复提交，本次请求已停止。"
+                    )
                 if self._retry_rate_limited_prompt(page):
                     rate_limit_retries += 1
                     deadline = time.monotonic() + self.timeout
@@ -2492,6 +2512,13 @@ class BrowserModel(ModelClient):
                     previous = ""
                     invalid_json_since = None
                     continue
+                if self._rate_limit_visible(page):
+                    raise RuntimeError(
+                        "等待 20 秒后，DeepSeek Web 仍提示限流且没有可用的重试控件；"
+                        "本次请求已停止。"
+                    )
+                # The notice cleared during cooldown. Do not resend; continue
+                # polling in case the original request completed normally.
                 rate_limit_retries = self.MAX_RATE_LIMIT_RETRIES
             if self.cancellation_event is not None and self.cancellation_event.is_set():
                 self._stop_current_generation(page)
