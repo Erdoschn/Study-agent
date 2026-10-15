@@ -170,8 +170,10 @@ class ModelClientFactory:
             post_cleanup_pause_seconds=float(provider.get("post_cleanup_pause_seconds", 1.5)),
             cleanup_after_generate=bool(provider.get("cleanup_after_generate", True)),
             reuse_chat=bool(provider.get("reuse_chat", False)),
-            min_send_interval_seconds=float(
-                provider.get("min_send_interval_seconds", 5.0)
+            # Treat the configured value as a preference, with six seconds as
+            # the hard application minimum for visible browser sends.
+            min_send_interval_seconds=max(
+                6.0, float(provider.get("min_send_interval_seconds", 6.0))
             ),
             debug_mode=False,
         )
