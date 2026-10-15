@@ -13,6 +13,47 @@ from .prompt_config import get_prompt
 from .storage_security import ensure_private_directory
 from .cancellation import RunCancelled, raise_if_cancelled
 from .errors import AttachmentUploadError
+from .browser_automation_config import (
+    DEFAULT_BROWSER_AUTOMATION_CONFIG,
+    deep_merge_config,
+)
+from .operation_timing import OperationTiming
+
+
+_DEFAULT_BROWSER_UI = DEFAULT_BROWSER_AUTOMATION_CONFIG.get("ui", {})
+if not isinstance(_DEFAULT_BROWSER_UI, dict):
+    _DEFAULT_BROWSER_UI = {}
+_DEFAULT_UI_SELECTORS = _DEFAULT_BROWSER_UI.get("selectors", {})
+if not isinstance(_DEFAULT_UI_SELECTORS, dict):
+    _DEFAULT_UI_SELECTORS = {}
+_DEFAULT_UI_LABELS = _DEFAULT_BROWSER_UI.get("labels", {})
+if not isinstance(_DEFAULT_UI_LABELS, dict):
+    _DEFAULT_UI_LABELS = {}
+
+
+def _config_sequence(config: dict[str, Any], key: str, fallback=()) -> tuple[str, ...]:
+    value = config.get(key) if isinstance(config, dict) else None
+    if isinstance(value, (list, tuple)):
+        normalized = tuple(str(item).strip() for item in value if str(item).strip())
+        if normalized:
+            return normalized
+    return tuple(fallback)
+
+
+def _config_string(config: dict[str, Any], key: str, fallback: str) -> str:
+    value = config.get(key) if isinstance(config, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+
+def _config_number(config: dict[str, Any], key: str, fallback: float) -> float:
+    value = config.get(key) if isinstance(config, dict) else None
+    if isinstance(value, bool):
+        return fallback
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if number >= 0 and number < float("inf") else fallback
 
 
 class BrowserModel(ModelClient):
@@ -25,90 +66,74 @@ class BrowserModel(ModelClient):
     """
 
     DEFAULT_URL = "https://chat.deepseek.com/"
-    DEFAULT_RESPONSE_SELECTORS = (
-        ".ds-assistant-message-main-content",
-        ".ds-markdown",
-        '[data-message-author-role="assistant"]',
+    # UI locators and button labels are sourced from config/browser_automation.json.
+    DEFAULT_RESPONSE_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "response")
+    DEFAULT_LOADING_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "loading")
+    INPUT_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "input")
+    CHAT_MESSAGE_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "chat_message", "")
+    BODY_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "body", "body")
+    FILE_INPUT_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "file_input", "")
+    UPLOAD_BUSY_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "upload_busy")
+    BUTTON_CONTAINER_SELECTOR = _config_string(
+        _DEFAULT_UI_SELECTORS, "button_container", "button, [role='button']"
     )
-    DEFAULT_LOADING_SELECTORS = (
-        ".ds-message-loading",
-        '[class*="message-loading"]',
-        '[class*="streaming"]',
-        '[class*="thinking"]',
+    HISTORY_SESSION_LINK_TEMPLATE = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_session_link_template", ""
     )
-    DEFAULT_NEW_CHAT_LABELS = (
-        "New chat", "New conversation", "Start new chat",
-        "新对话", "新建对话", "新建聊天", "新建会话", "开始新对话", "开启新对话",
+    HISTORY_ROW_PARENT_XPATH = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_row_parent_xpath", ".."
     )
-    DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
-    # Stable SVG path observed on DeepSeek history-row three-dot menu buttons.
-    # Avoid generated CSS module hashes; keep structural XPath as a fallback.
-    DEFAULT_MORE_ICON_PATH_PREFIX = "M4.55146 8.00001"
-    DEFAULT_MORE_XPATHS = ("./div[3]/div",)
-    DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
-    DEFAULT_STOP_LABELS = (
-        "Stop generating", "Stop generation", "停止生成", "中止生成",
+    SVG_PATH_BUTTON_TEMPLATE = _config_string(
+        _DEFAULT_UI_SELECTORS, "svg_path_button_template", ""
     )
-    DEFAULT_CONTINUE_LABELS = (
-        "Continue generating", "Continue", "继续生成", "继续",
+    COOKIE_BANNER_SELECTOR = _config_string(
+        _DEFAULT_UI_SELECTORS, "cookie_banner", ""
     )
-    DEFAULT_RATE_LIMIT_LABELS = (
-        "消息发送过于频繁",
-        "发送过于频繁",
-        "Too many requests",
-        "Too many messages",
-        "Please wait",
+    DISABLED_BUTTON_CLASS = _config_string(
+        _DEFAULT_UI_SELECTORS, "disabled_button_class", "ds-button--disabled"
     )
-    DEFAULT_RESEND_LABELS = (
-        "重新发送",
-        "Resend",
-        "Retry",
-        "重试",
+    DEFAULT_NEW_CHAT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "new_chat")
+    DEFAULT_MORE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "more")
+    DEFAULT_MORE_ICON_PATH_PREFIX = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_more_icon_path_prefix", ""
     )
-    DEFAULT_SEND_LABELS = (
-        "Send message", "Send", "发送消息", "发送",
+    DEFAULT_MORE_XPATHS = _config_sequence(_DEFAULT_UI_SELECTORS, "history_more_xpath")
+    DEFAULT_DELETE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "delete_chat")
+    DEFAULT_STOP_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "stop_generating")
+    DEFAULT_CONTINUE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "continue_generating")
+    DEFAULT_RATE_LIMIT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "rate_limit")
+    DEFAULT_RESEND_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "resend")
+    DEFAULT_SEND_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "send")
+    DEFAULT_SEND_EXCLUDE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "send_exclude")
+    DEFAULT_SEND_BUTTON_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "send_button")
+    DEFAULT_RATE_LIMIT_RETRY_XPATHS = _config_sequence(
+        _DEFAULT_UI_SELECTORS, "rate_limit_retry_xpath"
     )
-    DEFAULT_SEND_BUTTON_SELECTORS = (
-        # Current DeepSeek Web uses a div[role=button] for its round arrow-up
-        # composer control; the BEM classes are stable while hashed suffixes are not.
-        '[role="button"].ds-button--primary.ds-button--filled.ds-button--circle',
-        '[data-testid="send-button"]',
-        '[data-test-id="send-button"]',
-        "#chat-input-send-button",
-        'button[aria-label*="发送"]',
-        'button[aria-label*="Send" i]',
-        'button[type="submit"]',
-        '[class*="send-button"]',
+    DEFAULT_COOKIE_ACCEPT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "cookie_accept")
+    DEFAULT_ATTACHMENT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "attachment")
+    DEFAULT_DEEP_THINKING_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "deep_thinking")
+    DEFAULT_DEEP_THINKING_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "deep_thinking")
+    DEFAULT_COPY_PATH_PREFIX = _config_string(
+        _DEFAULT_UI_SELECTORS, "copy_button_path_prefix", ""
     )
-    # DeepSeek's rate-limit retry control can be rendered without an accessible
-    # name. Keep the user-confirmed DOM path as a fallback after semantic lookup.
-    DEFAULT_RATE_LIMIT_RETRY_XPATHS = (
-        "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]",
-    )
-    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = 5.0
+
     MAX_CONTINUE_GENERATIONS = 3
     MAX_RATE_LIMIT_RETRIES = 3
-    DEFAULT_COOKIE_ACCEPT_LABELS = (
-        "Accept", "Accept all", "Agree", "I agree",
-        "同意", "接受", "全部接受", "同意全部",
-    )
-    DEFAULT_ATTACHMENT_LABELS = (
-        "Upload file", "Upload files", "Add file", "Add files",
-        "Attach file", "Attach files", "上传文件", "添加文件", "添加附件",
-    )
-    # Large multi-file requests need time both for Playwright to stage the
-    # in-memory payload and for DeepSeek Web to finish processing the uploads.
-    ATTACHMENT_SELECT_TIMEOUT_MS = 120_000
-    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 120.0
-    SEND_CONFIRMATION_TIMEOUT_SECONDS = 2.0
-    # The Send control can remain disabled briefly after a large attachment set
-    # becomes visible. Keep polling rather than treating one disabled snapshot
-    # as a permanent UI failure.
-    SEND_BUTTON_READY_TIMEOUT_SECONDS = 120.0
-    DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
-    COPY_CLICK_TIMEOUT_MS = 1200
-    SEND_ACTION_TIMEOUT_MS = 1500
-    CLICK_ACTION_TIMEOUT_MS = 1500
+
+    _DEFAULT_TIMEOUTS_MS = _DEFAULT_BROWSER_UI.get("timeouts_ms", {})
+    if not isinstance(_DEFAULT_TIMEOUTS_MS, dict):
+        _DEFAULT_TIMEOUTS_MS = {}
+    _DEFAULT_TIMEOUTS_SECONDS = _DEFAULT_BROWSER_UI.get("timeouts_seconds", {})
+    if not isinstance(_DEFAULT_TIMEOUTS_SECONDS, dict):
+        _DEFAULT_TIMEOUTS_SECONDS = {}
+    ATTACHMENT_SELECT_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "attachment_select", 120000))
+    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "attachment_upload", 120.0)
+    SEND_CONFIRMATION_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "send_confirmation", 2.0)
+    SEND_BUTTON_READY_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "send_button_ready", 120.0)
+    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "rate_limit_retry_button_wait", 5.0)
+    COPY_CLICK_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "copy_click", 1200))
+    SEND_ACTION_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "send_action", 1500))
+    CLICK_ACTION_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "click_action", 1500))
 
     def __init__(
         self,
@@ -125,7 +150,9 @@ class BrowserModel(ModelClient):
         post_cleanup_pause_seconds: float = 1.5,
         cleanup_after_generate: bool = True,
         reuse_chat: bool = False,
-        min_send_interval_seconds: float = 5.0,
+        min_send_interval_seconds: float | None = None,
+        timing_config: dict[str, Any] | None = None,
+        ui_config: dict[str, Any] | None = None,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         invalid_json_grace_seconds: float = 3.0,
@@ -144,15 +171,116 @@ class BrowserModel(ModelClient):
             "msedge",
         )
         self.timeout = max(1, int(timeout))
-        self.response_selectors = response_selectors or self.DEFAULT_RESPONSE_SELECTORS
-        self.loading_selectors = loading_selectors or self.DEFAULT_LOADING_SELECTORS
+        if ui_config is not None and not isinstance(ui_config, dict):
+            raise ValueError("ui_config 必须是对象。")
+        self.ui_config = deep_merge_config(_DEFAULT_BROWSER_UI, ui_config or {})
+        selectors = self.ui_config.get("selectors", {})
+        labels = self.ui_config.get("labels", {})
+        timeouts_ms = self.ui_config.get("timeouts_ms", {})
+        timeouts_seconds = self.ui_config.get("timeouts_seconds", {})
+        if not isinstance(selectors, dict):
+            selectors = {}
+        if not isinstance(labels, dict):
+            labels = {}
+        if not isinstance(timeouts_ms, dict):
+            timeouts_ms = {}
+        if not isinstance(timeouts_seconds, dict):
+            timeouts_seconds = {}
+
+        # A provider may override its own UI locators and labels without code changes.
+        for attribute, key in (
+            ("DEFAULT_RESPONSE_SELECTORS", "response"),
+            ("DEFAULT_LOADING_SELECTORS", "loading"),
+            ("INPUT_SELECTORS", "input"),
+            ("UPLOAD_BUSY_SELECTORS", "upload_busy"),
+            ("DEFAULT_NEW_CHAT_LABELS", "new_chat"),
+            ("DEFAULT_MORE_LABELS", "more"),
+            ("DEFAULT_MORE_XPATHS", "history_more_xpath"),
+            ("DEFAULT_DELETE_LABELS", "delete_chat"),
+            ("DEFAULT_STOP_LABELS", "stop_generating"),
+            ("DEFAULT_CONTINUE_LABELS", "continue_generating"),
+            ("DEFAULT_RATE_LIMIT_LABELS", "rate_limit"),
+            ("DEFAULT_RESEND_LABELS", "resend"),
+            ("DEFAULT_SEND_LABELS", "send"),
+            ("DEFAULT_SEND_EXCLUDE_LABELS", "send_exclude"),
+            ("DEFAULT_SEND_BUTTON_SELECTORS", "send_button"),
+            ("DEFAULT_RATE_LIMIT_RETRY_XPATHS", "rate_limit_retry_xpath"),
+            ("DEFAULT_COOKIE_ACCEPT_LABELS", "cookie_accept"),
+            ("DEFAULT_ATTACHMENT_LABELS", "attachment"),
+            ("DEFAULT_DEEP_THINKING_LABELS", "deep_thinking"),
+            ("DEFAULT_DEEP_THINKING_SELECTORS", "deep_thinking"),
+        ):
+            fallback = getattr(type(self), attribute)
+            setting_container = labels if key in {
+                "new_chat", "more", "delete_chat", "stop_generating",
+                "continue_generating", "rate_limit", "resend", "send",
+                "send_exclude", "cookie_accept", "attachment", "deep_thinking",
+            } else selectors
+            setattr(self, attribute, _config_sequence(setting_container, key, fallback))
+
+        for attribute, key in (
+            ("CHAT_MESSAGE_SELECTOR", "chat_message"),
+            ("BODY_SELECTOR", "body"),
+            ("FILE_INPUT_SELECTOR", "file_input"),
+            ("BUTTON_CONTAINER_SELECTOR", "button_container"),
+            ("HISTORY_SESSION_LINK_TEMPLATE", "history_session_link_template"),
+            ("HISTORY_ROW_PARENT_XPATH", "history_row_parent_xpath"),
+            ("SVG_PATH_BUTTON_TEMPLATE", "svg_path_button_template"),
+            ("COOKIE_BANNER_SELECTOR", "cookie_banner"),
+            ("DISABLED_BUTTON_CLASS", "disabled_button_class"),
+            ("DEFAULT_MORE_ICON_PATH_PREFIX", "history_more_icon_path_prefix"),
+            ("DEFAULT_COPY_PATH_PREFIX", "copy_button_path_prefix"),
+        ):
+            setattr(
+                self,
+                attribute,
+                _config_string(selectors, key, getattr(type(self), attribute)),
+            )
+
+        self.ATTACHMENT_SELECT_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "attachment_select", type(self).ATTACHMENT_SELECT_TIMEOUT_MS))
+        )
+        self.COPY_CLICK_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "copy_click", type(self).COPY_CLICK_TIMEOUT_MS))
+        )
+        self.SEND_ACTION_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "send_action", type(self).SEND_ACTION_TIMEOUT_MS))
+        )
+        self.CLICK_ACTION_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "click_action", type(self).CLICK_ACTION_TIMEOUT_MS))
+        )
+        self.ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "attachment_upload", type(self).ATTACHMENT_UPLOAD_TIMEOUT_SECONDS
+        )
+        self.SEND_CONFIRMATION_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "send_confirmation", type(self).SEND_CONFIRMATION_TIMEOUT_SECONDS
+        )
+        self.SEND_BUTTON_READY_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "send_button_ready", type(self).SEND_BUTTON_READY_TIMEOUT_SECONDS
+        )
+        self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = _config_number(
+            timeouts_seconds, "rate_limit_retry_button_wait", type(self).RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS
+        )
+        self.response_selectors = (
+            tuple(str(value) for value in response_selectors if str(value).strip())
+            if response_selectors is not None
+            else self.DEFAULT_RESPONSE_SELECTORS
+        )
+        self.loading_selectors = (
+            tuple(str(value) for value in loading_selectors if str(value).strip())
+            if loading_selectors is not None
+            else self.DEFAULT_LOADING_SELECTORS
+        )
         self.session_pause_seconds = max(0.0, float(session_pause_seconds))
         self.cleanup_pause_seconds = max(0.0, float(cleanup_pause_seconds))
         self.post_cleanup_pause_seconds = max(0.0, float(post_cleanup_pause_seconds))
         self.reuse_chat = bool(reuse_chat)
-        self.min_send_interval_seconds = max(
-            0.0, float(min_send_interval_seconds)
+        self.operation_timing = OperationTiming(
+            timing_config,
+            fixed_send_interval_seconds=min_send_interval_seconds,
         )
+        self.min_send_interval_seconds = self.operation_timing.send_interval_min_seconds
+        self.max_send_interval_seconds = self.operation_timing.send_interval_max_seconds
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
@@ -269,6 +397,19 @@ class BrowserModel(ModelClient):
         except RunCancelled:
             self._chat_initialized = False
             raise
+
+    def _wait_random(self, operation: str) -> float:
+        """Apply a configured, cancellable random delay at an operation boundary."""
+        delay = self.operation_timing.sample(operation)
+        if delay > 0:
+            self._check_cancelled()
+            debug.log(
+                "BrowserModel",
+                f"OPERATION WAIT → operation={operation}, delay={delay:.3f}s",
+            )
+            self._sleep(delay)
+        self._check_cancelled()
+        return delay
 
     def _sleep(self, seconds: float) -> None:
         seconds = max(0.0, float(seconds))
@@ -1640,15 +1781,16 @@ class BrowserModel(ModelClient):
         return ""
 
     def _wait_for_send_slot(self) -> None:
-        """Throttle browser message sends to reduce web UI rate-limit errors."""
+        """Wait a randomized interval between normal submissions."""
         if self._last_send_monotonic is not None:
-            elapsed = time.monotonic() - self._last_send_monotonic
-            remaining = self.min_send_interval_seconds - elapsed
+            elapsed = max(0.0, time.monotonic() - self._last_send_monotonic)
+            target_interval = self.operation_timing.sample("send_interval_seconds")
+            remaining = max(0.0, target_interval - elapsed)
             if remaining > 0:
                 debug.log(
                     "BrowserModel",
                     f"SEND THROTTLE → sleeping {remaining:.2f}s "
-                    f"(min_interval={self.min_send_interval_seconds:.2f}s)",
+                    f"(sampled_interval={target_interval:.2f}s, elapsed={elapsed:.2f}s)",
                 )
                 self._sleep(remaining)
         self._last_send_monotonic = time.monotonic()
