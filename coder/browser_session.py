@@ -47,14 +47,21 @@ class CoderBrowserSession:
             "post_cleanup_pause_seconds": float(model_kwargs.get("post_cleanup_pause_seconds", 1.5)),
             "cleanup_after_generate": bool(model_kwargs.get("cleanup_after_generate", False)),
             "reuse_chat": bool(model_kwargs.get("reuse_chat", True)),
-            "min_send_interval_seconds": float(model_kwargs.get("min_send_interval_seconds", 5.0)),
+            "min_send_interval_seconds": (
+                None
+                if model_kwargs.get("min_send_interval_seconds") is None
+                else float(model_kwargs["min_send_interval_seconds"])
+            ),
+            "timing_config": model_kwargs.get("timing_config"),
+            "ui_config": model_kwargs.get("ui_config"),
             "debug_mode": bool(model_kwargs.get("debug_mode", False)),
         }
         self.model = self._model_kwargs["model"]
         self.user_data_dir = str(self._model_kwargs["user_data_dir"])
         self.reuse_chat = bool(model_kwargs.get("reuse_chat", True))
-        self.min_send_interval_seconds = float(
-            model_kwargs.get("min_send_interval_seconds", 5.0)
+        legacy_interval = model_kwargs.get("min_send_interval_seconds")
+        self.min_send_interval_seconds = (
+            float(legacy_interval) if legacy_interval is not None else 6.0
         )
         self._thread = threading.Thread(
             target=self._run_browser_thread,
