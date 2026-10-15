@@ -240,7 +240,8 @@ def test_browser_model_has_long_response_recovery_labels():
     assert "消息发送过于频繁" in BrowserModel.DEFAULT_RATE_LIMIT_LABELS
     assert "重新发送" in BrowserModel.DEFAULT_RESEND_LABELS
     assert BrowserModel.MAX_CONTINUE_GENERATIONS == 3
-    assert BrowserModel.MAX_RATE_LIMIT_RETRIES == 3
+    assert BrowserModel.MAX_RATE_LIMIT_RETRIES == 1
+    assert BrowserModel.RATE_LIMIT_RETRY_COOLDOWN_SECONDS == 20.0
 
 
 def test_browser_model_generate_auto_continues_long_response(monkeypatch):
@@ -291,9 +292,10 @@ def test_browser_model_wait_response_recovers_rate_limit(monkeypatch):
     assert retries == [True]
 
 
-def test_browser_model_retries_rate_limit_via_xpath_when_button_has_no_label(monkeypatch):
+def test_browser_model_retries_rate_limit_via_xpath_after_cooldown(monkeypatch):
     model = BrowserModel(poll_interval=0.01)
     events = []
+    waits = []
 
     class Button:
         def count(self):
@@ -321,9 +323,11 @@ def test_browser_model_retries_rate_limit_via_xpath_when_button_has_no_label(mon
     page = Page()
     monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
     monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_sleep", lambda seconds: waits.append(seconds))
     monkeypatch.setattr(model, "_click_button_with_matching_label", lambda *_args: False)
 
     assert model._retry_rate_limited_prompt(page) is True
+    assert waits == [20.0]
     assert events == [("click", BrowserModel.CLICK_ACTION_TIMEOUT_MS)]
 
 
@@ -427,6 +431,10 @@ def test_browser_model_wait_response_stops_when_cancelled(monkeypatch):
 def test_browser_model_send_interval_is_configurable():
     model = BrowserModel(min_send_interval_seconds=7.5)
     assert model.min_send_interval_seconds == 7.5
+
+
+def test_browser_model_default_send_interval_is_six_seconds():
+    assert BrowserModel().min_send_interval_seconds == 6.0
 
 
 def test_browser_model_throttles_consecutive_sends(monkeypatch):
@@ -2411,7 +2419,13 @@ def test_factory_forwards_original_attachments_to_browser_session(monkeypatch):
         FakeBrowserSession,
     )
     config = {
-        "providers": {"deepseek_web": {"type": "browser", "enabled": True}},
+        "providers": {
+            "deepseek_web": {
+                "type": "browser",
+                "enabled": True,
+                "min_send_interval_seconds": 5.0,
+            }
+        },
         "models": {
             "deepseek-web": {
                 "provider": "deepseek_web",
@@ -2433,6 +2447,7 @@ def test_factory_forwards_original_attachments_to_browser_session(monkeypatch):
     factory.begin_run(event, attachments=[attachment])
     client = factory.create(registry.get("deepseek-web"))
 
+    assert client.min_send_interval_seconds == 6.0
     assert client.received_files[0]["name"] == "lecture.pdf"
     assert client.received_files[0]["buffer"] == b"original raw payload"
 
