@@ -1335,6 +1335,7 @@ class BrowserModel(ModelClient):
                         # may not expose scroll_into_view_if_needed.
                         pass
                     candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     return True
                 except Exception as exc:
                     debug.log(
@@ -1403,12 +1404,19 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", "FRESH CHAT → current blank chat accepted")
                 return
 
-        if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS, role="button"):
-            if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS):
-                raise RuntimeError(
-                    "DeepSeek Web 未找到“New chat/新对话”控件，且当前会话已有消息，"
-                    "无法保证 Coder 使用独立上下文。"
-                )
+        clicked_new_chat = self._click_first_visible(
+            page, self.DEFAULT_NEW_CHAT_LABELS, role="button"
+        )
+        if not clicked_new_chat:
+            clicked_new_chat = self._click_first_visible(
+                page, self.DEFAULT_NEW_CHAT_LABELS
+            )
+        if not clicked_new_chat:
+            raise RuntimeError(
+                "DeepSeek Web 未找到“New chat/新对话”控件，且当前会话已有消息，"
+                "无法保证 Coder 使用独立上下文。"
+            )
+        self._wait_random("page_transition")
 
         deadline = time.monotonic() + min(15.0, float(self.timeout))
         while time.monotonic() < deadline:
@@ -1486,6 +1494,7 @@ class BrowserModel(ModelClient):
         if not self._click_session_more(page, row_link):
             debug.log("BrowserModel", f"CLEANUP SKIP → session menu not found: {session_id}")
             return
+        self._wait_random("panel_transition")
         if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
             if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
                 debug.log("BrowserModel", f"CLEANUP SKIP → delete action not found: {session_id}")
@@ -1522,6 +1531,7 @@ class BrowserModel(ModelClient):
                 button = buttons.nth(index)
                 if button.is_visible():
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log("BrowserModel", "CLEANUP MENU → three-dot SVG selector")
                     return True
         except Exception as exc:
@@ -1537,6 +1547,7 @@ class BrowserModel(ModelClient):
                 button = row_link.locator(f"xpath={xpath}")
                 if button.count() > 0 and button.is_visible():
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log(
                         "BrowserModel",
                         f"CLEANUP MENU → structural selector {xpath}",
@@ -1562,6 +1573,7 @@ class BrowserModel(ModelClient):
                     )).strip()
                     if any(pattern.search(text) for pattern in patterns):
                         button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        self._wait_random("click")
                         return True
                 parent = parent.locator(f"xpath={self.HISTORY_ROW_PARENT_XPATH}")
         except Exception:
@@ -1885,27 +1897,21 @@ class BrowserModel(ModelClient):
                     return
             else:
                 stable_since = None
-            self._sleep(min(0.2, self.poll_interval))
+            remaining = max(0.0, deadline - time.monotonic())
+            self._sleep(min(self.operation_timing.sample("upload_poll"), remaining))
 
         raise AttachmentUploadError(
             "DeepSeek Web 附件上传未能在 120 秒内确认完成；"
             "为避免模型在未收到文件时回答，已中止本次请求。"
         )
 
-    @classmethod
-    def _find_deep_thinking_toggle(cls, page):
-        """Find the visible DeepSeek Web DeepThink control by its user-facing label."""
-        label_pattern = re.compile(r"深度思考|deep\s*think", re.IGNORECASE)
-        selectors = (
-            ".ds-toggle-button",
-            '[role="switch"]',
-            'button[aria-label*="深度思考"]',
-            '[role="button"][aria-label*="深度思考"]',
-            'button[aria-label*="DeepThink" i]',
-            '[role="button"][aria-label*="DeepThink" i]',
-            "button",
-            '[role="button"]',
-        )
+    def _find_deep_thinking_toggle(self, page):
+        """Find the visible DeepSeek Web DeepThink control using configured locators."""
+        label_patterns = [
+            re.compile(re.escape(label), re.IGNORECASE)
+            for label in self.DEFAULT_DEEP_THINKING_LABELS
+        ]
+        selectors = self.DEFAULT_DEEP_THINKING_SELECTORS
         seen = set()
         for selector in selectors:
             try:
@@ -1919,20 +1925,18 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         continue
                     text_parts = []
-                    for source in ("inner_text",):
-                        try:
-                            text_parts.append(str(getattr(candidate, source)() or ""))
-                        except Exception:
-                            pass
+                    try:
+                        text_parts.append(str(candidate.inner_text() or ""))
+                    except Exception:
+                        pass
                     for attr in ("aria-label", "title"):
                         try:
                             text_parts.append(str(candidate.get_attribute(attr) or ""))
                         except Exception:
                             pass
                     text = " ".join(text_parts).strip()
-                    if not label_pattern.search(text):
+                    if not any(pattern.search(text) for pattern in label_patterns):
                         continue
-                    # The same DOM node may appear under multiple fallback selectors.
                     try:
                         node_key = candidate.evaluate("(el) => el")
                     except Exception:
@@ -2008,6 +2012,7 @@ class BrowserModel(ModelClient):
 
         try:
             toggle.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+            self._wait_random("click")
             debug.log("BrowserModel", f"THINKING MODE → toggled DeepThink {'on' if desired else 'off'}")
         except Exception as exc:
             raise RuntimeError(
@@ -2081,6 +2086,7 @@ class BrowserModel(ModelClient):
             )
             raise RuntimeError("DeepSeek Web 输入框填充超时或不可操作。") from exc
 
+        self._wait_random("input_settle")
         self._check_cancelled()
         debug.log("BrowserModel", "SEND ENTER → keyboard submission requested")
         try:
@@ -2264,7 +2270,7 @@ class BrowserModel(ModelClient):
                         "本次请求未确认发送。"
                     )
                 raise self._submission_failure(message)
-            self._sleep(min(self.poll_interval, remaining))
+            self._sleep(min(self.operation_timing.sample("send_button_poll"), remaining))
 
     def _click_send_button(self, page) -> bool:
         """Click a visible, enabled Send control as a fallback to Enter."""
@@ -2309,6 +2315,7 @@ class BrowserModel(ModelClient):
                         except Exception:
                             pass
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log(
                         "BrowserModel",
                         f"SEND BUTTON CLICKED → selector={selector!r}, label={label[:80]!r}",
@@ -2339,8 +2346,15 @@ class BrowserModel(ModelClient):
     def _retry_rate_limited_prompt(self, page) -> bool:
         if not self._rate_limit_visible(page):
             return False
-        # Honour the minimum send interval before attempting the web UI retry.
-        self._wait_for_send_slot()
+        # Rate-limit retries have a fixed cooldown; do not add the normal
+        # randomized send interval on top of this wait.
+        delay = self.operation_timing.wait_before_retry(
+            sleep=self._sleep,
+            check_cancelled=self._check_cancelled,
+        )
+        debug.log("BrowserModel", f"RATE LIMIT → waited {delay:.1f}s before retry")
+        if not self._rate_limit_visible(page):
+            return False
         if not self._click_rate_limit_retry_button(page):
             debug.log(
                 "BrowserModel",
@@ -2385,6 +2399,7 @@ class BrowserModel(ModelClient):
                                 # the browser refuses to scroll it.
                                 pass
                         button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        self._wait_random("click")
                         debug.log(
                             "BrowserModel",
                             f"RATE LIMIT → resend clicked by XPath {xpath!r}",
@@ -2400,7 +2415,7 @@ class BrowserModel(ModelClient):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            self._sleep(min(self.poll_interval, remaining))
+            self._sleep(min(self.operation_timing.sample("retry_poll"), remaining))
 
     def _click_button_with_matching_label(self, page, labels: tuple[str, ...]) -> bool:
         """Click only a button whose rendered label actually matches the requested action."""
@@ -2419,6 +2434,7 @@ class BrowserModel(ModelClient):
                 )).strip()
                 if any(pattern.search(label) for pattern in patterns):
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     return True
         except Exception as exc:
             debug.log("BrowserModel", f"BUTTON LABEL SCAN SKIP → {type(exc).__name__}: {exc}")
@@ -2690,11 +2706,24 @@ class BrowserModel(ModelClient):
                     except Exception:
                         copy_ready = False
                     if copy_ready:
-                        debug.log(
-                            "BrowserModel",
-                            "WAIT RESPONSE → response complete; Copy target available",
-                        )
-                        return json_candidate or latest
+                        self._wait_random("response_stability")
+                        refreshed = self._latest_response(page, before_snapshot)
+                        if (
+                            refreshed
+                            and refreshed == candidate
+                            and not self._loading_visible(page)
+                            and self._find_copy_button(page) is not None
+                        ):
+                            debug.log(
+                                "BrowserModel",
+                                "WAIT RESPONSE → response complete; Copy target available",
+                            )
+                            return self._extract_json_object(refreshed) if json_mode else refreshed
+                        previous = refreshed or ""
+                        if refreshed:
+                            latest = refreshed
+                        stable_since = None
+                        continue
                     if not json_wait_logged:
                         json_wait_logged = True
                         debug.log(
@@ -2704,11 +2733,23 @@ class BrowserModel(ModelClient):
 
                 ready = stable and json_ready and not loading
                 if ready:
+                    self._wait_random("response_stability")
+                    refreshed = self._latest_response(page, before_snapshot)
+                    if (
+                        not refreshed
+                        or refreshed != latest
+                        or self._loading_visible(page)
+                    ):
+                        previous = refreshed or ""
+                        if refreshed:
+                            latest = refreshed
+                        stable_since = None
+                        continue
                     debug.log(
                         "BrowserModel",
-                        f"WAIT RESPONSE → ready chars={len(latest)}, loading={loading}",
+                        f"WAIT RESPONSE → ready chars={len(refreshed)}, loading=False",
                     )
-                    return latest
+                    return refreshed
                 if json_mode and json_ready and stable and loading and not loading_block_logged:
                     loading_block_logged = True
                     debug.log(
