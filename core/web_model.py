@@ -2710,7 +2710,6 @@ class BrowserModel(ModelClient):
                         if (
                             refreshed
                             and refreshed == candidate
-                            and not self._loading_visible(page)
                             and self._find_copy_button(page) is not None
                         ):
                             debug.log(
