@@ -1346,7 +1346,7 @@ class BrowserModel(ModelClient):
                         # Lightweight test doubles and older locator wrappers
                         # may not expose scroll_into_view_if_needed.
                         pass
-                    candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    candidate.click(timeout=click_timeout_ms or BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     return True
                 except Exception as exc:
                     debug.log(
@@ -1427,11 +1427,11 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", "FRESH CHAT → current blank chat accepted")
                 return
 
-        clicked_new_chat = self._click_first_visible(
+        clicked_new_chat = self._click_first_visible_configured(
             page, self.DEFAULT_NEW_CHAT_LABELS, role="button"
         )
         if not clicked_new_chat:
-            clicked_new_chat = self._click_first_visible(
+            clicked_new_chat = self._click_first_visible_configured(
                 page, self.DEFAULT_NEW_CHAT_LABELS
             )
         if not clicked_new_chat:
@@ -1518,12 +1518,12 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"CLEANUP SKIP → session menu not found: {session_id}")
             return
         self._wait_random("panel_transition")
-        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
-            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+        if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
+            if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS):
                 debug.log("BrowserModel", f"CLEANUP SKIP → delete action not found: {session_id}")
                 return
-        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="button"):
-            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+        if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS, role="button"):
+            if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS):
                 debug.log("BrowserModel", f"CLEANUP SKIP → delete confirmation not found: {session_id}")
                 return
 
@@ -1837,9 +1837,9 @@ class BrowserModel(ModelClient):
 
         file_inputs = page.locator(self.FILE_INPUT_SELECTOR)
         if file_inputs.count() <= 0:
-            clicked = self._click_first_visible(
+            clicked = self._click_first_visible_configured(
                 page, self.DEFAULT_ATTACHMENT_LABELS, role="button"
-            ) or self._click_first_visible(page, self.DEFAULT_ATTACHMENT_LABELS)
+            ) or self._click_first_visible_configured(page, self.DEFAULT_ATTACHMENT_LABELS)
             if not clicked:
                 raise AttachmentUploadError(
                     "DeepSeek Web 未找到文件上传控件或 input[type=file]；"
@@ -2794,13 +2794,13 @@ class BrowserModel(ModelClient):
     def _stop_current_generation(self, page) -> bool:
         """Click the visible DeepSeek Stop control before abandoning the current turn."""
         try:
-            stopped = self._click_first_visible(
+            stopped = self._click_first_visible_configured(
                 page,
                 self.DEFAULT_STOP_LABELS,
                 role="button",
             )
             if not stopped:
-                stopped = self._click_first_visible(
+                stopped = self._click_first_visible_configured(
                     page,
                     self.DEFAULT_STOP_LABELS,
                 )
