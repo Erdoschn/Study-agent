@@ -94,7 +94,13 @@
         "[role=\"button\"][aria-label*=\"DeepThink\" i]",
         "button",
         "[role=\"button\"]"
-      ]
+      ],
+      "button_container": "button, [role='button']",
+      "history_session_link_template": "a[href*=\"/a/chat/s/{session_id}\"]",
+      "history_row_parent_xpath": "..",
+      "svg_path_button_template": "[role=\"button\"]:has(svg path[d^=\"{path}\"])",
+      "cookie_banner": ".cookie_banner-wrap",
+      "disabled_button_class": "ds-button--disabled"
     },
     "labels": {
       "new_chat": [
@@ -176,6 +182,13 @@
       "deep_thinking": [
         "深度思考",
         "DeepThink"
+      ],
+      "send_exclude": [
+        "stop",
+        "cancel",
+        "停止",
+        "中止",
+        "取消"
       ]
     },
     "timeouts_ms": {
