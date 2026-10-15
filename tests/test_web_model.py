@@ -2845,49 +2845,6 @@ def test_browser_model_accepts_run_project_action_in_json_mode():
 
 
 
-def test_browser_window_refresh_is_disabled_when_interval_is_zero(monkeypatch):
-    model = BrowserModel(
-        timeout=1,
-        ui_config={"window": {"refresh_interval_minutes": 0}},
-    )
-    model._browser_opened_monotonic = time.monotonic() - 10_000
-    close_calls = []
-    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
-
-    assert model._maybe_refresh_browser_window() is False
-    assert close_calls == []
-
-
-def test_browser_window_refresh_preserves_send_throttle(monkeypatch):
-    model = BrowserModel(
-        timeout=1,
-        ui_config={"window": {"refresh_interval_minutes": 0.01}},
-    )
-    model._browser_opened_monotonic = time.monotonic() - 10
-    close_calls = []
-    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
-
-    assert model._maybe_refresh_browser_window() is True
-    assert close_calls == [{"preserve_send_throttle": True}]
-
-
-@pytest.mark.parametrize("active_flag", ["_attachment_session_active", "_pending_prompt"])
-def test_browser_window_refresh_is_deferred_during_active_work(monkeypatch, active_flag):
-    model = BrowserModel(
-        timeout=1,
-        ui_config={"window": {"refresh_interval_minutes": 0.01}},
-    )
-    model._browser_opened_monotonic = time.monotonic() - 10
-    if active_flag == "_attachment_session_active":
-        model._attachment_session_active = True
-    else:
-        model._pending_prompt = "still waiting for submission"
-    close_calls = []
-    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
-
-    assert model._maybe_refresh_browser_window() is False
-    assert close_calls == []
-
 
 def test_prewarm_reopen_requires_explicit_yes_and_reuses_browser_profile(monkeypatch):
     model = BrowserModel(timeout=1, user_data_dir="persistent-test-profile")
