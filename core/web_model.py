@@ -59,12 +59,6 @@ class BrowserModel(ModelClient):
         "Too many messages",
         "Please wait",
     )
-    DEFAULT_RESEND_LABELS = (
-        "重新发送",
-        "Resend",
-        "Retry",
-        "重试",
-    )
     DEFAULT_SEND_LABELS = (
         "Send message", "Send", "发送消息", "发送",
     )
@@ -80,16 +74,8 @@ class BrowserModel(ModelClient):
         'button[type="submit"]',
         '[class*="send-button"]',
     )
-    # DeepSeek's rate-limit retry control can be rendered without an accessible
-    # name. Keep the user-confirmed DOM path as a fallback after semantic lookup.
-    DEFAULT_RATE_LIMIT_RETRY_XPATHS = (
-        "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]",
-    )
-    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = 5.0
-    RATE_LIMIT_RETRY_COOLDOWN_SECONDS = 20.0
+    RATE_LIMIT_COOLDOWN_SECONDS = 20.0
     MAX_CONTINUE_GENERATIONS = 3
-    # The web UI retry is bounded to one attempt after a cooldown.
-    MAX_RATE_LIMIT_RETRIES = 1
     DEFAULT_COOKIE_ACCEPT_LABELS = (
         "Accept", "Accept all", "Agree", "I agree",
         "同意", "接受", "全部接受", "同意全部",
@@ -175,6 +161,9 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
+        # Latch explicit rate limiting so Reasoner follow-up calls cannot
+        # immediately submit again while the restriction remains visible.
+        self._rate_limit_blocked = False
         self._attachment_session_active = False
         self._attachment_chat_started = False
         self._attachment_uploaded = False
@@ -369,6 +358,17 @@ class BrowserModel(ModelClient):
         self._ensure_logged_in(page)
         self._check_cancelled()
         self._dismiss_cookie_banner(page)
+        if self._rate_limit_blocked:
+            if self._rate_limit_visible(page):
+                raise RuntimeError(
+                    "DeepSeek Web 仍显示限流提示。自动提交已暂停；"
+                    "请等待限制解除后再手动恢复任务。"
+                )
+            self._rate_limit_blocked = False
+            debug.log(
+                "BrowserModel",
+                "RATE LIMIT → notice cleared; a later task call may proceed",
+            )
         self._json_mode_active = bool(json_mode)
         self._call_role = call_role
         self._response_binding_fallback_logged = False
@@ -2207,88 +2207,6 @@ class BrowserModel(ModelClient):
         except Exception:
             return False
 
-    def _retry_rate_limited_prompt(self, page) -> bool:
-        if not self._rate_limit_visible(page):
-            return False
-
-        # A fixed cooldown is for bounded recovery, not randomized human-behavior
-        # simulation. Do not click the retry control before this wait completes.
-        debug.log(
-            "BrowserModel",
-            f"RATE LIMIT → cooldown {self.RATE_LIMIT_RETRY_COOLDOWN_SECONDS:.0f}s "
-            "before checking for one explicit UI retry",
-        )
-        self._sleep(self.RATE_LIMIT_RETRY_COOLDOWN_SECONDS)
-
-        # If the notice cleared, the original request may have completed. Never
-        # resubmit simply because the UI was slow; continue response polling.
-        if not self._rate_limit_visible(page):
-            debug.log(
-                "BrowserModel",
-                "RATE LIMIT → notice cleared during cooldown; no resend performed",
-            )
-            return False
-
-        self._wait_for_send_slot()
-        if not self._click_rate_limit_retry_button(page):
-            debug.log(
-                "BrowserModel",
-                "RATE LIMIT → no usable explicit retry control after cooldown",
-            )
-            return False
-        debug.log("BrowserModel", "RATE LIMIT → one explicit UI retry requested")
-        return True
-
-    def _click_rate_limit_retry_button(self, page) -> bool:
-        """Find the resend action by accessible label, then the observed DOM XPath.
-
-        DeepSeek sometimes exposes an icon/element without a useful accessible
-        name, so a text-only lookup is not sufficient. The short polling window
-        also allows the retry control to appear after the rate-limit notice.
-        """
-        deadline = time.monotonic() + self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS
-        while True:
-            self._check_cancelled()
-            if not self._rate_limit_visible(page):
-                return False
-
-            if self._click_button_with_matching_label(page, self.DEFAULT_RESEND_LABELS):
-                debug.log("BrowserModel", "RATE LIMIT → resend clicked by accessible label")
-                return True
-
-            for xpath in self.DEFAULT_RATE_LIMIT_RETRY_XPATHS:
-                try:
-                    locator = page.locator(f"xpath={xpath}")
-                    for index in range(locator.count() - 1, -1, -1):
-                        button = locator.nth(index)
-                        if not button.is_visible():
-                            continue
-                        scroll = getattr(button, "scroll_into_view_if_needed", None)
-                        if callable(scroll):
-                            try:
-                                scroll(timeout=self.CLICK_ACTION_TIMEOUT_MS)
-                            except Exception:
-                                # A visible target can still be clickable when
-                                # the browser refuses to scroll it.
-                                pass
-                        button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
-                        debug.log(
-                            "BrowserModel",
-                            f"RATE LIMIT → resend clicked by XPath {xpath!r}",
-                        )
-                        return True
-                except Exception as exc:
-                    debug.log(
-                        "BrowserModel",
-                        f"RATE LIMIT → XPath retry click skipped "
-                        f"({type(exc).__name__}: {exc})",
-                    )
-
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            self._sleep(min(self.poll_interval, remaining))
-
     def _click_button_with_matching_label(self, page, labels: tuple[str, ...]) -> bool:
         """Click only a button whose rendered label actually matches the requested action."""
         import re as _re
@@ -2494,32 +2412,31 @@ class BrowserModel(ModelClient):
         loading_block_logged = False
         json_wait_logged = False
         invalid_json_since: float | None = None
-        rate_limit_retries = 0
+        rate_limit_cooldown_waited = False
 
         while time.monotonic() < deadline:
             if self._rate_limit_visible(page):
-                if rate_limit_retries >= self.MAX_RATE_LIMIT_RETRIES:
+                self._rate_limit_blocked = True
+                if rate_limit_cooldown_waited:
                     raise RuntimeError(
-                        "等待冷却并进行一次重试后，DeepSeek Web 仍提示限流；"
-                        "为避免重复提交，本次请求已停止。"
+                        "等待 20 秒后，DeepSeek Web 仍显示限流提示；"
+                        "为避免重复提交，自动发送已停止。"
                     )
-                if self._retry_rate_limited_prompt(page):
-                    rate_limit_retries += 1
-                    deadline = time.monotonic() + self.timeout
-                    saw_new_response = False
-                    latest = ""
-                    stable_since = None
-                    previous = ""
-                    invalid_json_since = None
-                    continue
+                rate_limit_cooldown_waited = True
+                debug.log(
+                    "BrowserModel",
+                    f"RATE LIMIT → waiting {self.RATE_LIMIT_COOLDOWN_SECONDS:.0f}s "
+                    "before checking whether the notice clears",
+                )
+                self._sleep(self.RATE_LIMIT_COOLDOWN_SECONDS)
                 if self._rate_limit_visible(page):
                     raise RuntimeError(
-                        "等待 20 秒后，DeepSeek Web 仍提示限流且没有可用的重试控件；"
-                        "本次请求已停止。"
+                        "等待 20 秒后，DeepSeek Web 仍显示限流提示；"
+                        "请等待限制解除后再手动恢复任务。"
                     )
-                # The notice cleared during cooldown. Do not resend; continue
-                # polling in case the original request completed normally.
-                rate_limit_retries = self.MAX_RATE_LIMIT_RETRIES
+                # The notice cleared. Do not resend: the original submission
+                # may have been accepted, so keep observing its response.
+                continue
             if self.cancellation_event is not None and self.cancellation_event.is_set():
                 self._stop_current_generation(page)
                 raise RunCancelled("Coder 任务已被用户中止。")
