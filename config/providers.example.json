@@ -17,7 +17,7 @@
       "user_data_dir": ".study-agent-browser",
       "timeout": 180,
       "reuse_chat": false,
-      "min_send_interval_seconds": 5.0,
+      "min_send_interval_seconds": 6.0,
       "enabled": true
     },
 
