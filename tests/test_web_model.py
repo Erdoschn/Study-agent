@@ -319,11 +319,14 @@ def test_browser_model_retries_rate_limit_via_xpath_when_button_has_no_label(mon
             return button
 
     page = Page()
+    waits = []
     monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
-    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_sleep", lambda seconds: waits.append(seconds))
     monkeypatch.setattr(model, "_click_button_with_matching_label", lambda *_args: False)
 
     assert model._retry_rate_limited_prompt(page) is True
+    assert waits[0] == 20.0
+    assert all(0.0 <= wait <= 0.3 for wait in waits[1:])
     assert events == [("click", BrowserModel.CLICK_ACTION_TIMEOUT_MS)]
 
 
@@ -427,6 +430,27 @@ def test_browser_model_wait_response_stops_when_cancelled(monkeypatch):
 def test_browser_model_send_interval_is_configurable():
     model = BrowserModel(min_send_interval_seconds=7.5)
     assert model.min_send_interval_seconds == 7.5
+
+
+def test_browser_model_reads_button_selectors_and_xpaths_from_ui_config():
+    model = BrowserModel(
+        ui_config={
+            "selectors": {
+                "send_button": ["#custom-send"],
+                "rate_limit_retry_xpath": ["/custom/retry"],
+                "history_more_xpath": ["./custom/more"],
+            },
+            "labels": {
+                "resend": ["Try again"],
+            },
+        },
+        timing_config={"ui_delay_seconds": {"click": {"min": 0, "max": 0}}},
+    )
+
+    assert model.DEFAULT_SEND_BUTTON_SELECTORS == ("#custom-send",)
+    assert model.DEFAULT_RATE_LIMIT_RETRY_XPATHS == ("/custom/retry",)
+    assert model.DEFAULT_MORE_XPATHS == ("./custom/more",)
+    assert model.DEFAULT_RESEND_LABELS == ("Try again",)
 
 
 def test_browser_model_throttles_consecutive_sends(monkeypatch):
