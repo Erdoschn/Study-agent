@@ -83,6 +83,9 @@ class BrowserModel(ModelClient):
     HISTORY_ROW_PARENT_XPATH = _config_string(
         _DEFAULT_UI_SELECTORS, "history_row_parent_xpath", ".."
     )
+    COPY_ITEM_XPATH = _config_string(
+        _DEFAULT_UI_SELECTORS, "copy_item_xpath", "ancestor::*[@data-virtual-list-item-key][1]"
+    )
     SVG_PATH_BUTTON_TEMPLATE = _config_string(
         _DEFAULT_UI_SELECTORS, "svg_path_button_template", ""
     )
@@ -228,6 +231,7 @@ class BrowserModel(ModelClient):
             ("BUTTON_CONTAINER_SELECTOR", "button_container"),
             ("HISTORY_SESSION_LINK_TEMPLATE", "history_session_link_template"),
             ("HISTORY_ROW_PARENT_XPATH", "history_row_parent_xpath"),
+            ("COPY_ITEM_XPATH", "copy_item_xpath"),
             ("SVG_PATH_BUTTON_TEMPLATE", "svg_path_button_template"),
             ("COOKIE_BANNER_SELECTOR", "cookie_banner"),
             ("DISABLED_BUTTON_CLASS", "disabled_button_class"),
@@ -1201,7 +1205,7 @@ class BrowserModel(ModelClient):
         while True:
             self._check_cancelled()
             if self._find_visible(
-                page, ("textarea", '[contenteditable="true"]')
+                page, self.INPUT_SELECTORS
             ) is not None:
                 debug.log("BrowserModel", "PREWARM LOGIN → chat input detected")
                 return True
@@ -1390,7 +1394,7 @@ class BrowserModel(ModelClient):
         # For answer generation/auditing, force a new session whenever the page
         # still identifies the previous conversation, even if its messages were
         # cleared or hidden.
-        if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
+        if self._find_visible(page, self.INPUT_SELECTORS) is not None:
             visible_messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             has_visible_message = False
             for index in range(visible_messages.count() - 1, -1, -1):
@@ -1429,7 +1433,7 @@ class BrowserModel(ModelClient):
                     f"FRESH CHAT → session {old_session} -> {current_session}",
                 )
                 if self._find_visible(
-                    page, ("textarea", '[contenteditable="true"]')
+                    page, self.INPUT_SELECTORS
                 ) is not None:
                     return
 
@@ -1447,7 +1451,7 @@ class BrowserModel(ModelClient):
                     continue
 
             if not has_visible_message and self._find_visible(
-                page, ("textarea", '[contenteditable="true"]')
+                page, self.INPUT_SELECTORS
             ) is not None:
                 if force and old_session and current_session == old_session:
                     # The history pane disappearing is not proof of a new
@@ -1559,7 +1563,7 @@ class BrowserModel(ModelClient):
         # Keep semantic fallbacks for future DeepSeek UI variants.
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in self.DEFAULT_MORE_LABELS]
         try:
-            parent = row_link.locator("xpath=..")
+            parent = row_link.locator(f"xpath={self.HISTORY_ROW_PARENT_XPATH}")
             for _ in range(6):
                 buttons = parent.locator(self.BUTTON_CONTAINER_SELECTOR)
                 for index in range(buttons.count() - 1, -1, -1):
@@ -1615,7 +1619,7 @@ class BrowserModel(ModelClient):
 
         try:
             item = message.locator(
-                'xpath=ancestor::*[@data-virtual-list-item-key][1]'
+                f"xpath={self.COPY_ITEM_XPATH}"
             )
             if item.count() == 0:
                 debug.log(
@@ -1870,12 +1874,7 @@ class BrowserModel(ModelClient):
                 body = ""
             names_visible = all(name in body for name in expected_names)
             upload_busy = False
-            for selector in (
-                '[role="progressbar"]',
-                '[aria-busy="true"]',
-                '[class*="uploading" i]',
-                '[class*="upload-progress" i]',
-            ):
+            for selector in self.UPLOAD_BUSY_SELECTORS:
                 try:
                     locator = page.locator(selector)
                     if any(
