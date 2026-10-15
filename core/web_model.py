@@ -181,6 +181,7 @@ class BrowserModel(ModelClient):
         labels = self.ui_config.get("labels", {})
         timeouts_ms = self.ui_config.get("timeouts_ms", {})
         timeouts_seconds = self.ui_config.get("timeouts_seconds", {})
+        window_config = self.ui_config.get("window", {})
         if not isinstance(selectors, dict):
             selectors = {}
         if not isinstance(labels, dict):
@@ -189,6 +190,24 @@ class BrowserModel(ModelClient):
             timeouts_ms = {}
         if not isinstance(timeouts_seconds, dict):
             timeouts_seconds = {}
+        if not isinstance(window_config, dict):
+            window_config = {}
+        self.window_refresh_interval_seconds = max(
+            0.0,
+            _config_number(window_config, "refresh_interval_minutes", 60.0),
+        ) * 60.0
+        reopen_on_timeout = window_config.get("ask_reopen_on_prewarm_login_timeout", True)
+        self.ask_reopen_on_prewarm_login_timeout = (
+            reopen_on_timeout if isinstance(reopen_on_timeout, bool) else True
+        )
+        self.prewarm_login_detection_seconds = max(
+            0.1,
+            _config_number(window_config, "prewarm_login_detection_seconds", 8.0),
+        )
+        self.reopen_wait_seconds = max(
+            0.1,
+            _config_number(window_config, "reopen_wait_seconds", 15.0),
+        )
 
         # A provider may override its own UI locators and labels without code changes.
         for attribute, key in (
@@ -308,6 +327,7 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
+        self._browser_opened_monotonic: float | None = None
         self._attachment_session_active = False
         self._attachment_chat_started = False
         self._attachment_uploaded = False
@@ -432,31 +452,89 @@ class BrowserModel(ModelClient):
 
 
     def prepare_browser(self) -> None:
-        """Open this model's browser profile without sending a model prompt.
-
-        Authentication remains manual. This is used by API shells so the user
-        can log into the correct isolated browser profile before an Agent run.
-        """
+        """Open the persistent profile; authentication always remains manual."""
         self._check_cancelled()
         page = self._ensure_page()
         self._dismiss_cookie_banner(page)
-        # DeepSeek renders its chat input asynchronously after DOMContentLoaded.
-        # Poll briefly instead of misclassifying a logged-in session as logged out.
-        input_ready = self._wait_for_chat_input(page, timeout=8.0)
+        input_ready = self._wait_for_chat_input(
+            page, timeout=self.prewarm_login_detection_seconds
+        )
+        if not input_ready and self._ask_to_reopen_after_prewarm_timeout():
+            debug.log(
+                "BrowserModel",
+                "PREWARM REOPEN → user approved reopening the same persistent profile",
+            )
+            page = self._reopen_browser_window()
+            self._dismiss_cookie_banner(page)
+            input_ready = self._wait_for_chat_input(
+                page, timeout=self.reopen_wait_seconds
+            )
         if not input_ready:
             debug.log(
                 "BrowserModel",
-                "PREWARM LOGIN → chat input not detected within 8s",
+                "PREWARM LOGIN → chat input still not detected; manual login or site-side check may be required",
             )
-        # The user explicitly wants the browser kept out of the foreground even
-        # while login/input detection is incomplete. Do not confuse "not logged
-        # in" with "do not attempt window placement".
         self._send_browser_window_to_back(page)
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}, "
             f"chat_input_ready={input_ready}",
         )
+
+    def _ask_to_reopen_after_prewarm_timeout(self) -> bool:
+        """Ask for explicit terminal approval before reopening the same profile."""
+        if not self.ask_reopen_on_prewarm_login_timeout:
+            return False
+        try:
+            interactive = bool(sys.stdin and sys.stdin.isatty())
+        except (AttributeError, OSError):
+            interactive = False
+        if not interactive:
+            debug.log(
+                "BrowserModel",
+                "PREWARM REOPEN SKIP → terminal is non-interactive; keeping current browser",
+            )
+            return False
+        try:
+            answer = input(
+                "\n[Study Agent] 等待聊天输入框超时。是否关闭当前由 Study Agent 打开的 "
+                "Edge 窗口，并使用同一浏览器资料重新打开以排查页面异常？"
+                "\n不会清除 Cookie、切换账号、修改网络或伪装设备标识。 [y/N]："
+            )
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return answer.strip().casefold() in {"y", "yes", "是", "重开", "重新打开"}
+
+    def _reopen_browser_window(self):
+        """Restart this Playwright-owned window using the same persistent profile."""
+        self.close(preserve_send_throttle=True)
+        return self._ensure_page()
+
+    def _maybe_refresh_browser_window(self) -> bool:
+        """Restart an overdue browser only at a new request boundary.
+
+        Active attachment sessions and pending submissions are never interrupted.
+        The same persistent profile and send-throttle timestamp are retained.
+        """
+        interval = self.window_refresh_interval_seconds
+        opened_at = self._browser_opened_monotonic
+        if interval <= 0 or opened_at is None:
+            return False
+        if time.monotonic() - opened_at < interval:
+            return False
+        if self._attachment_session_active or self._pending_prompt is not None:
+            debug.log(
+                "BrowserModel",
+                "WINDOW REFRESH DEFERRED → attachment/submission is active",
+            )
+            return False
+        debug.log(
+            "BrowserModel",
+            f"WINDOW REFRESH → browser age exceeded configured {interval / 60:.1f} minutes; "
+            "reopening the same persistent profile",
+        )
+        self.close(preserve_send_throttle=True)
+        return True
 
     @staticmethod
     def _infer_session_role(system_prompt: str) -> str:
@@ -504,6 +582,7 @@ class BrowserModel(ModelClient):
             f"SESSION POLICY → role={call_role}, isolated={isolate_this_call}, "
             f"attachments={len(self._attachment_files) if self._attachment_session_active else 0}",
         )
+        self._maybe_refresh_browser_window()
         page = self._ensure_page()
         self._check_cancelled()
 
@@ -876,13 +955,15 @@ class BrowserModel(ModelClient):
             separators=(",", ":"),
         )
 
-    def close(self) -> None:
-        """Close the browser context owned by this client, even after failures."""
+    def close(self, *, preserve_send_throttle: bool = False) -> None:
+        """Close the owned browser context, optionally preserving send spacing."""
         context, self._context = self._context, None
         playwright, self._playwright = self._playwright, None
         self._page = None
+        self._browser_opened_monotonic = None
         self._chat_initialized = False
-        self._last_send_monotonic = None
+        if not preserve_send_throttle:
+            self._last_send_monotonic = None
         try:
             if context is not None:
                 context.close()
@@ -989,6 +1070,7 @@ class BrowserModel(ModelClient):
                     "BrowserModel",
                     "WINDOW HANDLE → no new Edge HWND detected after 3s",
                 )
+            self._browser_opened_monotonic = time.monotonic()
             return self._page
         except Exception:
             # Navigation can fail after Playwright and the persistent context
