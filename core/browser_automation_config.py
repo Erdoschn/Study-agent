@@ -55,7 +55,6 @@ def load_browser_automation_config(
     if not isinstance(window, dict):
         raise ValueError("browser_automation.json 的 ui.window 必须是对象。")
     window_defaults = {
-        "refresh_interval_minutes": 60,
         "ask_reopen_on_prewarm_login_timeout": True,
         "prewarm_login_detection_seconds": 8,
         "reopen_wait_seconds": 15,
@@ -64,7 +63,7 @@ def load_browser_automation_config(
         window.setdefault(key, default)
     if not isinstance(window["ask_reopen_on_prewarm_login_timeout"], bool):
         raise ValueError("ui.window.ask_reopen_on_prewarm_login_timeout 必须是布尔值。")
-    for key in ("refresh_interval_minutes", "prewarm_login_detection_seconds", "reopen_wait_seconds"):
+    for key in ("prewarm_login_detection_seconds", "reopen_wait_seconds"):
         number = window[key]
         if isinstance(number, bool) or not isinstance(number, (int, float)) or number < 0:
             raise ValueError(f"ui.window.{key} 必须是非负数字。")
