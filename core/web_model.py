@@ -1312,7 +1312,8 @@ class BrowserModel(ModelClient):
         match = re.search(r"/a/chat/s/([^/?#]+)", str(url or ""))
         return match.group(1) if match else None
 
-    def _click_first_visible(self, page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+    @staticmethod
+    def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
         """Resolve and click a matching visible control, tolerating DOM rerenders.
 
         DeepSeek can rerender the sidebar after a locator is highlighted. Keep
@@ -1333,13 +1334,12 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         return False
                     try:
-                        candidate.scroll_into_view_if_needed(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        candidate.scroll_into_view_if_needed(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     except (AttributeError, TypeError):
                         # Lightweight test doubles and older locator wrappers
                         # may not expose scroll_into_view_if_needed.
                         pass
                     candidate.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
-                    self._wait_random("click")
                     return True
                 except Exception as exc:
                     debug.log(
@@ -2705,7 +2705,8 @@ class BrowserModel(ModelClient):
                     except Exception:
                         copy_ready = False
                     if copy_ready:
-                        self._wait_random("response_stability")
+                        # A visible Copy control is an explicit completion signal;
+                        # preserve the fast-path and only verify the response snapshot.
                         refreshed = self._latest_response(page, before_snapshot)
                         if (
                             refreshed
