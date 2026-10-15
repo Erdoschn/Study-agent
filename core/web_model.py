@@ -1313,7 +1313,14 @@ class BrowserModel(ModelClient):
         return match.group(1) if match else None
 
     @staticmethod
-    def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+    def _click_first_visible(
+        page,
+        labels: tuple[str, ...],
+        *,
+        role: str | None = None,
+        button_container_selector: str | None = None,
+        click_timeout_ms: int | None = None,
+    ) -> bool:
         """Resolve and click a matching visible control, tolerating DOM rerenders.
 
         DeepSeek can rerender the sidebar after a locator is highlighted. Keep
@@ -1334,7 +1341,7 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         return False
                     try:
-                        candidate.scroll_into_view_if_needed(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                        candidate.scroll_into_view_if_needed(timeout=click_timeout_ms or BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     except (AttributeError, TypeError):
                         # Lightweight test doubles and older locator wrappers
                         # may not expose scroll_into_view_if_needed.
@@ -1360,7 +1367,7 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", f"CLICK LOCATOR SKIP → {type(exc).__name__}: {exc}")
 
         try:
-            buttons = page.locator(self.BUTTON_CONTAINER_SELECTOR)
+            buttons = page.locator(button_container_selector or BrowserModel.BUTTON_CONTAINER_SELECTOR)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 try:
@@ -1383,6 +1390,18 @@ class BrowserModel(ModelClient):
         except Exception as exc:
             debug.log("BrowserModel", f"CLICK BUTTON SCAN SKIP → {type(exc).__name__}: {exc}")
         return False
+
+    def _click_first_visible_configured(
+        self, page, labels: tuple[str, ...], *, role: str | None = None
+    ) -> bool:
+        """Use the compatibility helper with this browser's configured locators."""
+        return BrowserModel._click_first_visible(
+            page,
+            labels,
+            role=role,
+            button_container_selector=self.BUTTON_CONTAINER_SELECTOR,
+            click_timeout_ms=self.CLICK_ACTION_TIMEOUT_MS,
+        )
 
     def _start_fresh_chat(self, page, *, force: bool = False) -> None:
         if self.session_pause_seconds:
