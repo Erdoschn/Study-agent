@@ -2841,3 +2841,86 @@ def test_browser_model_accepts_run_project_action_in_json_mode():
     response = '{"action":"RUN_PROJECT","arguments":{"kind":"cpp","path":"main.cpp"}}'
     assert BrowserModel._extract_json_object(response) == response
     assert BrowserModel._needs_json_recovery(response) is False
+
+
+
+def test_browser_window_refresh_is_disabled_when_interval_is_zero(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        ui_config={"window": {"refresh_interval_minutes": 0}},
+    )
+    model._browser_opened_monotonic = time.monotonic() - 10_000
+    close_calls = []
+    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
+
+    assert model._maybe_refresh_browser_window() is False
+    assert close_calls == []
+
+
+def test_browser_window_refresh_preserves_send_throttle(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        ui_config={"window": {"refresh_interval_minutes": 0.01}},
+    )
+    model._browser_opened_monotonic = time.monotonic() - 10
+    close_calls = []
+    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
+
+    assert model._maybe_refresh_browser_window() is True
+    assert close_calls == [{"preserve_send_throttle": True}]
+
+
+@pytest.mark.parametrize("active_flag", ["_attachment_session_active", "_pending_prompt"])
+def test_browser_window_refresh_is_deferred_during_active_work(monkeypatch, active_flag):
+    model = BrowserModel(
+        timeout=1,
+        ui_config={"window": {"refresh_interval_minutes": 0.01}},
+    )
+    model._browser_opened_monotonic = time.monotonic() - 10
+    if active_flag == "_attachment_session_active":
+        model._attachment_session_active = True
+    else:
+        model._pending_prompt = "still waiting for submission"
+    close_calls = []
+    monkeypatch.setattr(model, "close", lambda **kwargs: close_calls.append(kwargs))
+
+    assert model._maybe_refresh_browser_window() is False
+    assert close_calls == []
+
+
+def test_prewarm_reopen_requires_explicit_yes_and_reuses_browser_profile(monkeypatch):
+    model = BrowserModel(timeout=1, user_data_dir="persistent-test-profile")
+    first_page = FakePage(logged_in=False)
+    reopened_page = FakePage(logged_in=True)
+    pages = [first_page]
+    waited = iter([False, True])
+    reopen_calls = []
+    sent_to_back = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: pages[0])
+    monkeypatch.setattr(model, "_wait_for_chat_input", lambda _page, timeout: next(waited))
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_ask_to_reopen_after_prewarm_timeout", lambda: True)
+    monkeypatch.setattr(
+        model,
+        "_reopen_browser_window",
+        lambda: reopen_calls.append(model.user_data_dir) or reopened_page,
+    )
+    monkeypatch.setattr(
+        model, "_send_browser_window_to_back", lambda page: sent_to_back.append(page)
+    )
+
+    model.prepare_browser()
+
+    assert reopen_calls == ["persistent-test-profile"]
+    assert sent_to_back == [reopened_page]
+
+
+def test_prewarm_reopen_prompt_is_skipped_without_interactive_terminal(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        ui_config={"window": {"ask_reopen_on_prewarm_login_timeout": True}},
+    )
+    monkeypatch.setattr(web_model_module.sys.stdin, "isatty", lambda: False)
+
+    assert model._ask_to_reopen_after_prewarm_timeout() is False
