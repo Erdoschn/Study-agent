@@ -71,20 +71,20 @@ class BrowserModel(ModelClient):
     DEFAULT_LOADING_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "loading")
     INPUT_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "input")
     CHAT_MESSAGE_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "chat_message", "")
-    BODY_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "body", "body")
+    BODY_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "body", "")
     FILE_INPUT_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "file_input", "")
     UPLOAD_BUSY_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "upload_busy")
     BUTTON_CONTAINER_SELECTOR = _config_string(
-        _DEFAULT_UI_SELECTORS, "button_container", "button, [role='button']"
+        _DEFAULT_UI_SELECTORS, "button_container", ""
     )
     HISTORY_SESSION_LINK_TEMPLATE = _config_string(
         _DEFAULT_UI_SELECTORS, "history_session_link_template", ""
     )
     HISTORY_ROW_PARENT_XPATH = _config_string(
-        _DEFAULT_UI_SELECTORS, "history_row_parent_xpath", ".."
+        _DEFAULT_UI_SELECTORS, "history_row_parent_xpath", ""
     )
     COPY_ITEM_XPATH = _config_string(
-        _DEFAULT_UI_SELECTORS, "copy_item_xpath", "ancestor::*[@data-virtual-list-item-key][1]"
+        _DEFAULT_UI_SELECTORS, "copy_item_xpath", ""
     )
     SVG_PATH_BUTTON_TEMPLATE = _config_string(
         _DEFAULT_UI_SELECTORS, "svg_path_button_template", ""
@@ -93,7 +93,7 @@ class BrowserModel(ModelClient):
         _DEFAULT_UI_SELECTORS, "cookie_banner", ""
     )
     DISABLED_BUTTON_CLASS = _config_string(
-        _DEFAULT_UI_SELECTORS, "disabled_button_class", "ds-button--disabled"
+        _DEFAULT_UI_SELECTORS, "disabled_button_class", ""
     )
     DEFAULT_NEW_CHAT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "new_chat")
     DEFAULT_MORE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "more")
