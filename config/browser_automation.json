@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "timing": {
+    "send_interval_seconds": {
+      "min": 6,
+      "max": 15
+    },
+    "retry_wait_seconds": 20,
+    "ui_delay_seconds": {
+      "click": {
+        "min": 0.1,
+        "max": 0.3
+      },
+      "input_settle": {
+        "min": 0.2,
+        "max": 0.5
+      },
+      "panel_transition": {
+        "min": 0.3,
+        "max": 0.7
+      },
+      "page_transition": {
+        "min": 0.5,
+        "max": 1
+      },
+      "upload_poll": {
+        "min": 0.5,
+        "max": 1
+      },
+      "retry_poll": {
+        "min": 0.5,
+        "max": 1
+      },
+      "send_button_poll": {
+        "min": 0.2,
+        "max": 0.4
+      },
+      "response_stability": {
+        "min": 0.3,
+        "max": 0.8
+      }
+    }
+  },
+  "ui": {
+    "selectors": {
+      "response": [
+        ".ds-assistant-message-main-content",
+        ".ds-markdown",
+        "[data-message-author-role=\"assistant\"]"
+      ],
+      "loading": [
+        ".ds-message-loading",
+        "[class*=\"message-loading\"]",
+        "[class*=\"streaming\"]",
+        "[class*=\"thinking\"]"
+      ],
+      "input": [
+        "textarea",
+        "[contenteditable=\"true\"]"
+      ],
+      "chat_message": ".ds-message",
+      "body": "body",
+      "file_input": "input[type=\"file\"]",
+      "upload_busy": [
+        "[role=\"progressbar\"]",
+        "[aria-busy=\"true\"]",
+        "[class*=\"uploading\" i]",
+        "[class*=\"upload-progress\" i]"
+      ],
+      "send_button": [
+        "[role=\"button\"].ds-button--primary.ds-button--filled.ds-button--circle",
+        "[data-testid=\"send-button\"]",
+        "[data-test-id=\"send-button\"]",
+        "#chat-input-send-button",
+        "button[aria-label*=\"发送\"]",
+        "button[aria-label*=\"Send\" i]",
+        "button[type=\"submit\"]",
+        "[class*=\"send-button\"]"
+      ],
+      "rate_limit_retry_xpath": [
+        "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]"
+      ],
+      "history_more_icon_path_prefix": "M4.55146 8.00001",
+      "history_more_xpath": [
+        "./div[3]/div"
+      ],
+      "copy_button_path_prefix": "M6.14929 4.02032",
+      "deep_thinking": [
+        ".ds-toggle-button",
+        "[role=\"switch\"]",
+        "button[aria-label*=\"深度思考\"]",
+        "[role=\"button\"][aria-label*=\"深度思考\"]",
+        "button[aria-label*=\"DeepThink\" i]",
+        "[role=\"button\"][aria-label*=\"DeepThink\" i]",
+        "button",
+        "[role=\"button\"]"
+      ]
+    },
+    "labels": {
+      "new_chat": [
+        "New chat",
+        "New conversation",
+        "Start new chat",
+        "新对话",
+        "新建对话",
+        "新建聊天",
+        "新建会话",
+        "开始新对话",
+        "开启新对话"
+      ],
+      "more": [
+        "More",
+        "更多",
+        "⋯",
+        "..."
+      ],
+      "delete_chat": [
+        "Delete chat",
+        "Delete",
+        "删除聊天",
+        "删除对话",
+        "删除"
+      ],
+      "stop_generating": [
+        "Stop generating",
+        "Stop generation",
+        "停止生成",
+        "中止生成"
+      ],
+      "continue_generating": [
+        "Continue generating",
+        "Continue",
+        "继续生成",
+        "继续"
+      ],
+      "rate_limit": [
+        "消息发送过于频繁",
+        "发送过于频繁",
+        "Too many requests",
+        "Too many messages",
+        "Please wait"
+      ],
+      "resend": [
+        "重新发送",
+        "Resend",
+        "Retry",
+        "重试"
+      ],
+      "send": [
+        "Send message",
+        "Send",
+        "发送消息",
+        "发送"
+      ],
+      "cookie_accept": [
+        "Accept",
+        "Accept all",
+        "Agree",
+        "I agree",
+        "同意",
+        "接受",
+        "全部接受",
+        "同意全部"
+      ],
+      "attachment": [
+        "Upload file",
+        "Upload files",
+        "Add file",
+        "Add files",
+        "Attach file",
+        "Attach files",
+        "上传文件",
+        "添加文件",
+        "添加附件"
+      ],
+      "deep_thinking": [
+        "深度思考",
+        "DeepThink"
+      ]
+    },
+    "timeouts_ms": {
+      "attachment_select": 120000,
+      "send_action": 1500,
+      "click_action": 1500,
+      "copy_click": 1200
+    },
+    "timeouts_seconds": {
+      "attachment_upload": 120,
+      "send_confirmation": 2,
+      "send_button_ready": 120,
+      "rate_limit_retry_button_wait": 5
+    }
+  }
+}
