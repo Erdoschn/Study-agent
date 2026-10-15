@@ -205,7 +205,6 @@
       "rate_limit_retry_button_wait": 5
     },
     "window": {
-      "refresh_interval_minutes": 60,
       "ask_reopen_on_prewarm_login_timeout": true,
       "prewarm_login_detection_seconds": 8,
       "reopen_wait_seconds": 15
