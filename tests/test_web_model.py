@@ -238,10 +238,8 @@ def test_browser_model_refuses_to_send_when_deep_thinking_toggle_is_missing():
 def test_browser_model_has_long_response_recovery_labels():
     assert "继续生成" in BrowserModel.DEFAULT_CONTINUE_LABELS
     assert "消息发送过于频繁" in BrowserModel.DEFAULT_RATE_LIMIT_LABELS
-    assert "重新发送" in BrowserModel.DEFAULT_RESEND_LABELS
     assert BrowserModel.MAX_CONTINUE_GENERATIONS == 3
-    assert BrowserModel.MAX_RATE_LIMIT_RETRIES == 1
-    assert BrowserModel.RATE_LIMIT_RETRY_COOLDOWN_SECONDS == 20.0
+    assert BrowserModel.RATE_LIMIT_COOLDOWN_SECONDS == 20.0
 
 
 def test_browser_model_generate_auto_continues_long_response(monkeypatch):
@@ -271,64 +269,48 @@ def test_browser_model_generate_auto_continues_long_response(monkeypatch):
     assert len(snapshots) == 2
 
 
-def test_browser_model_wait_response_recovers_rate_limit(monkeypatch):
+def test_browser_model_waits_twenty_seconds_then_stops_when_rate_limit_remains(monkeypatch):
     model = BrowserModel(
         timeout=1,
         poll_interval=0.01,
         stable_seconds=0.01,
     )
-    states = iter([True, False, False, False])
-    retries = []
-
-    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: next(states, False))
+    waits = []
+    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
+    monkeypatch.setattr(model, "_sleep", lambda seconds: waits.append(seconds))
     monkeypatch.setattr(
         model,
-        "_retry_rate_limited_prompt",
-        lambda _page: retries.append(True) or True,
+        "_latest_response",
+        lambda *_args: pytest.fail("must stop before treating a limited response as success"),
     )
-    monkeypatch.setattr(model, "_latest_response", lambda _page, _snapshot: "answer")
 
-    assert model._wait_for_response(object(), []) == "answer"
-    assert retries == [True]
+    with pytest.raises(RuntimeError, match="等待 20 秒后"):
+        model._wait_for_response(object(), [])
 
-
-def test_browser_model_retries_rate_limit_via_xpath_after_cooldown(monkeypatch):
-    model = BrowserModel(poll_interval=0.01)
-    events = []
-    waits = []
-
-    class Button:
-        def count(self):
-            return 1
-
-        def nth(self, index):
-            assert index == 0
-            return self
-
-        def is_visible(self):
-            return True
-
-        def click(self, *, timeout):
-            events.append(("click", timeout))
-
-    button = Button()
-
-    class Page:
-        def locator(self, selector):
-            assert selector == (
-                "xpath=" + BrowserModel.DEFAULT_RATE_LIMIT_RETRY_XPATHS[0]
-            )
-            return button
-
-    page = Page()
-    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
-    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
-    monkeypatch.setattr(model, "_sleep", lambda seconds: waits.append(seconds))
-    monkeypatch.setattr(model, "_click_button_with_matching_label", lambda *_args: False)
-
-    assert model._retry_rate_limited_prompt(page) is True
     assert waits == [20.0]
-    assert events == [("click", BrowserModel.CLICK_ACTION_TIMEOUT_MS)]
+    assert model._rate_limit_blocked is True
+
+
+def test_browser_model_does_not_submit_again_while_rate_limit_notice_remains(monkeypatch):
+    model = BrowserModel(timeout=1)
+    model._rate_limit_blocked = True
+    page = object()
+    events = []
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_ensure_logged_in", lambda _page: None)
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
+    monkeypatch.setattr(
+        model,
+        "_start_fresh_chat",
+        lambda *_args, **_kwargs: events.append("new_chat"),
+    )
+    monkeypatch.setattr(model, "_send_prompt", lambda *_args: events.append("send"))
+
+    with pytest.raises(RuntimeError, match="限流提示"):
+        model.generate("", "follow-up prompt")
+
+    assert events == []
 
 
 def test_browser_model_default_chat_policy_is_fresh():
