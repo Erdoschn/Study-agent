@@ -1,5 +1,6 @@
 import os
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -2921,6 +2922,9 @@ def test_prewarm_reopen_prompt_is_skipped_without_interactive_terminal(monkeypat
         timeout=1,
         ui_config={"window": {"ask_reopen_on_prewarm_login_timeout": True}},
     )
-    monkeypatch.setattr(web_model_module.sys.stdin, "isatty", lambda: False)
+    fake_stdin = SimpleNamespace(isatty=lambda: False)
+    monkeypatch.setattr(
+        web_model_module, "sys", SimpleNamespace(stdin=fake_stdin)
+    )
 
     assert model._ask_to_reopen_after_prewarm_timeout() is False
