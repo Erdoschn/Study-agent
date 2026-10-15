@@ -192,10 +192,6 @@ class BrowserModel(ModelClient):
             timeouts_seconds = {}
         if not isinstance(window_config, dict):
             window_config = {}
-        self.window_refresh_interval_seconds = max(
-            0.0,
-            _config_number(window_config, "refresh_interval_minutes", 60.0),
-        ) * 60.0
         reopen_on_timeout = window_config.get("ask_reopen_on_prewarm_login_timeout", True)
         self.ask_reopen_on_prewarm_login_timeout = (
             reopen_on_timeout if isinstance(reopen_on_timeout, bool) else True
@@ -327,7 +323,6 @@ class BrowserModel(ModelClient):
         self._chat_initialized = False
         self._chat_reset_count = 0
         self._last_send_monotonic: float | None = None
-        self._browser_opened_monotonic: float | None = None
         self._attachment_session_active = False
         self._attachment_chat_started = False
         self._attachment_uploaded = False
@@ -510,32 +505,6 @@ class BrowserModel(ModelClient):
         self.close(preserve_send_throttle=True)
         return self._ensure_page()
 
-    def _maybe_refresh_browser_window(self) -> bool:
-        """Restart an overdue browser only at a new request boundary.
-
-        Active attachment sessions and pending submissions are never interrupted.
-        The same persistent profile and send-throttle timestamp are retained.
-        """
-        interval = self.window_refresh_interval_seconds
-        opened_at = self._browser_opened_monotonic
-        if interval <= 0 or opened_at is None:
-            return False
-        if time.monotonic() - opened_at < interval:
-            return False
-        if self._attachment_session_active or self._pending_prompt is not None:
-            debug.log(
-                "BrowserModel",
-                "WINDOW REFRESH DEFERRED → attachment/submission is active",
-            )
-            return False
-        debug.log(
-            "BrowserModel",
-            f"WINDOW REFRESH → browser age exceeded configured {interval / 60:.1f} minutes; "
-            "reopening the same persistent profile",
-        )
-        self.close(preserve_send_throttle=True)
-        return True
-
     @staticmethod
     def _infer_session_role(system_prompt: str) -> str:
         """Classify only known Study Agent roles for strict context isolation."""
@@ -582,7 +551,6 @@ class BrowserModel(ModelClient):
             f"SESSION POLICY → role={call_role}, isolated={isolate_this_call}, "
             f"attachments={len(self._attachment_files) if self._attachment_session_active else 0}",
         )
-        self._maybe_refresh_browser_window()
         page = self._ensure_page()
         self._check_cancelled()
 
@@ -960,7 +928,6 @@ class BrowserModel(ModelClient):
         context, self._context = self._context, None
         playwright, self._playwright = self._playwright, None
         self._page = None
-        self._browser_opened_monotonic = None
         self._chat_initialized = False
         if not preserve_send_throttle:
             self._last_send_monotonic = None
@@ -1070,7 +1037,6 @@ class BrowserModel(ModelClient):
                     "BrowserModel",
                     "WINDOW HANDLE → no new Edge HWND detected after 3s",
                 )
-            self._browser_opened_monotonic = time.monotonic()
             return self._page
         except Exception:
             # Navigation can fail after Playwright and the persistent context
