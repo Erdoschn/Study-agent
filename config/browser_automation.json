@@ -100,7 +100,8 @@
       "history_row_parent_xpath": "..",
       "svg_path_button_template": "[role=\"button\"]:has(svg path[d^=\"{path}\"])",
       "cookie_banner": ".cookie_banner-wrap",
-      "disabled_button_class": "ds-button--disabled"
+      "disabled_button_class": "ds-button--disabled",
+      "copy_item_xpath": "ancestor::*[@data-virtual-list-item-key][1]"
     },
     "labels": {
       "new_chat": [
