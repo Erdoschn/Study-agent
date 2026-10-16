@@ -1,11 +1,13 @@
 import threading
 from threading import Event
+from pathlib import Path
 from typing import Any
 
 from .__debug__ import debug
 from .model_registry import ModelInfo
 from .reasoner import OpenAICompatibleClient
 from .browser_automation_config import deep_merge_config
+from .token_usage import TokenUsageRecorder
 
 
 class ModelClientFactory:
@@ -15,6 +17,14 @@ class ModelClientFactory:
         config: dict[str, Any],
     ):
         self.config = config
+        observability = config.get("observability", {})
+        if not isinstance(observability, dict):
+            observability = {}
+        token_usage_config = observability.get("token_usage", {})
+        self.token_usage_recorder = TokenUsageRecorder(
+            token_usage_config if isinstance(token_usage_config, dict) else {},
+            project_root=Path(__file__).resolve().parents[1],
+        )
         self._browser_clients: dict[str, Any] = {}
         self._run_context = threading.local()
 
@@ -105,12 +115,26 @@ class ModelClientFactory:
                     f"{provider_type}"
                 )
 
+            models_config = self.config.get("models", {})
+            model_config = (
+                models_config.get(model.name, {})
+                if isinstance(models_config, dict)
+                else {}
+            )
+            if not isinstance(model_config, dict):
+                model_config = {}
+            pricing = model_config.get("pricing_usd_per_million", {})
+            if not isinstance(pricing, dict):
+                pricing = {}
             return OpenAICompatibleClient(
                 base_url=provider["base_url"],
                 api_key=provider["api_key"],
                 model=model.model,
                 timeout=int(provider.get("timeout", 120)),
                 headers=provider.get("headers", {}),
+                provider_name=model.provider,
+                usage_recorder=self.token_usage_recorder,
+                pricing_usd_per_million=pricing,
             )
 
     def close(self) -> None:
