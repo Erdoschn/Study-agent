@@ -509,6 +509,35 @@ Copy config/providers.example.json to config/providers.json and fill in the requ
 
 Set debug: true in providers.json to enable execution tracing.
 
+### Browser automation timing and UI locators
+
+DeepSeek Web browser automation settings are kept in `config/browser_automation.json`.
+This file contains CSS selectors, XPath fallbacks, button labels, action timeouts, and operation timing ranges; they are not intended to be edited in `core/web_model.py`.
+
+Defaults are:
+- Normal consecutive message sends: a fresh random target interval from 6 to 15 seconds.
+- Rate-limit resend: wait 20 seconds, then re-check the rate-limit state and retry control. The normal send interval is not added to this fixed cooldown.
+- Small randomized waits around clicks, composer settling, new-chat/panel transitions, upload polling, send-button readiness, and final response stability. Upload and response completion still depend on checking page state, not on sleeping alone.
+- All timing waits use the browser model's cancellation-aware sleep hook.
+
+To override timings for one installation, add a `browser_automation` object in `config/providers.json`:
+
+```json
+{
+  "browser_automation": {
+    "timing": {
+      "send_interval_seconds": {"min": 6, "max": 15},
+      "retry_wait_seconds": 20,
+      "ui_delay_seconds": {
+        "click": {"min": 0.1, "max": 0.3}
+      }
+    }
+  }
+}
+```
+
+To customize DeepSeek UI controls, add a `ui` object under `browser_automation`. For a provider-only override, put the same `timing` or `ui` object under `providers.deepseek_web.browser_automation`. Overrides are merged with the checked-in defaults, so specifying one selector does not require copying the entire configuration.
+
 Paid models are disabled by default. Use:
 
 ```bash

@@ -1,5 +1,6 @@
 import os
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -319,11 +320,14 @@ def test_browser_model_retries_rate_limit_via_xpath_when_button_has_no_label(mon
             return button
 
     page = Page()
+    waits = []
     monkeypatch.setattr(model, "_rate_limit_visible", lambda _page: True)
-    monkeypatch.setattr(model, "_wait_for_send_slot", lambda: None)
+    monkeypatch.setattr(model, "_sleep", lambda seconds: waits.append(seconds))
     monkeypatch.setattr(model, "_click_button_with_matching_label", lambda *_args: False)
 
     assert model._retry_rate_limited_prompt(page) is True
+    assert waits[0] == 20.0
+    assert all(0.0 <= wait <= 0.3 for wait in waits[1:])
     assert events == [("click", BrowserModel.CLICK_ACTION_TIMEOUT_MS)]
 
 
@@ -427,6 +431,27 @@ def test_browser_model_wait_response_stops_when_cancelled(monkeypatch):
 def test_browser_model_send_interval_is_configurable():
     model = BrowserModel(min_send_interval_seconds=7.5)
     assert model.min_send_interval_seconds == 7.5
+
+
+def test_browser_model_reads_button_selectors_and_xpaths_from_ui_config():
+    model = BrowserModel(
+        ui_config={
+            "selectors": {
+                "send_button": ["#custom-send"],
+                "rate_limit_retry_xpath": ["/custom/retry"],
+                "history_more_xpath": ["./custom/more"],
+            },
+            "labels": {
+                "resend": ["Try again"],
+            },
+        },
+        timing_config={"ui_delay_seconds": {"click": {"min": 0, "max": 0}}},
+    )
+
+    assert model.DEFAULT_SEND_BUTTON_SELECTORS == ("#custom-send",)
+    assert model.DEFAULT_RATE_LIMIT_RETRY_XPATHS == ("/custom/retry",)
+    assert model.DEFAULT_MORE_XPATHS == ("./custom/more",)
+    assert model.DEFAULT_RESEND_LABELS == ("Try again",)
 
 
 def test_browser_model_throttles_consecutive_sends(monkeypatch):
@@ -2817,3 +2842,99 @@ def test_browser_model_accepts_run_project_action_in_json_mode():
     response = '{"action":"RUN_PROJECT","arguments":{"kind":"cpp","path":"main.cpp"}}'
     assert BrowserModel._extract_json_object(response) == response
     assert BrowserModel._needs_json_recovery(response) is False
+
+
+
+
+def test_browser_model_records_only_known_recaptcha_failure_code():
+    class Response:
+        url = "https://chat.deepseek.com/api/v0/users/create_email_verification_code"
+
+        def json(self):
+            return {
+                "code": 0,
+                "msg": "",
+                "data": {
+                    "biz_code": 2,
+                    "biz_msg": "RECAPTCHA_VERIFY_FAILED",
+                    "biz_data": None,
+                },
+            }
+
+    model = BrowserModel(timeout=1)
+    model._observe_authentication_response(Response())
+
+    assert model._last_authentication_error == "RECAPTCHA_VERIFY_FAILED"
+    assert model._authentication_environment_error(FakePage()) == (
+        "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+    )
+
+
+def test_browser_model_ignores_non_authentication_response():
+    class Response:
+        url = "https://chat.deepseek.com/api/v0/settings"
+
+        def json(self):
+            return {
+                "data": {
+                    "biz_code": 2,
+                    "biz_msg": "RECAPTCHA_VERIFY_FAILED",
+                }
+            }
+
+    model = BrowserModel(timeout=1)
+    model._observe_authentication_response(Response())
+
+    assert model._last_authentication_error is None
+
+
+def test_browser_model_reports_captcha_failure_instead_of_generic_login_error(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = FakePage(logged_in=False)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_wait_for_terminal_enter", lambda: None)
+    model._last_authentication_error = "RECAPTCHA_VERIFY_FAILED"
+
+    with pytest.raises(RuntimeError, match="RECAPTCHA_VERIFY_FAILED"):
+        model.generate("", "hello")
+
+
+def test_prewarm_reopen_requires_explicit_yes_and_reuses_browser_profile(monkeypatch):
+    model = BrowserModel(timeout=1, user_data_dir="persistent-test-profile")
+    first_page = FakePage(logged_in=False)
+    reopened_page = FakePage(logged_in=True)
+    pages = [first_page]
+    waited = iter([False, True])
+    reopen_calls = []
+    sent_to_back = []
+
+    monkeypatch.setattr(model, "_ensure_page", lambda: pages[0])
+    monkeypatch.setattr(model, "_wait_for_chat_input", lambda _page, timeout: next(waited))
+    monkeypatch.setattr(model, "_dismiss_cookie_banner", lambda _page: None)
+    monkeypatch.setattr(model, "_ask_to_reopen_after_prewarm_timeout", lambda: True)
+    monkeypatch.setattr(
+        model,
+        "_reopen_browser_window",
+        lambda: reopen_calls.append(model.user_data_dir) or reopened_page,
+    )
+    monkeypatch.setattr(
+        model, "_send_browser_window_to_back", lambda page: sent_to_back.append(page)
+    )
+
+    model.prepare_browser()
+
+    assert reopen_calls == ["persistent-test-profile"]
+    assert sent_to_back == [reopened_page]
+
+
+def test_prewarm_reopen_prompt_is_skipped_without_interactive_terminal(monkeypatch):
+    model = BrowserModel(
+        timeout=1,
+        ui_config={"window": {"ask_reopen_on_prewarm_login_timeout": True}},
+    )
+    fake_stdin = SimpleNamespace(isatty=lambda: False)
+    monkeypatch.setattr(
+        web_model_module, "sys", SimpleNamespace(stdin=fake_stdin)
+    )
+
+    assert model._ask_to_reopen_after_prewarm_timeout() is False

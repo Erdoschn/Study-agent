@@ -13,6 +13,47 @@ from .prompt_config import get_prompt
 from .storage_security import ensure_private_directory
 from .cancellation import RunCancelled, raise_if_cancelled
 from .errors import AttachmentUploadError
+from .browser_automation_config import (
+    DEFAULT_BROWSER_AUTOMATION_CONFIG,
+    deep_merge_config,
+)
+from .operation_timing import OperationTiming
+
+
+_DEFAULT_BROWSER_UI = DEFAULT_BROWSER_AUTOMATION_CONFIG.get("ui", {})
+if not isinstance(_DEFAULT_BROWSER_UI, dict):
+    _DEFAULT_BROWSER_UI = {}
+_DEFAULT_UI_SELECTORS = _DEFAULT_BROWSER_UI.get("selectors", {})
+if not isinstance(_DEFAULT_UI_SELECTORS, dict):
+    _DEFAULT_UI_SELECTORS = {}
+_DEFAULT_UI_LABELS = _DEFAULT_BROWSER_UI.get("labels", {})
+if not isinstance(_DEFAULT_UI_LABELS, dict):
+    _DEFAULT_UI_LABELS = {}
+
+
+def _config_sequence(config: dict[str, Any], key: str, fallback=()) -> tuple[str, ...]:
+    value = config.get(key) if isinstance(config, dict) else None
+    if isinstance(value, (list, tuple)):
+        normalized = tuple(str(item).strip() for item in value if str(item).strip())
+        if normalized:
+            return normalized
+    return tuple(fallback)
+
+
+def _config_string(config: dict[str, Any], key: str, fallback: str) -> str:
+    value = config.get(key) if isinstance(config, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
+
+
+def _config_number(config: dict[str, Any], key: str, fallback: float) -> float:
+    value = config.get(key) if isinstance(config, dict) else None
+    if isinstance(value, bool):
+        return fallback
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if number >= 0 and number < float("inf") else fallback
 
 
 class BrowserModel(ModelClient):
@@ -25,90 +66,77 @@ class BrowserModel(ModelClient):
     """
 
     DEFAULT_URL = "https://chat.deepseek.com/"
-    DEFAULT_RESPONSE_SELECTORS = (
-        ".ds-assistant-message-main-content",
-        ".ds-markdown",
-        '[data-message-author-role="assistant"]',
+    # UI locators and button labels are sourced from config/browser_automation.json.
+    DEFAULT_RESPONSE_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "response")
+    DEFAULT_LOADING_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "loading")
+    INPUT_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "input")
+    CHAT_MESSAGE_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "chat_message", "")
+    BODY_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "body", "")
+    FILE_INPUT_SELECTOR = _config_string(_DEFAULT_UI_SELECTORS, "file_input", "")
+    UPLOAD_BUSY_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "upload_busy")
+    BUTTON_CONTAINER_SELECTOR = _config_string(
+        _DEFAULT_UI_SELECTORS, "button_container", ""
     )
-    DEFAULT_LOADING_SELECTORS = (
-        ".ds-message-loading",
-        '[class*="message-loading"]',
-        '[class*="streaming"]',
-        '[class*="thinking"]',
+    HISTORY_SESSION_LINK_TEMPLATE = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_session_link_template", ""
     )
-    DEFAULT_NEW_CHAT_LABELS = (
-        "New chat", "New conversation", "Start new chat",
-        "新对话", "新建对话", "新建聊天", "新建会话", "开始新对话", "开启新对话",
+    HISTORY_ROW_PARENT_XPATH = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_row_parent_xpath", ""
     )
-    DEFAULT_MORE_LABELS = ("More", "更多", "⋯", "...")
-    # Stable SVG path observed on DeepSeek history-row three-dot menu buttons.
-    # Avoid generated CSS module hashes; keep structural XPath as a fallback.
-    DEFAULT_MORE_ICON_PATH_PREFIX = "M4.55146 8.00001"
-    DEFAULT_MORE_XPATHS = ("./div[3]/div",)
-    DEFAULT_DELETE_LABELS = ("Delete chat", "Delete", "删除聊天", "删除对话", "删除")
-    DEFAULT_STOP_LABELS = (
-        "Stop generating", "Stop generation", "停止生成", "中止生成",
+    COPY_ITEM_XPATH = _config_string(
+        _DEFAULT_UI_SELECTORS, "copy_item_xpath", ""
     )
-    DEFAULT_CONTINUE_LABELS = (
-        "Continue generating", "Continue", "继续生成", "继续",
+    SVG_PATH_BUTTON_TEMPLATE = _config_string(
+        _DEFAULT_UI_SELECTORS, "svg_path_button_template", ""
     )
-    DEFAULT_RATE_LIMIT_LABELS = (
-        "消息发送过于频繁",
-        "发送过于频繁",
-        "Too many requests",
-        "Too many messages",
-        "Please wait",
+    COOKIE_BANNER_SELECTOR = _config_string(
+        _DEFAULT_UI_SELECTORS, "cookie_banner", ""
     )
-    DEFAULT_RESEND_LABELS = (
-        "重新发送",
-        "Resend",
-        "Retry",
-        "重试",
+    DISABLED_BUTTON_CLASS = _config_string(
+        _DEFAULT_UI_SELECTORS, "disabled_button_class", ""
     )
-    DEFAULT_SEND_LABELS = (
-        "Send message", "Send", "发送消息", "发送",
+    DEFAULT_NEW_CHAT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "new_chat")
+    DEFAULT_MORE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "more")
+    DEFAULT_MORE_ICON_PATH_PREFIX = _config_string(
+        _DEFAULT_UI_SELECTORS, "history_more_icon_path_prefix", ""
     )
-    DEFAULT_SEND_BUTTON_SELECTORS = (
-        # Current DeepSeek Web uses a div[role=button] for its round arrow-up
-        # composer control; the BEM classes are stable while hashed suffixes are not.
-        '[role="button"].ds-button--primary.ds-button--filled.ds-button--circle',
-        '[data-testid="send-button"]',
-        '[data-test-id="send-button"]',
-        "#chat-input-send-button",
-        'button[aria-label*="发送"]',
-        'button[aria-label*="Send" i]',
-        'button[type="submit"]',
-        '[class*="send-button"]',
+    DEFAULT_MORE_XPATHS = _config_sequence(_DEFAULT_UI_SELECTORS, "history_more_xpath")
+    DEFAULT_DELETE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "delete_chat")
+    DEFAULT_STOP_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "stop_generating")
+    DEFAULT_CONTINUE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "continue_generating")
+    DEFAULT_RATE_LIMIT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "rate_limit")
+    DEFAULT_RESEND_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "resend")
+    DEFAULT_SEND_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "send")
+    DEFAULT_SEND_EXCLUDE_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "send_exclude")
+    DEFAULT_SEND_BUTTON_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "send_button")
+    DEFAULT_RATE_LIMIT_RETRY_XPATHS = _config_sequence(
+        _DEFAULT_UI_SELECTORS, "rate_limit_retry_xpath"
     )
-    # DeepSeek's rate-limit retry control can be rendered without an accessible
-    # name. Keep the user-confirmed DOM path as a fallback after semantic lookup.
-    DEFAULT_RATE_LIMIT_RETRY_XPATHS = (
-        "/html/body/div[1]/div/div[2]/div[3]/div/div[2]/div[2]/div/div[3]/div[1]/div/div[3]",
+    DEFAULT_COOKIE_ACCEPT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "cookie_accept")
+    DEFAULT_ATTACHMENT_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "attachment")
+    DEFAULT_DEEP_THINKING_LABELS = _config_sequence(_DEFAULT_UI_LABELS, "deep_thinking")
+    DEFAULT_DEEP_THINKING_SELECTORS = _config_sequence(_DEFAULT_UI_SELECTORS, "deep_thinking")
+    DEFAULT_COPY_PATH_PREFIX = _config_string(
+        _DEFAULT_UI_SELECTORS, "copy_button_path_prefix", ""
     )
-    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = 5.0
+
     MAX_CONTINUE_GENERATIONS = 3
     MAX_RATE_LIMIT_RETRIES = 3
-    DEFAULT_COOKIE_ACCEPT_LABELS = (
-        "Accept", "Accept all", "Agree", "I agree",
-        "同意", "接受", "全部接受", "同意全部",
-    )
-    DEFAULT_ATTACHMENT_LABELS = (
-        "Upload file", "Upload files", "Add file", "Add files",
-        "Attach file", "Attach files", "上传文件", "添加文件", "添加附件",
-    )
-    # Large multi-file requests need time both for Playwright to stage the
-    # in-memory payload and for DeepSeek Web to finish processing the uploads.
-    ATTACHMENT_SELECT_TIMEOUT_MS = 120_000
-    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = 120.0
-    SEND_CONFIRMATION_TIMEOUT_SECONDS = 2.0
-    # The Send control can remain disabled briefly after a large attachment set
-    # becomes visible. Keep polling rather than treating one disabled snapshot
-    # as a permanent UI failure.
-    SEND_BUTTON_READY_TIMEOUT_SECONDS = 120.0
-    DEFAULT_COPY_PATH_PREFIX = "M6.14929 4.02032"
-    COPY_CLICK_TIMEOUT_MS = 1200
-    SEND_ACTION_TIMEOUT_MS = 1500
-    CLICK_ACTION_TIMEOUT_MS = 1500
+
+    _DEFAULT_TIMEOUTS_MS = _DEFAULT_BROWSER_UI.get("timeouts_ms", {})
+    if not isinstance(_DEFAULT_TIMEOUTS_MS, dict):
+        _DEFAULT_TIMEOUTS_MS = {}
+    _DEFAULT_TIMEOUTS_SECONDS = _DEFAULT_BROWSER_UI.get("timeouts_seconds", {})
+    if not isinstance(_DEFAULT_TIMEOUTS_SECONDS, dict):
+        _DEFAULT_TIMEOUTS_SECONDS = {}
+    ATTACHMENT_SELECT_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "attachment_select", 120000))
+    ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "attachment_upload", 120.0)
+    SEND_CONFIRMATION_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "send_confirmation", 2.0)
+    SEND_BUTTON_READY_TIMEOUT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "send_button_ready", 120.0)
+    RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = _config_number(_DEFAULT_TIMEOUTS_SECONDS, "rate_limit_retry_button_wait", 5.0)
+    COPY_CLICK_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "copy_click", 1200))
+    SEND_ACTION_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "send_action", 1500))
+    CLICK_ACTION_TIMEOUT_MS = int(_config_number(_DEFAULT_TIMEOUTS_MS, "click_action", 1500))
 
     def __init__(
         self,
@@ -125,7 +153,9 @@ class BrowserModel(ModelClient):
         post_cleanup_pause_seconds: float = 1.5,
         cleanup_after_generate: bool = True,
         reuse_chat: bool = False,
-        min_send_interval_seconds: float = 5.0,
+        min_send_interval_seconds: float | None = None,
+        timing_config: dict[str, Any] | None = None,
+        ui_config: dict[str, Any] | None = None,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         invalid_json_grace_seconds: float = 3.0,
@@ -144,15 +174,135 @@ class BrowserModel(ModelClient):
             "msedge",
         )
         self.timeout = max(1, int(timeout))
-        self.response_selectors = response_selectors or self.DEFAULT_RESPONSE_SELECTORS
-        self.loading_selectors = loading_selectors or self.DEFAULT_LOADING_SELECTORS
+        if ui_config is not None and not isinstance(ui_config, dict):
+            raise ValueError("ui_config 必须是对象。")
+        self.ui_config = deep_merge_config(_DEFAULT_BROWSER_UI, ui_config or {})
+        selectors = self.ui_config.get("selectors", {})
+        labels = self.ui_config.get("labels", {})
+        timeouts_ms = self.ui_config.get("timeouts_ms", {})
+        timeouts_seconds = self.ui_config.get("timeouts_seconds", {})
+        window_config = self.ui_config.get("window", {})
+        if not isinstance(selectors, dict):
+            selectors = {}
+        if not isinstance(labels, dict):
+            labels = {}
+        if not isinstance(timeouts_ms, dict):
+            timeouts_ms = {}
+        if not isinstance(timeouts_seconds, dict):
+            timeouts_seconds = {}
+        if not isinstance(window_config, dict):
+            window_config = {}
+        reopen_on_timeout = window_config.get("ask_reopen_on_prewarm_login_timeout", True)
+        self.ask_reopen_on_prewarm_login_timeout = (
+            reopen_on_timeout if isinstance(reopen_on_timeout, bool) else True
+        )
+        self.prewarm_login_detection_seconds = max(
+            0.1,
+            _config_number(window_config, "prewarm_login_detection_seconds", 8.0),
+        )
+        self.reopen_wait_seconds = max(
+            0.1,
+            _config_number(window_config, "reopen_wait_seconds", 15.0),
+        )
+
+        # A provider may override its own UI locators and labels without code changes.
+        for attribute, key in (
+            ("DEFAULT_RESPONSE_SELECTORS", "response"),
+            ("DEFAULT_LOADING_SELECTORS", "loading"),
+            ("INPUT_SELECTORS", "input"),
+            ("UPLOAD_BUSY_SELECTORS", "upload_busy"),
+            ("DEFAULT_NEW_CHAT_LABELS", "new_chat"),
+            ("DEFAULT_MORE_LABELS", "more"),
+            ("DEFAULT_MORE_XPATHS", "history_more_xpath"),
+            ("DEFAULT_DELETE_LABELS", "delete_chat"),
+            ("DEFAULT_STOP_LABELS", "stop_generating"),
+            ("DEFAULT_CONTINUE_LABELS", "continue_generating"),
+            ("DEFAULT_RATE_LIMIT_LABELS", "rate_limit"),
+            ("DEFAULT_RESEND_LABELS", "resend"),
+            ("DEFAULT_SEND_LABELS", "send"),
+            ("DEFAULT_SEND_EXCLUDE_LABELS", "send_exclude"),
+            ("DEFAULT_SEND_BUTTON_SELECTORS", "send_button"),
+            ("DEFAULT_RATE_LIMIT_RETRY_XPATHS", "rate_limit_retry_xpath"),
+            ("DEFAULT_COOKIE_ACCEPT_LABELS", "cookie_accept"),
+            ("DEFAULT_ATTACHMENT_LABELS", "attachment"),
+            ("DEFAULT_DEEP_THINKING_LABELS", "deep_thinking"),
+            ("DEFAULT_DEEP_THINKING_SELECTORS", "deep_thinking"),
+        ):
+            fallback = getattr(type(self), attribute)
+            setting_container = labels if attribute in {
+                "DEFAULT_NEW_CHAT_LABELS", "DEFAULT_MORE_LABELS",
+                "DEFAULT_DELETE_LABELS", "DEFAULT_STOP_LABELS",
+                "DEFAULT_CONTINUE_LABELS", "DEFAULT_RATE_LIMIT_LABELS",
+                "DEFAULT_RESEND_LABELS", "DEFAULT_SEND_LABELS",
+                "DEFAULT_SEND_EXCLUDE_LABELS", "DEFAULT_COOKIE_ACCEPT_LABELS",
+                "DEFAULT_ATTACHMENT_LABELS", "DEFAULT_DEEP_THINKING_LABELS",
+            } else selectors
+            setattr(self, attribute, _config_sequence(setting_container, key, fallback))
+
+        for attribute, key in (
+            ("CHAT_MESSAGE_SELECTOR", "chat_message"),
+            ("BODY_SELECTOR", "body"),
+            ("FILE_INPUT_SELECTOR", "file_input"),
+            ("BUTTON_CONTAINER_SELECTOR", "button_container"),
+            ("HISTORY_SESSION_LINK_TEMPLATE", "history_session_link_template"),
+            ("HISTORY_ROW_PARENT_XPATH", "history_row_parent_xpath"),
+            ("COPY_ITEM_XPATH", "copy_item_xpath"),
+            ("SVG_PATH_BUTTON_TEMPLATE", "svg_path_button_template"),
+            ("COOKIE_BANNER_SELECTOR", "cookie_banner"),
+            ("DISABLED_BUTTON_CLASS", "disabled_button_class"),
+            ("DEFAULT_MORE_ICON_PATH_PREFIX", "history_more_icon_path_prefix"),
+            ("DEFAULT_COPY_PATH_PREFIX", "copy_button_path_prefix"),
+        ):
+            setattr(
+                self,
+                attribute,
+                _config_string(selectors, key, getattr(type(self), attribute)),
+            )
+
+        self.ATTACHMENT_SELECT_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "attachment_select", type(self).ATTACHMENT_SELECT_TIMEOUT_MS))
+        )
+        self.COPY_CLICK_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "copy_click", type(self).COPY_CLICK_TIMEOUT_MS))
+        )
+        self.SEND_ACTION_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "send_action", type(self).SEND_ACTION_TIMEOUT_MS))
+        )
+        self.CLICK_ACTION_TIMEOUT_MS = max(
+            1, int(_config_number(timeouts_ms, "click_action", type(self).CLICK_ACTION_TIMEOUT_MS))
+        )
+        self.ATTACHMENT_UPLOAD_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "attachment_upload", type(self).ATTACHMENT_UPLOAD_TIMEOUT_SECONDS
+        )
+        self.SEND_CONFIRMATION_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "send_confirmation", type(self).SEND_CONFIRMATION_TIMEOUT_SECONDS
+        )
+        self.SEND_BUTTON_READY_TIMEOUT_SECONDS = _config_number(
+            timeouts_seconds, "send_button_ready", type(self).SEND_BUTTON_READY_TIMEOUT_SECONDS
+        )
+        self.RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS = _config_number(
+            timeouts_seconds, "rate_limit_retry_button_wait", type(self).RATE_LIMIT_RETRY_BUTTON_WAIT_SECONDS
+        )
+        self.response_selectors = (
+            tuple(str(value) for value in response_selectors if str(value).strip())
+            if response_selectors is not None
+            else self.DEFAULT_RESPONSE_SELECTORS
+        )
+        self.loading_selectors = (
+            tuple(str(value) for value in loading_selectors if str(value).strip())
+            if loading_selectors is not None
+            else self.DEFAULT_LOADING_SELECTORS
+        )
         self.session_pause_seconds = max(0.0, float(session_pause_seconds))
         self.cleanup_pause_seconds = max(0.0, float(cleanup_pause_seconds))
         self.post_cleanup_pause_seconds = max(0.0, float(post_cleanup_pause_seconds))
         self.reuse_chat = bool(reuse_chat)
-        self.min_send_interval_seconds = max(
-            0.0, float(min_send_interval_seconds)
+        self.operation_timing = OperationTiming(
+            timing_config,
+            fixed_send_interval_seconds=min_send_interval_seconds,
         )
+        self.min_send_interval_seconds = self.operation_timing.send_interval_min_seconds
+        self.max_send_interval_seconds = self.operation_timing.send_interval_max_seconds
         self.cleanup_after_generate = bool(cleanup_after_generate)
         self.poll_interval = max(0.1, float(poll_interval))
         self.stable_seconds = max(0.3, float(stable_seconds))
@@ -168,6 +318,7 @@ class BrowserModel(ModelClient):
         self._playwright = None
         self._context = None
         self._page = None
+        self._last_authentication_error: str | None = None
         self._pending_prompt: str | None = None
         self._submission_baseline_message_count: int | None = None
         self._chat_initialized = False
@@ -270,6 +421,19 @@ class BrowserModel(ModelClient):
             self._chat_initialized = False
             raise
 
+    def _wait_random(self, operation: str) -> float:
+        """Apply a configured, cancellable random delay at an operation boundary."""
+        delay = self.operation_timing.sample(operation)
+        if delay > 0:
+            self._check_cancelled()
+            debug.log(
+                "BrowserModel",
+                f"OPERATION WAIT → operation={operation}, delay={delay:.3f}s",
+            )
+            self._sleep(delay)
+        self._check_cancelled()
+        return delay
+
     def _sleep(self, seconds: float) -> None:
         seconds = max(0.0, float(seconds))
         self._check_cancelled()
@@ -284,31 +448,72 @@ class BrowserModel(ModelClient):
 
 
     def prepare_browser(self) -> None:
-        """Open this model's browser profile without sending a model prompt.
-
-        Authentication remains manual. This is used by API shells so the user
-        can log into the correct isolated browser profile before an Agent run.
-        """
+        """Open the persistent profile; authentication always remains manual."""
         self._check_cancelled()
         page = self._ensure_page()
         self._dismiss_cookie_banner(page)
-        # DeepSeek renders its chat input asynchronously after DOMContentLoaded.
-        # Poll briefly instead of misclassifying a logged-in session as logged out.
-        input_ready = self._wait_for_chat_input(page, timeout=8.0)
-        if not input_ready:
+        input_ready = self._wait_for_chat_input(
+            page, timeout=self.prewarm_login_detection_seconds
+        )
+        if not input_ready and self._ask_to_reopen_after_prewarm_timeout():
             debug.log(
                 "BrowserModel",
-                "PREWARM LOGIN → chat input not detected within 8s",
+                "PREWARM REOPEN → user approved reopening the same persistent profile",
             )
-        # The user explicitly wants the browser kept out of the foreground even
-        # while login/input detection is incomplete. Do not confuse "not logged
-        # in" with "do not attempt window placement".
+            page = self._reopen_browser_window()
+            self._dismiss_cookie_banner(page)
+            input_ready = self._wait_for_chat_input(
+                page, timeout=self.reopen_wait_seconds
+            )
+        if not input_ready:
+            diagnostic = self._authentication_environment_error(page)
+            if diagnostic:
+                debug.log("BrowserModel", f"PREWARM AUTH BLOCK → {diagnostic}")
+                print(
+                    "\n[Study Agent] "
+                    + diagnostic
+                    + "。程序不会自动重复请求验证码或修改设备环境；"
+                    "请停止连续尝试并在普通浏览器中检查。"
+                )
+            debug.log(
+                "BrowserModel",
+                "PREWARM LOGIN → chat input still not detected; manual login or site-side check may be required",
+            )
         self._send_browser_window_to_back(page)
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}, "
             f"chat_input_ready={input_ready}",
         )
+
+    def _ask_to_reopen_after_prewarm_timeout(self) -> bool:
+        """Ask for explicit terminal approval before reopening the same profile."""
+        if not self.ask_reopen_on_prewarm_login_timeout:
+            return False
+        try:
+            interactive = bool(sys.stdin and sys.stdin.isatty())
+        except (AttributeError, OSError):
+            interactive = False
+        if not interactive:
+            debug.log(
+                "BrowserModel",
+                "PREWARM REOPEN SKIP → terminal is non-interactive; keeping current browser",
+            )
+            return False
+        try:
+            answer = input(
+                "\n[Study Agent] 等待聊天输入框超时。是否关闭当前由 Study Agent 打开的 "
+                "Edge 窗口，并使用同一浏览器资料重新打开以排查页面异常？"
+                "\n不会清除 Cookie、切换账号、修改网络或伪装设备标识。 [y/N]："
+            )
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return answer.strip().casefold() in {"y", "yes", "是", "重开", "重新打开"}
+
+    def _reopen_browser_window(self):
+        """Restart this Playwright-owned window using the same persistent profile."""
+        self.close(preserve_send_throttle=True)
+        return self._ensure_page()
 
     @staticmethod
     def _infer_session_role(system_prompt: str) -> str:
@@ -728,13 +933,14 @@ class BrowserModel(ModelClient):
             separators=(",", ":"),
         )
 
-    def close(self) -> None:
-        """Close the browser context owned by this client, even after failures."""
+    def close(self, *, preserve_send_throttle: bool = False) -> None:
+        """Close the owned browser context, optionally preserving send spacing."""
         context, self._context = self._context, None
         playwright, self._playwright = self._playwright, None
         self._page = None
         self._chat_initialized = False
-        self._last_send_monotonic = None
+        if not preserve_send_throttle:
+            self._last_send_monotonic = None
         try:
             if context is not None:
                 context.close()
@@ -820,6 +1026,13 @@ class BrowserModel(ModelClient):
         try:
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
+            try:
+                self._page.on("response", self._observe_authentication_response)
+            except Exception as exc:
+                debug.log(
+                    "BrowserModel",
+                    f"AUTH DIAGNOSTICS LISTENER SKIP → {type(exc).__name__}",
+                )
             self._page.goto(
                 self.url,
                 wait_until="domcontentloaded",
@@ -1057,7 +1270,7 @@ class BrowserModel(ModelClient):
         while True:
             self._check_cancelled()
             if self._find_visible(
-                page, ("textarea", '[contenteditable="true"]')
+                page, self.INPUT_SELECTORS
             ) is not None:
                 debug.log("BrowserModel", "PREWARM LOGIN → chat input detected")
                 return True
@@ -1069,7 +1282,7 @@ class BrowserModel(ModelClient):
     def _dismiss_cookie_banner(self, page) -> bool:
         """Dismiss a visible cookie-consent overlay without bypassing security checks."""
         try:
-            banner = page.locator(".cookie_banner-wrap")
+            banner = page.locator(self.COOKIE_BANNER_SELECTOR)
             if banner.count() == 0:
                 return False
             for index in range(banner.count() - 1, -1, -1):
@@ -1097,6 +1310,65 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"COOKIE BANNER SKIP → {type(exc).__name__}: {exc}")
         return False
 
+    def _observe_authentication_response(self, response) -> None:
+        """Remember only a known CAPTCHA failure code from auth-related responses.
+
+        Do not retain response bodies, cookies, email addresses, tokens, or headers.
+        """
+        try:
+            response_url = str(response.url)
+            if not any(
+                endpoint in response_url
+                for endpoint in (
+                    "create_email_verification_code",
+                    "create_phone_verification_code",
+                    "create_guest_challenge",
+                )
+            ):
+                return
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                return
+            business_message = str(data.get("biz_msg") or "").strip().upper()
+            if business_message == "RECAPTCHA_VERIFY_FAILED":
+                self._last_authentication_error = "RECAPTCHA_VERIFY_FAILED"
+                debug.log(
+                    "BrowserModel",
+                    "AUTH CHECK → CAPTCHA verification failed; automatic retry suppressed",
+                )
+        except Exception as exc:
+            # This listener is diagnostic-only; it must never disrupt page actions.
+            debug.log(
+                "BrowserModel",
+                f"AUTH DIAGNOSTICS SKIP → {type(exc).__name__}",
+            )
+
+    def _authentication_environment_error(self, page) -> str | None:
+        """Return a sanitized explanation for known CAPTCHA/environment errors."""
+        if self._last_authentication_error == "RECAPTCHA_VERIFY_FAILED":
+            return "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+        try:
+            body = self._compact_text(page.locator(self.BODY_SELECTOR).inner_text())
+        except Exception:
+            return None
+        normalized = body.casefold()
+        if "recaptcha_verify_failed" in normalized:
+            return "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+        if any(
+            phrase in body
+            for phrase in (
+                "当前环境异常",
+                "设备环境异常",
+                "请更换环境重试",
+                "当前设备运行环境异常",
+            )
+        ):
+            return "DeepSeek 页面提示当前设备或运行环境异常"
+        return None
+
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
 
@@ -1107,14 +1379,20 @@ class BrowserModel(ModelClient):
         """
         if self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         ) is not None:
             return
 
-        if self.debug_mode:
+        diagnostic = self._authentication_environment_error(page)
+        if diagnostic:
+            print(
+                "\n[BrowserModel] 检测到："
+                + diagnostic
+                + "。不会自动重试验证码或修改浏览器身份。"
+                "\n[BrowserModel] 请在 Edge 中手动检查登录状态；"
+                "完成后回终端按 Enter 继续。"
+            )
+        elif self.debug_mode:
             print(
                 "\n[BrowserModel] 未检测到聊天输入框。"
                 "\n[BrowserModel] 请在 Edge 中完成 DeepSeek 登录。"
@@ -1126,11 +1404,16 @@ class BrowserModel(ModelClient):
 
         if self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         ) is None:
+            diagnostic = self._authentication_environment_error(page)
+            if diagnostic:
+                raise RuntimeError(
+                    "DeepSeek 登录尚未完成；检测到 "
+                    + diagnostic
+                    + "。Study Agent 已停止本次操作，不会自动重试验证码。"
+                    "请暂停连续尝试，并手动检查或联系官方支持。"
+                )
             raise RuntimeError(
                 "登录后仍未找到 DeepSeek Web 输入框。"
                 "请确认已经进入聊天页面，再重试。"
@@ -1171,7 +1454,14 @@ class BrowserModel(ModelClient):
         return match.group(1) if match else None
 
     @staticmethod
-    def _click_first_visible(page, labels: tuple[str, ...], *, role: str | None = None) -> bool:
+    def _click_first_visible(
+        page,
+        labels: tuple[str, ...],
+        *,
+        role: str | None = None,
+        button_container_selector: str | None = None,
+        click_timeout_ms: int | None = None,
+    ) -> bool:
         """Resolve and click a matching visible control, tolerating DOM rerenders.
 
         DeepSeek can rerender the sidebar after a locator is highlighted. Keep
@@ -1192,12 +1482,12 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         return False
                     try:
-                        candidate.scroll_into_view_if_needed(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                        candidate.scroll_into_view_if_needed(timeout=click_timeout_ms or BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     except (AttributeError, TypeError):
                         # Lightweight test doubles and older locator wrappers
                         # may not expose scroll_into_view_if_needed.
                         pass
-                    candidate.click(timeout=BrowserModel.CLICK_ACTION_TIMEOUT_MS)
+                    candidate.click(timeout=click_timeout_ms or BrowserModel.CLICK_ACTION_TIMEOUT_MS)
                     return True
                 except Exception as exc:
                     debug.log(
@@ -1218,7 +1508,7 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", f"CLICK LOCATOR SKIP → {type(exc).__name__}: {exc}")
 
         try:
-            buttons = page.locator("button, [role='button']")
+            buttons = page.locator(button_container_selector or BrowserModel.BUTTON_CONTAINER_SELECTOR)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 try:
@@ -1242,6 +1532,18 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"CLICK BUTTON SCAN SKIP → {type(exc).__name__}: {exc}")
         return False
 
+    def _click_first_visible_configured(
+        self, page, labels: tuple[str, ...], *, role: str | None = None
+    ) -> bool:
+        """Use the compatibility helper with this browser's configured locators."""
+        return BrowserModel._click_first_visible(
+            page,
+            labels,
+            role=role,
+            button_container_selector=self.BUTTON_CONTAINER_SELECTOR,
+            click_timeout_ms=self.CLICK_ACTION_TIMEOUT_MS,
+        )
+
     def _start_fresh_chat(self, page, *, force: bool = False) -> None:
         if self.session_pause_seconds:
             self._sleep(self.session_pause_seconds)
@@ -1252,8 +1554,8 @@ class BrowserModel(ModelClient):
         # For answer generation/auditing, force a new session whenever the page
         # still identifies the previous conversation, even if its messages were
         # cleared or hidden.
-        if self._find_visible(page, ("textarea", '[contenteditable="true"]')) is not None:
-            visible_messages = page.locator(".ds-message")
+        if self._find_visible(page, self.INPUT_SELECTORS) is not None:
+            visible_messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             has_visible_message = False
             for index in range(visible_messages.count() - 1, -1, -1):
                 try:
@@ -1266,12 +1568,19 @@ class BrowserModel(ModelClient):
                 debug.log("BrowserModel", "FRESH CHAT → current blank chat accepted")
                 return
 
-        if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS, role="button"):
-            if not self._click_first_visible(page, self.DEFAULT_NEW_CHAT_LABELS):
-                raise RuntimeError(
-                    "DeepSeek Web 未找到“New chat/新对话”控件，且当前会话已有消息，"
-                    "无法保证 Coder 使用独立上下文。"
-                )
+        clicked_new_chat = self._click_first_visible_configured(
+            page, self.DEFAULT_NEW_CHAT_LABELS, role="button"
+        )
+        if not clicked_new_chat:
+            clicked_new_chat = self._click_first_visible_configured(
+                page, self.DEFAULT_NEW_CHAT_LABELS
+            )
+        if not clicked_new_chat:
+            raise RuntimeError(
+                "DeepSeek Web 未找到“New chat/新对话”控件，且当前会话已有消息，"
+                "无法保证 Coder 使用独立上下文。"
+            )
+        self._wait_random("page_transition")
 
         deadline = time.monotonic() + min(15.0, float(self.timeout))
         while time.monotonic() < deadline:
@@ -1284,13 +1593,13 @@ class BrowserModel(ModelClient):
                     f"FRESH CHAT → session {old_session} -> {current_session}",
                 )
                 if self._find_visible(
-                    page, ("textarea", '[contenteditable="true"]')
+                    page, self.INPUT_SELECTORS
                 ) is not None:
                     return
 
             # Also accept a cleared message list: some DeepSeek UI states
             # create the new session lazily and update the URL later.
-            visible_messages = page.locator(".ds-message")
+            visible_messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             has_visible_message = False
             for index in range(visible_messages.count() - 1, -1, -1):
                 try:
@@ -1302,7 +1611,7 @@ class BrowserModel(ModelClient):
                     continue
 
             if not has_visible_message and self._find_visible(
-                page, ("textarea", '[contenteditable="true"]')
+                page, self.INPUT_SELECTORS
             ) is not None:
                 if force and old_session and current_session == old_session:
                     # The history pane disappearing is not proof of a new
@@ -1330,7 +1639,7 @@ class BrowserModel(ModelClient):
 
         row_link = None
         try:
-            links = page.locator(f'a[href*="/a/chat/s/{session_id}"]')
+            links = page.locator(self.HISTORY_SESSION_LINK_TEMPLATE.format(session_id=session_id))
             for index in range(links.count() - 1, -1, -1):
                 candidate = links.nth(index)
                 if candidate.is_visible():
@@ -1349,19 +1658,20 @@ class BrowserModel(ModelClient):
         if not self._click_session_more(page, row_link):
             debug.log("BrowserModel", f"CLEANUP SKIP → session menu not found: {session_id}")
             return
-        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
-            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+        self._wait_random("panel_transition")
+        if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS, role="menuitem"):
+            if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS):
                 debug.log("BrowserModel", f"CLEANUP SKIP → delete action not found: {session_id}")
                 return
-        if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS, role="button"):
-            if not self._click_first_visible(page, self.DEFAULT_DELETE_LABELS):
+        if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS, role="button"):
+            if not self._click_first_visible_configured(page, self.DEFAULT_DELETE_LABELS):
                 debug.log("BrowserModel", f"CLEANUP SKIP → delete confirmation not found: {session_id}")
                 return
 
         deadline = time.monotonic() + min(15.0, float(self.timeout))
         while time.monotonic() < deadline:
             try:
-                if page.locator(f'a[href*="/a/chat/s/{session_id}"]').count() == 0:
+                if page.locator(self.HISTORY_SESSION_LINK_TEMPLATE.format(session_id=session_id)).count() == 0:
                     if self.post_cleanup_pause_seconds:
                         self._sleep(self.post_cleanup_pause_seconds)
                     debug.log("BrowserModel", f"CLEANUP SUCCESS → session={session_id}")
@@ -1376,10 +1686,8 @@ class BrowserModel(ModelClient):
 
         # Prefer the observed three-dot SVG path scoped to this history row.
         # The path avoids generated CSS hashes and is less brittle than child indexes.
-        icon_selector = (
-            '[role="button"]:has(svg path[d^="'
-            + self.DEFAULT_MORE_ICON_PATH_PREFIX
-            + '"])'
+        icon_selector = self.SVG_PATH_BUTTON_TEMPLATE.format(
+            path=self.DEFAULT_MORE_ICON_PATH_PREFIX
         )
         try:
             buttons = row_link.locator(icon_selector)
@@ -1387,6 +1695,7 @@ class BrowserModel(ModelClient):
                 button = buttons.nth(index)
                 if button.is_visible():
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log("BrowserModel", "CLEANUP MENU → three-dot SVG selector")
                     return True
         except Exception as exc:
@@ -1402,6 +1711,7 @@ class BrowserModel(ModelClient):
                 button = row_link.locator(f"xpath={xpath}")
                 if button.count() > 0 and button.is_visible():
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log(
                         "BrowserModel",
                         f"CLEANUP MENU → structural selector {xpath}",
@@ -1413,9 +1723,9 @@ class BrowserModel(ModelClient):
         # Keep semantic fallbacks for future DeepSeek UI variants.
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in self.DEFAULT_MORE_LABELS]
         try:
-            parent = row_link.locator("xpath=..")
+            parent = row_link.locator(f"xpath={self.HISTORY_ROW_PARENT_XPATH}")
             for _ in range(6):
-                buttons = parent.locator("button, [role='button']")
+                buttons = parent.locator(self.BUTTON_CONTAINER_SELECTOR)
                 for index in range(buttons.count() - 1, -1, -1):
                     button = buttons.nth(index)
                     if not button.is_visible():
@@ -1427,8 +1737,9 @@ class BrowserModel(ModelClient):
                     )).strip()
                     if any(pattern.search(text) for pattern in patterns):
                         button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        self._wait_random("click")
                         return True
-                parent = parent.locator("xpath=..")
+                parent = parent.locator(f"xpath={self.HISTORY_ROW_PARENT_XPATH}")
         except Exception:
             pass
         return False
@@ -1440,7 +1751,7 @@ class BrowserModel(ModelClient):
         if message is None and user_index is not None:
             return None
         if message is None:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, -1, -1):
                 try:
                     candidate = messages.nth(index)
@@ -1468,7 +1779,7 @@ class BrowserModel(ModelClient):
 
         try:
             item = message.locator(
-                'xpath=ancestor::*[@data-virtual-list-item-key][1]'
+                f"xpath={self.COPY_ITEM_XPATH}"
             )
             if item.count() == 0:
                 debug.log(
@@ -1477,10 +1788,8 @@ class BrowserModel(ModelClient):
                 )
                 return None
 
-            copy_selector = (
-                '[role="button"]:has(svg path[d^="'
-                + self.DEFAULT_COPY_PATH_PREFIX
-                + '"])'
+            copy_selector = self.SVG_PATH_BUTTON_TEMPLATE.format(
+                path=self.DEFAULT_COPY_PATH_PREFIX
             )
             buttons = item.locator(copy_selector)
             for index in range(buttons.count() - 1, -1, -1):
@@ -1640,15 +1949,16 @@ class BrowserModel(ModelClient):
         return ""
 
     def _wait_for_send_slot(self) -> None:
-        """Throttle browser message sends to reduce web UI rate-limit errors."""
+        """Wait a randomized interval between normal submissions."""
         if self._last_send_monotonic is not None:
-            elapsed = time.monotonic() - self._last_send_monotonic
-            remaining = self.min_send_interval_seconds - elapsed
+            elapsed = max(0.0, time.monotonic() - self._last_send_monotonic)
+            target_interval = self.operation_timing.sample("send_interval_seconds")
+            remaining = max(0.0, target_interval - elapsed)
             if remaining > 0:
                 debug.log(
                     "BrowserModel",
                     f"SEND THROTTLE → sleeping {remaining:.2f}s "
-                    f"(min_interval={self.min_send_interval_seconds:.2f}s)",
+                    f"(sampled_interval={target_interval:.2f}s, elapsed={elapsed:.2f}s)",
                 )
                 self._sleep(remaining)
         self._last_send_monotonic = time.monotonic()
@@ -1666,11 +1976,11 @@ class BrowserModel(ModelClient):
         if not payloads:
             return
 
-        file_inputs = page.locator('input[type="file"]')
+        file_inputs = page.locator(self.FILE_INPUT_SELECTOR)
         if file_inputs.count() <= 0:
-            clicked = self._click_first_visible(
+            clicked = self._click_first_visible_configured(
                 page, self.DEFAULT_ATTACHMENT_LABELS, role="button"
-            ) or self._click_first_visible(page, self.DEFAULT_ATTACHMENT_LABELS)
+            ) or self._click_first_visible_configured(page, self.DEFAULT_ATTACHMENT_LABELS)
             if not clicked:
                 raise AttachmentUploadError(
                     "DeepSeek Web 未找到文件上传控件或 input[type=file]；"
@@ -1681,7 +1991,7 @@ class BrowserModel(ModelClient):
             )
             while time.monotonic() < deadline:
                 self._check_cancelled()
-                file_inputs = page.locator('input[type="file"]')
+                file_inputs = page.locator(self.FILE_INPUT_SELECTOR)
                 if file_inputs.count() > 0:
                     break
                 self._sleep(min(0.1, self.poll_interval))
@@ -1719,17 +2029,12 @@ class BrowserModel(ModelClient):
         while time.monotonic() < deadline:
             self._check_cancelled()
             try:
-                body = self._compact_text(page.locator("body").inner_text()).casefold()
+                body = self._compact_text(page.locator(self.BODY_SELECTOR).inner_text()).casefold()
             except Exception:
                 body = ""
             names_visible = all(name in body for name in expected_names)
             upload_busy = False
-            for selector in (
-                '[role="progressbar"]',
-                '[aria-busy="true"]',
-                '[class*="uploading" i]',
-                '[class*="upload-progress" i]',
-            ):
+            for selector in self.UPLOAD_BUSY_SELECTORS:
                 try:
                     locator = page.locator(selector)
                     if any(
@@ -1751,27 +2056,21 @@ class BrowserModel(ModelClient):
                     return
             else:
                 stable_since = None
-            self._sleep(min(0.2, self.poll_interval))
+            remaining = max(0.0, deadline - time.monotonic())
+            self._sleep(min(self.operation_timing.sample("upload_poll"), remaining))
 
         raise AttachmentUploadError(
             "DeepSeek Web 附件上传未能在 120 秒内确认完成；"
             "为避免模型在未收到文件时回答，已中止本次请求。"
         )
 
-    @classmethod
-    def _find_deep_thinking_toggle(cls, page):
-        """Find the visible DeepSeek Web DeepThink control by its user-facing label."""
-        label_pattern = re.compile(r"深度思考|deep\s*think", re.IGNORECASE)
-        selectors = (
-            ".ds-toggle-button",
-            '[role="switch"]',
-            'button[aria-label*="深度思考"]',
-            '[role="button"][aria-label*="深度思考"]',
-            'button[aria-label*="DeepThink" i]',
-            '[role="button"][aria-label*="DeepThink" i]',
-            "button",
-            '[role="button"]',
-        )
+    def _find_deep_thinking_toggle(self, page):
+        """Find the visible DeepSeek Web DeepThink control using configured locators."""
+        label_patterns = [
+            re.compile(re.escape(label), re.IGNORECASE)
+            for label in self.DEFAULT_DEEP_THINKING_LABELS
+        ]
+        selectors = self.DEFAULT_DEEP_THINKING_SELECTORS
         seen = set()
         for selector in selectors:
             try:
@@ -1785,20 +2084,18 @@ class BrowserModel(ModelClient):
                     if not candidate.is_visible():
                         continue
                     text_parts = []
-                    for source in ("inner_text",):
-                        try:
-                            text_parts.append(str(getattr(candidate, source)() or ""))
-                        except Exception:
-                            pass
+                    try:
+                        text_parts.append(str(candidate.inner_text() or ""))
+                    except Exception:
+                        pass
                     for attr in ("aria-label", "title"):
                         try:
                             text_parts.append(str(candidate.get_attribute(attr) or ""))
                         except Exception:
                             pass
                     text = " ".join(text_parts).strip()
-                    if not label_pattern.search(text):
+                    if not any(pattern.search(text) for pattern in label_patterns):
                         continue
-                    # The same DOM node may appear under multiple fallback selectors.
                     try:
                         node_key = candidate.evaluate("(el) => el")
                     except Exception:
@@ -1874,6 +2171,7 @@ class BrowserModel(ModelClient):
 
         try:
             toggle.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+            self._wait_random("click")
             debug.log("BrowserModel", f"THINKING MODE → toggled DeepThink {'on' if desired else 'off'}")
         except Exception as exc:
             raise RuntimeError(
@@ -1921,10 +2219,7 @@ class BrowserModel(ModelClient):
     def _send_prompt(self, page, prompt: str, *, deep_thinking: bool = True) -> None:
         textbox = self._find_visible(
             page,
-            (
-                "textarea",
-                '[contenteditable="true"]',
-            ),
+            self.INPUT_SELECTORS,
         )
         if textbox is None:
             raise RuntimeError(
@@ -1950,6 +2245,7 @@ class BrowserModel(ModelClient):
             )
             raise RuntimeError("DeepSeek Web 输入框填充超时或不可操作。") from exc
 
+        self._wait_random("input_settle")
         self._check_cancelled()
         debug.log("BrowserModel", "SEND ENTER → keyboard submission requested")
         try:
@@ -1997,7 +2293,7 @@ class BrowserModel(ModelClient):
 
     def _visible_chat_message_count(self, page) -> int | None:
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             return messages.count()
         except Exception:
             return None
@@ -2008,7 +2304,7 @@ class BrowserModel(ModelClient):
         if baseline is None:
             return False
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             count = messages.count()
             if count <= baseline:
                 return False
@@ -2133,11 +2429,11 @@ class BrowserModel(ModelClient):
                         "本次请求未确认发送。"
                     )
                 raise self._submission_failure(message)
-            self._sleep(min(self.poll_interval, remaining))
+            self._sleep(min(self.operation_timing.sample("send_button_poll"), remaining))
 
     def _click_send_button(self, page) -> bool:
         """Click a visible, enabled Send control as a fallback to Enter."""
-        stop_tokens = ("stop", "cancel", "停止", "中止", "取消")
+        stop_tokens = tuple(token.casefold() for token in self.DEFAULT_SEND_EXCLUDE_LABELS)
         for selector in self.DEFAULT_SEND_BUTTON_SELECTORS:
             try:
                 locator = page.locator(selector)
@@ -2158,7 +2454,7 @@ class BrowserModel(ModelClient):
                     # DeepSeek's current div[role=button] marks the disabled state
                     # through a CSS class, not necessarily disabled/aria-disabled
                     # attributes. Playwright is_enabled() alone cannot catch that.
-                    if "ds-button--disabled" in class_name.split():
+                    if self.DISABLED_BUTTON_CLASS in class_name.split():
                         if not getattr(self, "_send_button_disabled_logged", False):
                             debug.log(
                                 "BrowserModel",
@@ -2178,6 +2474,7 @@ class BrowserModel(ModelClient):
                         except Exception:
                             pass
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     debug.log(
                         "BrowserModel",
                         f"SEND BUTTON CLICKED → selector={selector!r}, label={label[:80]!r}",
@@ -2197,7 +2494,7 @@ class BrowserModel(ModelClient):
 
     def _rate_limit_visible(self, page) -> bool:
         try:
-            body = page.locator("body")
+            body = page.locator(self.BODY_SELECTOR)
             if body.count() <= 0:
                 return False
             text = self._compact_text(body.inner_text())
@@ -2208,8 +2505,15 @@ class BrowserModel(ModelClient):
     def _retry_rate_limited_prompt(self, page) -> bool:
         if not self._rate_limit_visible(page):
             return False
-        # Honour the minimum send interval before attempting the web UI retry.
-        self._wait_for_send_slot()
+        # Rate-limit retries have a fixed cooldown; do not add the normal
+        # randomized send interval on top of this wait.
+        delay = self.operation_timing.wait_before_retry(
+            sleep=self._sleep,
+            check_cancelled=self._check_cancelled,
+        )
+        debug.log("BrowserModel", f"RATE LIMIT → waited {delay:.1f}s before retry")
+        if not self._rate_limit_visible(page):
+            return False
         if not self._click_rate_limit_retry_button(page):
             debug.log(
                 "BrowserModel",
@@ -2254,6 +2558,7 @@ class BrowserModel(ModelClient):
                                 # the browser refuses to scroll it.
                                 pass
                         button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                        self._wait_random("click")
                         debug.log(
                             "BrowserModel",
                             f"RATE LIMIT → resend clicked by XPath {xpath!r}",
@@ -2269,14 +2574,14 @@ class BrowserModel(ModelClient):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            self._sleep(min(self.poll_interval, remaining))
+            self._sleep(min(self.operation_timing.sample("retry_poll"), remaining))
 
     def _click_button_with_matching_label(self, page, labels: tuple[str, ...]) -> bool:
         """Click only a button whose rendered label actually matches the requested action."""
         import re as _re
         patterns = [_re.compile(re.escape(label), _re.IGNORECASE) for label in labels]
         try:
-            buttons = page.locator("button, [role='button']")
+            buttons = page.locator(self.BUTTON_CONTAINER_SELECTOR)
             for index in range(buttons.count() - 1, -1, -1):
                 button = buttons.nth(index)
                 if not button.is_visible():
@@ -2288,6 +2593,7 @@ class BrowserModel(ModelClient):
                 )).strip()
                 if any(pattern.search(label) for pattern in patterns):
                     button.click(timeout=self.CLICK_ACTION_TIMEOUT_MS)
+                    self._wait_random("click")
                     return True
         except Exception as exc:
             debug.log("BrowserModel", f"BUTTON LABEL SCAN SKIP → {type(exc).__name__}: {exc}")
@@ -2360,7 +2666,7 @@ class BrowserModel(ModelClient):
         head = prompt[:120]
         tail = prompt[-120:] if len(prompt) > 240 else ""
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, -1, -1):
                 message = messages.nth(index)
                 if not message.is_visible():
@@ -2382,7 +2688,7 @@ class BrowserModel(ModelClient):
             return None
 
         try:
-            messages = page.locator(".ds-message")
+            messages = page.locator(self.CHAT_MESSAGE_SELECTOR)
             for index in range(messages.count() - 1, user_index, -1):
                 message = messages.nth(index)
                 if not message.is_visible():
@@ -2559,11 +2865,24 @@ class BrowserModel(ModelClient):
                     except Exception:
                         copy_ready = False
                     if copy_ready:
-                        debug.log(
-                            "BrowserModel",
-                            "WAIT RESPONSE → response complete; Copy target available",
-                        )
-                        return json_candidate or latest
+                        # A visible Copy control is an explicit completion signal;
+                        # preserve the fast-path and only verify the response snapshot.
+                        refreshed = self._latest_response(page, before_snapshot)
+                        if (
+                            refreshed
+                            and refreshed == candidate
+                            and self._find_copy_button(page) is not None
+                        ):
+                            debug.log(
+                                "BrowserModel",
+                                "WAIT RESPONSE → response complete; Copy target available",
+                            )
+                            return self._extract_json_object(refreshed) if json_mode else refreshed
+                        previous = refreshed or ""
+                        if refreshed:
+                            latest = refreshed
+                        stable_since = None
+                        continue
                     if not json_wait_logged:
                         json_wait_logged = True
                         debug.log(
@@ -2573,11 +2892,23 @@ class BrowserModel(ModelClient):
 
                 ready = stable and json_ready and not loading
                 if ready:
+                    self._wait_random("response_stability")
+                    refreshed = self._latest_response(page, before_snapshot)
+                    if (
+                        not refreshed
+                        or refreshed != latest
+                        or self._loading_visible(page)
+                    ):
+                        previous = refreshed or ""
+                        if refreshed:
+                            latest = refreshed
+                        stable_since = None
+                        continue
                     debug.log(
                         "BrowserModel",
-                        f"WAIT RESPONSE → ready chars={len(latest)}, loading={loading}",
+                        f"WAIT RESPONSE → ready chars={len(refreshed)}, loading=False",
                     )
-                    return latest
+                    return refreshed
                 if json_mode and json_ready and stable and loading and not loading_block_logged:
                     loading_block_logged = True
                     debug.log(
@@ -2604,13 +2935,13 @@ class BrowserModel(ModelClient):
     def _stop_current_generation(self, page) -> bool:
         """Click the visible DeepSeek Stop control before abandoning the current turn."""
         try:
-            stopped = self._click_first_visible(
+            stopped = self._click_first_visible_configured(
                 page,
                 self.DEFAULT_STOP_LABELS,
                 role="button",
             )
             if not stopped:
-                stopped = self._click_first_visible(
+                stopped = self._click_first_visible_configured(
                     page,
                     self.DEFAULT_STOP_LABELS,
                 )
