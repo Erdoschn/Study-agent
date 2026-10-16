@@ -2846,6 +2846,59 @@ def test_browser_model_accepts_run_project_action_in_json_mode():
 
 
 
+def test_browser_model_records_only_known_recaptcha_failure_code():
+    class Response:
+        url = "https://chat.deepseek.com/api/v0/users/create_email_verification_code"
+
+        def json(self):
+            return {
+                "code": 0,
+                "msg": "",
+                "data": {
+                    "biz_code": 2,
+                    "biz_msg": "RECAPTCHA_VERIFY_FAILED",
+                    "biz_data": None,
+                },
+            }
+
+    model = BrowserModel(timeout=1)
+    model._observe_authentication_response(Response())
+
+    assert model._last_authentication_error == "RECAPTCHA_VERIFY_FAILED"
+    assert model._authentication_environment_error(FakePage()) == (
+        "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+    )
+
+
+def test_browser_model_ignores_non_authentication_response():
+    class Response:
+        url = "https://chat.deepseek.com/api/v0/settings"
+
+        def json(self):
+            return {
+                "data": {
+                    "biz_code": 2,
+                    "biz_msg": "RECAPTCHA_VERIFY_FAILED",
+                }
+            }
+
+    model = BrowserModel(timeout=1)
+    model._observe_authentication_response(Response())
+
+    assert model._last_authentication_error is None
+
+
+def test_browser_model_reports_captcha_failure_instead_of_generic_login_error(monkeypatch):
+    model = BrowserModel(timeout=1)
+    page = FakePage(logged_in=False)
+    monkeypatch.setattr(model, "_ensure_page", lambda: page)
+    monkeypatch.setattr(model, "_wait_for_terminal_enter", lambda: None)
+    model._last_authentication_error = "RECAPTCHA_VERIFY_FAILED"
+
+    with pytest.raises(RuntimeError, match="RECAPTCHA_VERIFY_FAILED"):
+        model.generate("", "hello")
+
+
 def test_prewarm_reopen_requires_explicit_yes_and_reuses_browser_profile(monkeypatch):
     model = BrowserModel(timeout=1, user_data_dir="persistent-test-profile")
     first_page = FakePage(logged_in=False)
