@@ -318,6 +318,7 @@ class BrowserModel(ModelClient):
         self._playwright = None
         self._context = None
         self._page = None
+        self._last_authentication_error: str | None = None
         self._pending_prompt: str | None = None
         self._submission_baseline_message_count: int | None = None
         self._chat_initialized = False
@@ -465,6 +466,15 @@ class BrowserModel(ModelClient):
                 page, timeout=self.reopen_wait_seconds
             )
         if not input_ready:
+            diagnostic = self._authentication_environment_error(page)
+            if diagnostic:
+                debug.log("BrowserModel", f"PREWARM AUTH BLOCK → {diagnostic}")
+                print(
+                    "\n[Study Agent] "
+                    + diagnostic
+                    + "。程序不会自动重复请求验证码或修改设备环境；"
+                    "请停止连续尝试并在普通浏览器中检查。"
+                )
             debug.log(
                 "BrowserModel",
                 "PREWARM LOGIN → chat input still not detected; manual login or site-side check may be required",
@@ -1016,6 +1026,13 @@ class BrowserModel(ModelClient):
         try:
             pages = self._context.pages
             self._page = pages[0] if pages else self._context.new_page()
+            try:
+                self._page.on("response", self._observe_authentication_response)
+            except Exception as exc:
+                debug.log(
+                    "BrowserModel",
+                    f"AUTH DIAGNOSTICS LISTENER SKIP → {type(exc).__name__}",
+                )
             self._page.goto(
                 self.url,
                 wait_until="domcontentloaded",
@@ -1293,6 +1310,65 @@ class BrowserModel(ModelClient):
             debug.log("BrowserModel", f"COOKIE BANNER SKIP → {type(exc).__name__}: {exc}")
         return False
 
+    def _observe_authentication_response(self, response) -> None:
+        """Remember only a known CAPTCHA failure code from auth-related responses.
+
+        Do not retain response bodies, cookies, email addresses, tokens, or headers.
+        """
+        try:
+            response_url = str(response.url)
+            if not any(
+                endpoint in response_url
+                for endpoint in (
+                    "create_email_verification_code",
+                    "create_phone_verification_code",
+                    "create_guest_challenge",
+                )
+            ):
+                return
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                return
+            business_message = str(data.get("biz_msg") or "").strip().upper()
+            if business_message == "RECAPTCHA_VERIFY_FAILED":
+                self._last_authentication_error = "RECAPTCHA_VERIFY_FAILED"
+                debug.log(
+                    "BrowserModel",
+                    "AUTH CHECK → CAPTCHA verification failed; automatic retry suppressed",
+                )
+        except Exception as exc:
+            # This listener is diagnostic-only; it must never disrupt page actions.
+            debug.log(
+                "BrowserModel",
+                f"AUTH DIAGNOSTICS SKIP → {type(exc).__name__}",
+            )
+
+    def _authentication_environment_error(self, page) -> str | None:
+        """Return a sanitized explanation for known CAPTCHA/environment errors."""
+        if self._last_authentication_error == "RECAPTCHA_VERIFY_FAILED":
+            return "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+        try:
+            body = self._compact_text(page.locator(self.BODY_SELECTOR).inner_text())
+        except Exception:
+            return None
+        normalized = body.casefold()
+        if "recaptcha_verify_failed" in normalized:
+            return "CAPTCHA 验证未通过（RECAPTCHA_VERIFY_FAILED）"
+        if any(
+            phrase in body
+            for phrase in (
+                "当前环境异常",
+                "设备环境异常",
+                "请更换环境重试",
+                "当前设备运行环境异常",
+            )
+        ):
+            return "DeepSeek 页面提示当前设备或运行环境异常"
+        return None
+
     def _ensure_logged_in(self, page) -> None:
         """Give the user time to complete the first manual web login.
 
@@ -1307,7 +1383,16 @@ class BrowserModel(ModelClient):
         ) is not None:
             return
 
-        if self.debug_mode:
+        diagnostic = self._authentication_environment_error(page)
+        if diagnostic:
+            print(
+                "\n[BrowserModel] 检测到："
+                + diagnostic
+                + "。不会自动重试验证码或修改浏览器身份。"
+                "\n[BrowserModel] 请在 Edge 中手动检查登录状态；"
+                "完成后回终端按 Enter 继续。"
+            )
+        elif self.debug_mode:
             print(
                 "\n[BrowserModel] 未检测到聊天输入框。"
                 "\n[BrowserModel] 请在 Edge 中完成 DeepSeek 登录。"
@@ -1321,6 +1406,14 @@ class BrowserModel(ModelClient):
             page,
             self.INPUT_SELECTORS,
         ) is None:
+            diagnostic = self._authentication_environment_error(page)
+            if diagnostic:
+                raise RuntimeError(
+                    "DeepSeek 登录尚未完成；检测到 "
+                    + diagnostic
+                    + "。Study Agent 已停止本次操作，不会自动重试验证码。"
+                    "请暂停连续尝试，并手动检查或联系官方支持。"
+                )
             raise RuntimeError(
                 "登录后仍未找到 DeepSeek Web 输入框。"
                 "请确认已经进入聊天页面，再重试。"
