@@ -20,6 +20,26 @@ MODEL_PROFILES_PATH = (
     / "model_profiles.json"
 )
 
+OBSERVABILITY_CONFIG_PATH = (
+    Path(__file__).resolve().parent
+    / "observability.json"
+)
+
+
+def _load_observability_config() -> dict[str, Any]:
+    """Load the tracked observability defaults without loading provider secrets."""
+    if not OBSERVABILITY_CONFIG_PATH.exists():
+        return {}
+    try:
+        with OBSERVABILITY_CONFIG_PATH.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"observability.json 格式错误：{exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError("observability.json 顶层必须是 JSON 对象。")
+    return data
 
 
 def _refresh_provider_models(config: dict[str, Any]) -> None:
@@ -164,6 +184,13 @@ def load_config() -> dict[str, Any]:
     config["browser_automation"] = deep_merge_config(
         load_browser_automation_config(),
         browser_automation_override,
+    )
+    observability_override = config.get("observability", {})
+    if not isinstance(observability_override, dict):
+        raise ValueError("providers.json 的 observability 必须是对象。")
+    config["observability"] = deep_merge_config(
+        _load_observability_config(),
+        observability_override,
     )
     _merge_model_profiles(config)
     _refresh_provider_models(config)

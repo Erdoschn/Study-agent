@@ -1,6 +1,7 @@
 import json
 import math
 import re
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -46,12 +47,51 @@ class ModelClient(ABC):
 
 
 class OpenAICompatibleClient(ModelClient):
-    def __init__(self, base_url: str, api_key: str, model: str, timeout: int = 120, headers: dict[str, str] | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        timeout: int = 120,
+        headers: dict[str, str] | None = None,
+        *,
+        provider_name: str = "unknown",
+        usage_recorder=None,
+        pricing_usd_per_million: dict[str, Any] | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
         self.headers = dict(headers or {})
+        self.provider_name = str(provider_name or "unknown")
+        self.usage_recorder = usage_recorder
+        self.pricing_usd_per_million = dict(pricing_usd_per_million or {})
+
+    def _record_usage(
+        self,
+        *,
+        status: str,
+        usage: dict[str, Any] | None,
+        started_at: float,
+        error_type: str | None = None,
+    ) -> None:
+        recorder = self.usage_recorder
+        if recorder is None:
+            return
+        try:
+            recorder.record(
+                provider=self.provider_name,
+                model=self.model,
+                status=status,
+                usage=usage,
+                elapsed_seconds=max(0.0, time.perf_counter() - started_at),
+                error_type=error_type,
+                pricing_usd_per_million=self.pricing_usd_per_million,
+            )
+        except Exception as exc:
+            # Observability is best-effort and must never interrupt a model call.
+            debug.log("TokenUsage", f"RECORD FAILED → {type(exc).__name__}")
 
     def generate(
         self,
@@ -78,18 +118,42 @@ class OpenAICompatibleClient(ModelClient):
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", **self.headers},
         )
+        started_at = time.perf_counter()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
+            self._record_usage(
+                status="error", usage=None, started_at=started_at, error_type="HTTPError"
+            )
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"LLM HTTP {exc.code}: {body}") from exc
         except TimeoutError as exc:
+            self._record_usage(
+                status="error", usage=None, started_at=started_at, error_type=type(exc).__name__
+            )
             raise ModelTimeoutError(f"LLM 请求超时：{self.timeout}s，model={self.model}") from exc
         except Exception as exc:
+            self._record_usage(
+                status="error", usage=None, started_at=started_at, error_type=type(exc).__name__
+            )
             raise RuntimeError(f"LLM 请求失败：{type(exc).__name__}: {exc}") from exc
+
         try:
-            return json.loads(raw.decode("utf-8"))["choices"][0]["message"]["content"]
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception as exc:
+            self._record_usage(
+                status="invalid_response",
+                usage=None,
+                started_at=started_at,
+                error_type=type(exc).__name__,
+            )
+            raise RuntimeError(f"LLM 返回格式异常：{exc}") from exc
+
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        self._record_usage(status="success", usage=usage, started_at=started_at)
+        try:
+            return payload["choices"][0]["message"]["content"]
         except Exception as exc:
             raise RuntimeError(f"LLM 返回格式异常：{exc}") from exc
 
