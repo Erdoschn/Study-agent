@@ -43,6 +43,7 @@ def test_refresh_uses_cached_record_until_ttl_expires(tmp_path, monkeypatch):
         "providers": {"provider-a": provider},
         "models": {"model-a": {"provider": "provider-a", "model": "model-a", "reasoning_efforts": ["low", "high"]}},
     }
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("offline")))
     cache.refresh(config)
     assert cache.snapshot()["count"] == 1
     record = cache.snapshot()["items"][0]
