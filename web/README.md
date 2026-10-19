@@ -1,6 +1,12 @@
 # StudyAgent Web UI
 
-Framework-free local frontend served by deepseek_web_study_agent_api.py.
+Framework-free local frontend served by `examples/deepseek_web_study_agent_api.py`.
+
+On every page load, choose one mode:
+- **Web Model** — uses the local Edge browser session for DeepSeek Web and supports original-file attachment uploads.
+- **API Model** — routes only to enabled `openai_compatible` models in `config/providers.json`. The selection may incur provider charges. Text/code attachments are embedded into the prompt with a size bound; PDF, Word and image attachments must use Web Model.
+
+Both modes use the StudyAgent Agent Loop and the same SQLite knowledge graph. Edge is opened lazily when the Web Model is first used, rather than on server startup.
 
 Features: Markdown, code highlighting, LaTeX/MathJax, local multi-conversation history, SSE status updates, API-key settings, health status, responsive layout, and cancel-waiting behavior.
 
