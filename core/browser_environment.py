@@ -173,9 +173,12 @@ def write_browser_environment_report(
     browser_channel: str | None,
     target_url: str,
     browser_version: str | None = None,
+    chat_input_ready: bool | None = None,
     project_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Persist sanitized, local-only browser/runtime metadata and return the report."""
+    if chat_input_ready is not None and not isinstance(chat_input_ready, bool):
+        raise ValueError("chat_input_ready must be a boolean or None")
     root = Path(project_root or Path(__file__).resolve().parents[1]).expanduser().resolve()
     report_directory = ensure_private_directory(root / _DEFAULT_REPORT_DIRECTORY)
     installation_id = _get_or_create_installation_id(report_directory / _ID_FILENAME)
@@ -226,6 +229,7 @@ def write_browser_environment_report(
         },
         "runtime": runtime,
         "target_origin": _target_origin(target_url),
+        "chat_input_ready": chat_input_ready,
     }
     _atomic_write_report(report_directory / _REPORT_FILENAME, report)
     return report

@@ -494,7 +494,7 @@ class BrowserModel(ModelClient):
                 "PREWARM LOGIN → chat input still not detected; manual login or site-side check may be required",
             )
         self._send_browser_window_to_back(page)
-        self._record_environment_diagnostics()
+        self._record_environment_diagnostics(chat_input_ready=input_ready)
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}, "
@@ -948,7 +948,9 @@ class BrowserModel(ModelClient):
             separators=(",", ":"),
         )
 
-    def _record_environment_diagnostics(self) -> None:
+    def _record_environment_diagnostics(
+        self, *, chat_input_ready: bool | None = None
+    ) -> None:
         """Record safe local environment metadata without touching site identity."""
         if not self.environment_diagnostics_enabled:
             return
@@ -960,12 +962,14 @@ class BrowserModel(ModelClient):
                 browser_channel=self.browser_channel,
                 target_url=self.url,
                 browser_version=browser_version,
+                chat_input_ready=chat_input_ready,
             )
             debug.log(
                 "BrowserModel",
                 "ENVIRONMENT REPORT → "
                 f"settings_signature={report['settings_signature']}, "
                 f"environment_signature={report['environment_signature']}, "
+                f"chat_input_ready={report['chat_input_ready']}, "
                 f"browser_version={report['browser'].get('version') or 'unknown'}",
             )
         except Exception as exc:

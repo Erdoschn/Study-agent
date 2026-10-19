@@ -20,6 +20,7 @@ def test_environment_report_persists_local_installation_id_and_redacts_paths(tmp
         browser_channel="msedge",
         target_url="https://example.invalid/private/path?token=must-not-leak",
         browser_version="136.0",
+        chat_input_ready=True,
         project_root=tmp_path,
     )
     report_path = tmp_path / "data" / "browser-environment" / "report.json"
@@ -30,6 +31,7 @@ def test_environment_report_persists_local_installation_id_and_redacts_paths(tmp
     assert saved["profile"]["label"] == "private-profile-name"
     assert saved["target_origin"] == "https://example.invalid"
     assert saved["browser"]["version"] == "136.0"
+    assert saved["chat_input_ready"] is True
     serialized = json.dumps(saved)
     assert str(tmp_path) not in serialized
     assert "private/path" not in serialized

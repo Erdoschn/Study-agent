@@ -544,7 +544,8 @@ At browser startup, Study Agent writes a local environment report to
 `data/browser-environment/report.json`. It records a persistent, locally generated
 Study Agent installation ID, browser channel/version, operating-system and runtime
 versions, a sanitized profile label, the target origin (not the page path/query),
-and signatures that make configuration/runtime differences easier to compare.
+whether the chat input was detected at startup, and signatures that make
+configuration/runtime differences easier to compare.
 
 The report does **not** read or export cookies, local storage, login tokens, prompts,
 or the complete profile path. The installation ID is for local diagnostics only:
