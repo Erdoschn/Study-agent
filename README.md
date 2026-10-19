@@ -664,7 +664,9 @@ Study-agent/
 │   └── providers.json         # Provider / Model 配置
 ├── examples/
 │   ├── module_demos.py        # 离线模块演示
-│   └── study_agent_api.py     # OpenAI-compatible API 外壳
+│   ├── study_agent_unified_api.py # 推荐统一 API（Web Model + API Model）
+│   ├── study_agent_api.py     # 旧版 API 兼容入口
+│   └── deepseek_web_study_agent_api.py # 旧版 Web API 兼容入口
 └── test/                      # 自动化测试
 ```
 
