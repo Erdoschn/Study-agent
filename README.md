@@ -607,7 +607,7 @@ python examples/study_agent_unified_api.py
 
 `/v1/models` 会列出 Web Model，并在配置存在可用的非浏览器模型时列出 API Model。Coder 的本机知识问答桥接保留在 `/internal/study/ask`。旧的 `examples/study_agent_api.py` 和 `examples/deepseek_web_study_agent_api.py` 暂时保留作为兼容/回滚入口；完成迁移与调用方验证前不要删除。
 
-前端模型选择器会从 `/v1/models` 动态读取模型列表：除 `deepseek-web` 和自动路由别名 `study-agent` 外，也会列出 `config/providers.json` 中已启用的每个 API 模型。选择具体模型时，后端会创建只包含该模型的独立 Router，避免静默切换到其他 Provider。多轮对话会按顺序发送当前对话中已完成的 user/assistant 历史；切换模型不会清空历史。
+前端模型选择器会从 `/v1/models` 动态读取模型列表：除 `deepseek-web` 和自动路由别名 `study-agent` 外，也会列出 `config/providers.json` 中已启用的每个 API 模型。选择具体模型时，后端会按需创建只包含该模型的独立 Router，避免静默切换到其他 Provider。多轮对话会按顺序发送当前对话中已完成的 user/assistant 历史；切换模型不会清空历史。提示词固定前缀保持稳定、变化的对话历史追加在后，有利于支持 prompt caching 的 Provider 复用前缀；实际缓存命中率由所选模型/服务端决定，不能由客户端保证。
 
 ### 启动前检查 HKUST GenAI
 
