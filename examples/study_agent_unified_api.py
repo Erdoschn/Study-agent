@@ -39,7 +39,6 @@ from core.cancellation import RunCancelled
 from core.user_identity import UserProfileLimitError, normalize_username, user_graph_path
 from core.model_capabilities import ModelCapabilityCache
 from core.file_ingestion import extract_attachments_to_text
-from core.context_management import context_scope
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -942,9 +941,6 @@ class Handler(BaseHTTPRequestHandler):
             if model_id not in available_model_ids:
                 raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
             username = resolve_request_username(request)
-            task_id = str(request.get("task_id") or uuid.uuid4().hex).strip()
-            if not task_id or len(task_id) > 128 or any(ord(char) < 32 for char in task_id):
-                raise ValueError("task_id 格式无效。")
             model_entry = (getattr(self.server, "api_backend_config", {}).get("models", {}) or {}).get(model_id, {})
             if isinstance(model_entry, dict) and model_entry.get("pricing_unknown") and not request.get("allow_unknown_cost", False):
                 raise ValueError("该自动发现模型的价格/credit 状态未知。请在前端确认费用风险后重试，或先核实 Provider 定价。")
@@ -977,9 +973,9 @@ class Handler(BaseHTTPRequestHandler):
                     f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
-                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id)
+                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username)
             else:
-                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id)
+                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -1068,10 +1064,8 @@ class Handler(BaseHTTPRequestHandler):
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
         username: str = "local",
-        task_id: str | None = None,
     ) -> Any:
         cancellation_event = cancellation_event or threading.Event()
-        task_id = str(task_id or uuid.uuid4().hex)
 
         def log_hook(module: str, message: str) -> None:
             # DebugTracer prints the complete trace to the terminal when debug
@@ -1129,8 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         begin_run(cancellation_event)
                 emit(f"🔄 已进入 Agent Loop：模型={model_id}，分析 / 搜索 / 推理 / 教学")
-                with context_scope(username, task_id):
-                    result = _run_agent_with_cancellation(agent, question, cancellation_event)
+                result = _run_agent_with_cancellation(agent, question, cancellation_event)
                 emit(f"✓ Agent 完成：steps={result.step_count}, evidence={len(result.evidence)}, claims={len(result.claims)}")
                 return result
             finally:
@@ -1167,9 +1160,7 @@ class Handler(BaseHTTPRequestHandler):
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
         username: str = "local",
-        task_id: str | None = None,
     ) -> None:
-        task_id = str(task_id or uuid.uuid4().hex)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -1198,7 +1189,6 @@ class Handler(BaseHTTPRequestHandler):
                         attachments=attachments,
                         model_id=model_id,
                         username=username,
-                        task_id=task_id,
                     ),
                 ))
             except Exception as exc:

@@ -194,7 +194,7 @@ async function sendMessage(){
  input.value="";autoResize();clearPendingFiles();persist();render();running(true);scroll();
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
-   const payload={username:state.username,task_id:c.id,allow_unknown_cost:state.unknownCostApproved?.has(state.model)||false,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+   const payload={username:state.username,allow_unknown_cost:state.unknownCostApproved?.has(state.model)||false,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});
