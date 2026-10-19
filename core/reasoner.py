@@ -182,6 +182,17 @@ class OpenAICompatibleClient(ModelClient):
 
         self._record_usage(status="success", usage=usage if isinstance(usage, dict) else None,
                            started_at=started_at)
+        context = current_context()
+        if context is not None:
+            try:
+                from .context_management import ROLE_CONTEXTS
+                ROLE_CONTEXTS.add_turn(
+                    context.user_id, context.task_id, context.role_id,
+                    prompt=user_prompt, response=content,
+                )
+            except Exception as exc:
+                # Context bookkeeping is best-effort; never break inference.
+                debug.log("RoleContext", f"HISTORY RECORD FAILED → {type(exc).__name__}")
         return content
 
 
