@@ -34,7 +34,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
   <div class="side-bottom"><div class="storage-info" id="storageInfo" role="status">本地存储：尚未检测</div><div class="storage-actions"><button class="secondary" id="checkStorage" type="button">检测占用</button><button class="secondary" id="clearCache" type="button">清除缓存</button></div><button class="secondary" id="clearHistory" type="button">清除全部历史</button><button class="secondary" id="settings">⚙ 设置</button><div class="backend"><div class="dot" id="dot"></div><div><strong id="health">连接检查中</strong><small id="healthDetail">/health</small></div></div></div>
 </aside>
 <section class="main">
-<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><select id="modelChoice" class="model-select" aria-label="选择模型"><option value="deepseek-web">Web Model</option><option value="study-agent">API Model</option></select><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
+<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><select id="modelChoice" class="model-select" aria-label="选择模型"><option value="deepseek-web">Web Model · DeepSeek</option></select><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
 <main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>完整的 StudyAgent 会分析、搜索、推理和教学，并通过本地浏览器调用 DeepSeek Web。</p><div class="chips"><span>Markdown</span><span>代码高亮</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
 <footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件会以原始文件形式发送给 DeepSeek Web；请勿上传不应交给第三方的文件。对话文本和附件文件名会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。</div></footer>
 </section></div>
@@ -125,8 +125,42 @@ function renderStatus(arr,isRunning){
  return box;
 }
 function running(x){state.running=x;send.textContent=x?"取消等待":"发送";send.classList.toggle("stop",x);input.disabled=x;$("#modelChoice").disabled=x;$("#attach").disabled=x||state.model!=="deepseek-web"}
-function setModelChoice(value){state.model=value==="study-agent"?"study-agent":"deepseek-web";localStorage.setItem("studyagent.modelChoice",state.model);$("#modelChoice").value=state.model;$("#modelLabel").textContent=state.model==="study-agent"?"API Model · Configured ModelRouter":"DeepSeek Web · Browser Model";$("#attach").disabled=state.model!=="deepseek-web";if(state.model!=="deepseek-web"&&state.pendingFiles.length){clearPendingFiles();$("#healthDetail").textContent="API Model 不支持浏览器原始附件；已清除待发送附件。"}}
-async function health(){try{const r=await fetch(url("/health"),{headers:headers(),cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("#dot").className="dot ok";$("#health").textContent="API 在线";$("#healthDetail").textContent=d.model||"StudyAgent";try{const mr=await fetch(url("/models"),{headers:headers(),cache:"no-store"});if(mr.ok){const md=await mr.json(),ids=(md.data||[]).map(x=>x.id),option=$("#modelChoice").querySelector('option[value="study-agent"]');if(option)option.disabled=!ids.includes("study-agent");if(!ids.includes("study-agent")&&state.model==="study-agent")setModelChoice("deepseek-web")}}catch(_){}}catch(e){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(e.message||e)}}
+function setModelChoice(value){
+ const select=$("#modelChoice"),valid=Array.from(select.options).some(option=>option.value===value);
+ state.model=valid?value:"deepseek-web";
+ if(!Array.from(select.options).some(option=>option.value===state.model))state.model=select.options[0]?.value||"deepseek-web";
+ localStorage.setItem("studyagent.modelChoice",state.model);select.value=state.model;
+ const selected=select.selectedOptions[0];
+ $("#modelLabel").textContent=selected?.textContent||state.model;
+ $("#attach").disabled=state.model!=="deepseek-web";
+ if(state.model!=="deepseek-web"&&state.pendingFiles.length){clearPendingFiles();$("#healthDetail").textContent="当前模型不支持浏览器原始附件；已清除待发送附件。"}
+}
+async function refreshModelOptions(){
+ const response=await fetch(url("/models"),{headers:headers(),cache:"no-store"});
+ if(!response.ok)throw Error("模型列表 HTTP "+response.status);
+ const payload=await response.json(),records=Array.isArray(payload.data)?payload.data:[];
+ const select=$("#modelChoice"),previous=state.model;
+ select.textContent="";
+ for(const model of records){
+  if(!model||typeof model.id!=="string"||!model.id)continue;
+  const option=document.createElement("option");option.value=model.id;
+  option.textContent=model.display_name||model.id;
+  option.title=(model.provider||"provider unknown")+" · "+model.id;
+  select.append(option);
+ }
+ if(!select.options.length)throw Error("服务端没有返回可用模型");
+ setModelChoice(records.some(item=>item?.id===previous)?previous:select.options[0].value);
+}
+async function health(){
+ try{
+  const response=await fetch(url("/health"),{headers:headers(),cache:"no-store"});
+  if(!response.ok)throw Error("HTTP "+response.status);
+  const data=await response.json();
+  $("#dot").className="dot ok";$("#health").textContent="API 在线";
+  $("#healthDetail").textContent=(data.models||[]).length+" 个可用模型";
+  await refreshModelOptions();
+ }catch(error){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(error.message||error)}
+}
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
