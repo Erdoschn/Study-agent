@@ -96,6 +96,9 @@ class TokenUsageRecorder:
         elapsed_seconds: float,
         error_type: str | None = None,
         pricing_usd_per_million: Mapping[str, Any] | None = None,
+        role_id: str | None = None,
+        user_id: str | None = None,
+        task_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Append one metadata-only event. Returns the event, or None when disabled."""
         if not self.enabled:
@@ -185,6 +188,9 @@ class TokenUsageRecorder:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "provider": str(provider or "unknown"),
             "model": str(model or "unknown"),
+            "role_id": str(role_id)[:80] if role_id else None,
+            "user_id": str(user_id)[:128] if user_id else None,
+            "task_id": str(task_id)[:128] if task_id else None,
             "status": normalized_status,
             "duration_ms": round(elapsed * 1000, 2) if elapsed is not None else None,
             "error_type": str(error_type)[:120] if error_type else None,
