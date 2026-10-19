@@ -9,6 +9,8 @@ import re
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.request
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -34,7 +36,9 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
+from core.user_identity import UserProfileLimitError, normalize_username, user_graph_path
 from core.model_capabilities import ModelCapabilityCache
+from core.file_ingestion import extract_attachments_to_text
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -266,6 +270,146 @@ def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
     return {"providers": api_providers, "models": api_models}
 
 
+
+def _provider_auth_headers(provider: dict[str, Any]) -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    configured_headers = provider.get("headers", {})
+    if isinstance(configured_headers, dict):
+        headers.update({str(key): str(value) for key, value in configured_headers.items()})
+    if "Authorization" not in headers and provider.get("api_key"):
+        headers["Authorization"] = "Bearer " + str(provider["api_key"])
+    return headers
+
+
+def discover_provider_models(
+    api_config: dict[str, Any],
+    *,
+    timeout: float = 5.0,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Discover OpenAI-compatible models without requiring per-model config entries.
+
+    Model IDs are namespaced by provider to avoid collisions. Discovery is best-effort:
+    one provider's timeout or invalid response never hides other providers' models.
+    """
+    providers = api_config.get("providers", {})
+    configured_models = api_config.get("models", {})
+    result = {
+        "providers": dict(providers) if isinstance(providers, dict) else {},
+        "models": {
+            str(name): dict(item)
+            for name, item in (configured_models.items() if isinstance(configured_models, dict) else [])
+            if isinstance(item, dict)
+        },
+    }
+    status: dict[str, dict[str, Any]] = {}
+    for provider_name, provider in result["providers"].items():
+        if not isinstance(provider, dict) or not provider.get("enabled", True):
+            continue
+        if str(provider.get("type", "openai_compatible")).casefold() == "browser":
+            continue
+        base_url = str(provider.get("base_url", "")).rstrip("/")
+        if not base_url:
+            status[str(provider_name)] = {"ok": False, "count": 0, "error": "Provider 缺少 base_url"}
+            continue
+        try:
+            request = urllib.request.Request(
+                base_url + "/models",
+                headers=_provider_auth_headers(provider),
+                method="GET",
+            )
+            with urllib.request.urlopen(request, timeout=max(1.0, min(float(timeout), 15.0))) as response:
+                raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError("模型目录响应超过 2 MiB")
+            payload = json.loads(raw.decode("utf-8"))
+            entries = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(entries, list) and isinstance(payload, dict):
+                entries = payload.get("models", [])
+            if not isinstance(entries, list):
+                raise ValueError("响应中没有有效的 data/models 数组")
+            live_ids = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                upstream_id = str(entry.get("id", entry.get("name", ""))).strip()
+                if upstream_id and upstream_id not in live_ids:
+                    live_ids.append(upstream_id)
+            configured_pairs = {
+                (str(item.get("provider", "")), str(item.get("model", name)))
+                for name, item in result["models"].items()
+                if isinstance(item, dict)
+            }
+            added = 0
+            for upstream_id in live_ids:
+                if (str(provider_name), upstream_id) in configured_pairs:
+                    continue
+                discovered_id = f"auto:{provider_name}:{upstream_id}"
+                # Provider credentials are already explicitly configured, but model
+                # pricing/capabilities are unknown until the user checks the provider.
+                result["models"][discovered_id] = {
+                    "provider": str(provider_name),
+                    "model": upstream_id,
+                    "enabled": True,
+                    "paid": True,
+                    "discovered": True,
+                    "pricing_unknown": True,
+                }
+                added += 1
+            status[str(provider_name)] = {
+                "ok": True, "count": len(live_ids), "added": added, "error": ""
+            }
+        except Exception as exc:
+            # Do not echo exception text: URL query strings and upstream errors can contain secrets.
+            code = getattr(exc, "code", None)
+            detail = f"HTTP {int(code)}" if isinstance(code, int) else type(exc).__name__
+            status[str(provider_name)] = {
+                "ok": False,
+                "count": 0,
+                "error": detail,
+            }
+    return result, status
+
+
+def refresh_server_model_catalog(server, *, timeout: float = 5.0) -> dict[str, Any]:
+    """Refresh dynamic model choices atomically while preserving configured models."""
+    if not server.model_catalog_refresh_lock.acquire(blocking=False):
+        return {
+            "status": "refresh_in_progress",
+            "models": list(getattr(server, "available_model_ids", [])),
+            "providers": getattr(server, "model_catalog_status", {}),
+        }
+    try:
+        refreshed, provider_status = discover_provider_models(
+            server.base_api_backend_config, timeout=timeout
+        )
+        single_configs = {
+            name: build_single_model_config(refreshed, name)
+            for name in sorted(refreshed.get("models", {}))
+        }
+        available = [MODEL_ID]
+        if getattr(server, "api_model_available", False):
+            available.append(API_MODEL_ID)
+        available.extend(sorted(single_configs))
+        hkust_models = [
+            str(name) for name in refreshed.get("models", {})
+            if is_hkust_model_id(str(name), refreshed)
+        ]
+        with server.model_catalog_lock:
+            server.api_backend_config = refreshed
+            server.single_model_configs = single_configs
+            server.available_model_ids = available
+            server.hkust_model_ids = hkust_models
+            server.model_catalog_status = provider_status
+        return {
+            "status": "ok",
+            "models": available,
+            "providers": provider_status,
+            "count": len(available),
+        }
+    finally:
+        server.model_catalog_refresh_lock.release()
+
+
 def build_single_model_config(api_config: dict[str, Any], model_name: str) -> dict[str, Any]:
     """Create an isolated router config so the selected model cannot silently switch."""
     models = api_config.get("models", {})
@@ -295,6 +439,81 @@ def is_hkust_model_id(model_id: str, config: dict[str, Any]) -> bool:
     return isinstance(provider, dict) and (
         "hkust" in provider_name.casefold() or "hkust" in str(provider.get("base_url", "")).casefold()
     )
+
+
+def resolve_request_username(request: dict[str, Any]) -> str:
+    """Resolve a canonical profile name; a profile name is not authentication."""
+    if "username" in request:
+        return normalize_username(request["username"])
+    configured_default = os.getenv("STUDY_AGENT_DEFAULT_USERNAME", "").strip()
+    if configured_default:
+        return normalize_username(configured_default)
+    raise ValueError(
+        "请求缺少 username。每个请求都必须指定用户 Profile；"
+        "单用户旧客户端可显式设置 STUDY_AGENT_DEFAULT_USERNAME。"
+    )
+
+
+def _configured_max_user_profiles() -> int:
+    try:
+        value = int(os.getenv("STUDY_AGENT_MAX_USER_PROFILES", "256"))
+    except (TypeError, ValueError):
+        value = 256
+    if not 1 <= value <= 100_000:
+        return 256
+    return value
+
+
+def build_profile_agent(
+    template_agent: StudyAgent,
+    username: str,
+    *,
+    data_root: str | Path = ROOT / "data",
+    max_profiles: int = 256,
+) -> StudyAgent:
+    """Give one user/model pair isolated mutable Agent state and graph storage."""
+    canonical = normalize_username(username)
+    graph_path = user_graph_path(
+        canonical, data_root=data_root, max_profiles=max_profiles
+    )
+    agent = StudyAgent(
+        reasoner=template_agent.reasoner,
+        teacher=getattr(template_agent, "teacher", None),
+        tool_executor=getattr(template_agent, "tool_executor", None),
+        max_steps=getattr(template_agent, "max_steps", None),
+        knowledge_graph_path=graph_path,
+    )
+    for attribute in (
+        "_web_model_factory", "_web_model_registry",
+        "_api_model_factory", "_api_model_registry",
+    ):
+        if hasattr(template_agent, attribute):
+            setattr(agent, attribute, getattr(template_agent, attribute))
+    agent.username = canonical
+    return agent
+
+
+def get_or_create_profile_agent(server, template_agent: StudyAgent, username: str, model_id: str) -> StudyAgent:
+    """Cache isolated runtime state by canonical username and selected model."""
+    canonical = normalize_username(username)
+    cache_key = (canonical, str(model_id))
+    with server.user_agents_lock:
+        cached = server.user_agents.get(cache_key)
+        if cached is not None:
+            return cached
+        known_users = {key[0] for key in server.user_agents}
+        if canonical not in known_users and len(known_users) >= server.max_user_profiles:
+            raise UserProfileLimitError(
+                f"已达到活动用户 Profile 数量上限（{server.max_user_profiles}）。"
+            )
+        profile = build_profile_agent(
+            template_agent,
+            canonical,
+            data_root=server.data_root,
+            max_profiles=server.max_user_profiles,
+        )
+        server.user_agents[cache_key] = profile
+        return profile
 
 
 def _prewarm_browser_model(agent: StudyAgent) -> bool:
@@ -655,9 +874,11 @@ class Handler(BaseHTTPRequestHandler):
                 records.append({
                     "id": model_id, "object": "model", "created": int(time.time()),
                     "owned_by": "Erdoschn/Study-agent",
-                    "display_name": model_id if not provider_id else f"{model_id} · {provider_id}",
+                    "display_name": (str(model.get("model", model_id)) if isinstance(model, dict) else model_id) if not provider_id else f"{str(model.get('model', model_id)) if isinstance(model, dict) else model_id} · {provider_id}",
                     "provider": provider_id or ("browser" if model_id == MODEL_ID else "router"),
-                    "supports_attachments": model_id == MODEL_ID,
+                    "supports_attachments": True,
+                    "attachment_mode": "original" if model_id == MODEL_ID else "local_text_extraction",
+                    "pricing_unknown": bool(model.get("pricing_unknown", False)) if isinstance(model, dict) else False,
                 })
             self._json({"object": "list", "data": records})
             return
@@ -698,6 +919,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
+        if urlparse(self.path).path == "/v1/models/refresh":
+            try:
+                result = refresh_server_model_catalog(self.server)
+                self._json(result, 200 if result.get("status") == "ok" else 202)
+            except Exception as exc:
+                self._json({"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}, 502)
+            return
         if urlparse(self.path).path != "/v1/chat/completions":
             self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
             return
@@ -712,8 +940,10 @@ class Handler(BaseHTTPRequestHandler):
             available_model_ids = set(getattr(self.server, "available_model_ids", [MODEL_ID]))
             if model_id not in available_model_ids:
                 raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
-            if attachments and model_id != MODEL_ID:
-                raise ValueError("原始附件上传目前仅支持 Web Model（deepseek-web）。请切换到 Web Model 后重试。")
+            username = resolve_request_username(request)
+            model_entry = (getattr(self.server, "api_backend_config", {}).get("models", {}) or {}).get(model_id, {})
+            if isinstance(model_entry, dict) and model_entry.get("pricing_unknown") and not request.get("allow_unknown_cost", False):
+                raise ValueError("该自动发现模型的价格/credit 状态未知。请在前端确认费用风险后重试，或先核实 Provider 定价。")
             last_user_question = next(
                 (str(item.get("content", "")).strip() for item in reversed(messages)
                  if isinstance(item, dict) and item.get("role") == "user"
@@ -731,17 +961,21 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             question = self._prompt(messages)
-            if attachments:
+            runtime_attachments = attachments if model_id == MODEL_ID else None
+            if attachments and model_id == MODEL_ID:
                 question = add_attachment_context(question, attachments)
+            elif attachments:
+                question = extract_attachments_to_text(question, attachments)
+            if attachments:
                 debug.log(
                     "StudyAgentUnifiedAPI",
                     f"ATTACHMENTS RECEIVED → count={len(attachments)}, "
                     f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
-                self._stream(question, attachments=attachments, model_id=model_id)
+                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username)
             else:
-                result = self._run(question, lambda _: None, attachments=attachments, model_id=model_id)
+                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -752,6 +986,8 @@ class Handler(BaseHTTPRequestHandler):
                     "model": model_id,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                 })
+        except UserProfileLimitError as exc:
+            self._json({"error": {"message": str(exc), "type": "profile_limit_exceeded"}}, 429)
         except ValueError as exc:
             status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
             self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, status)
@@ -801,7 +1037,7 @@ class Handler(BaseHTTPRequestHandler):
                 + json.dumps(context, ensure_ascii=False)[:16_000]
                 + "\\n\\nCoder 的问题：\\n" + question
             )
-            result = self._run(prompt, lambda _: None, model_id=API_MODEL_ID)
+            result = self._run(prompt, lambda _: None, model_id=API_MODEL_ID, username=resolve_request_username(request) if "username" in request or os.getenv("STUDY_AGENT_DEFAULT_USERNAME", "").strip() else "local")
             graph_context = {}
             graph = getattr(result, "knowledge_graph", None)
             context_for = getattr(graph, "context_for", None) if graph is not None else None
@@ -827,6 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
         cancellation_event: threading.Event | None = None,
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
+        username: str = "local",
     ) -> Any:
         cancellation_event = cancellation_event or threading.Event()
 
@@ -868,6 +1105,13 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.agents[model_id] = agent
                         factory = getattr(getattr(agent, "reasoner", None), "model_factory", None)
                         self.server.model_factories[model_id] = factory
+            agent = get_or_create_profile_agent(
+                self.server, agent, username, model_id
+            )
+            graph = getattr(agent, "knowledge_graph", None)
+            reload_graph = getattr(graph, "load", None)
+            if callable(reload_graph):
+                reload_graph()
             begin_run = getattr(factory, "begin_run", None)
             debug.bind_thread(log_hook)
             try:
@@ -915,6 +1159,7 @@ class Handler(BaseHTTPRequestHandler):
         *,
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
+        username: str = "local",
     ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -943,6 +1188,7 @@ class Handler(BaseHTTPRequestHandler):
                         cancellation_event,
                         attachments=attachments,
                         model_id=model_id,
+                        username=username,
                     ),
                 ))
             except Exception as exc:
@@ -1011,6 +1257,10 @@ def main() -> None:
     server = Server((HOST, PORT), Handler)
     server.agent = web_agent
     server.api_backend_config = api_config
+    server.base_api_backend_config = api_config
+    server.model_catalog_lock = threading.RLock()
+    server.model_catalog_refresh_lock = threading.Lock()
+    server.model_catalog_status = {}
     server.api_model_available = bool(api_config.get("models"))
     server.agents = {MODEL_ID: web_agent, API_MODEL_ID: api_agent}
     server.model_factories = {
@@ -1024,6 +1274,10 @@ def main() -> None:
         for name in sorted(api_config.get("models", {}))
     }
     server.agent_init_lock = threading.Lock()
+    server.user_agents = {}
+    server.user_agents_lock = threading.RLock()
+    server.data_root = ROOT / "data"
+    server.max_user_profiles = _configured_max_user_profiles()
     server.available_model_ids = [MODEL_ID] + (
         [API_MODEL_ID] if server.api_model_available else []
     ) + sorted(server.single_model_configs)
@@ -1033,6 +1287,12 @@ def main() -> None:
         and str(name) in server.single_model_configs
     ]
     capability_cache = ModelCapabilityCache(ROOT)
+    # Model discovery is best-effort and runs outside server startup's critical path.
+    threading.Thread(
+        target=lambda: refresh_server_model_catalog(server),
+        name="provider-model-discovery",
+        daemon=True,
+    ).start()
     server.model_capability_cache = capability_cache
 
     # Best-effort asynchronous discovery must never block the browser-only server startup.

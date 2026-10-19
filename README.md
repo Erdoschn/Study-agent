@@ -1530,3 +1530,11 @@ Coder keeps two host-side snapshots outside the model workspace:
 
 Neither snapshot is exposed as a Coder action, neither is mounted into the execution sandbox, and their host paths are not sent to the reasoner. Backups contain only Python source/interface files (.py / .pyi) within the workspace.
 
+
+
+### Unified API: automatic model discovery and API attachments
+
+- The unified API queries each enabled OpenAI-compatible Provider's `/models` endpoint and adds newly discovered model IDs to the UI selector without requiring one `models` entry per upstream model. Use the UI's refresh button to refresh catalogs. Discovery is best-effort per provider; a failed provider does not hide models from other providers.
+- Newly discovered model IDs are namespaced as `auto:<provider>:<upstream-model-id>`. They are marked **pricing unknown**; the UI asks for confirmation before first use, and API callers must send `allow_unknown_cost: true`. Check the provider's price/credit policy before use. Model presence in `/models` does not prove that inference works or that the model is free. This explicit confirmation is separate from the `STUDY_AGENT_ALLOW_PAID=1` setting used to expose configured models already marked as paid.
+- Web Model continues to receive raw attachments through the browser session. API Models locally extract text from PDF, DOCX, XLSX, PPTX, and common text/code files before sending the extracted content to the selected model. File parsing limits apply. Image attachments still require Web Model because provider vision protocols and model capabilities are not uniform in the current text-only Agent adapter.
+- Local extraction dependencies are installed through `pip install -r requirements.txt`. The original binary document is not forwarded to API Providers; only extracted text is included in the request.
