@@ -200,8 +200,17 @@ class ModelClientFactory:
         provider_ui = provider_automation.get("ui", {})
         if not isinstance(provider_ui, dict):
             provider_ui = {}
+        global_environment = browser_automation.get("environment", {})
+        if not isinstance(global_environment, dict):
+            global_environment = {}
+        provider_environment = provider_automation.get("environment", {})
+        if not isinstance(provider_environment, dict):
+            provider_environment = {}
         timing_config = deep_merge_config(global_timing, provider_timing)
         ui_config = deep_merge_config(global_ui, provider_ui)
+        environment_config = deep_merge_config(
+            global_environment, provider_environment
+        )
 
         client = CoderBrowserSession(
             model=model.model,
@@ -218,6 +227,7 @@ class ModelClientFactory:
             reuse_chat=bool(provider.get("reuse_chat", False)),
             timing_config=timing_config,
             ui_config=ui_config,
+            environment_config=environment_config,
             debug_mode=False,
         )
         if cancellation_event is not None:

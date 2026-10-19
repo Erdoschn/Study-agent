@@ -209,5 +209,8 @@
       "prewarm_login_detection_seconds": 8,
       "reopen_wait_seconds": 15
     }
+  },
+  "environment": {
+    "diagnostics_enabled": true
   }
 }

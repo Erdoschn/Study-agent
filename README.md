@@ -538,6 +538,40 @@ To override timings for one installation, add a `browser_automation` object in `
 
 To customize DeepSeek UI controls, add a `ui` object under `browser_automation`. For a provider-only override, put the same `timing` or `ui` object under `providers.deepseek_web.browser_automation`. Overrides are merged with the checked-in defaults, so specifying one selector does not require copying the entire configuration.
 
+### Browser environment diagnostics
+
+At browser startup, Study Agent writes a local environment report to
+`data/browser-environment/report.json`. It records a persistent, locally generated
+Study Agent installation ID, browser channel/version, operating-system and runtime
+versions, a sanitized profile label, the target origin (not the page path/query),
+whether the chat input was detected at startup, and signatures that make
+configuration/runtime differences easier to compare.
+
+The report does **not** read or export cookies, local storage, login tokens, prompts,
+or the complete profile path. The installation ID is for local diagnostics only:
+it is not injected into page scripts, headers, cookies, or requests, and it is not
+a DeepSeek device ID. Matching settings signatures mean the selected settings match;
+they do not make different machines' hardware, browser builds, network addresses,
+or website login sessions identical.
+
+Diagnostics are enabled by default and can be disabled globally in
+`config/browser_automation.json` or per provider in `config/providers.json`:
+
+```json
+{
+  "browser_automation": {
+    "environment": {
+      "diagnostics_enabled": false
+    }
+  }
+}
+```
+
+Keep each machine's browser profile local and persistent. Do not copy live browser
+profiles or session cookies between machines; use the report to compare supported
+configuration/runtime details and investigate login errors through the site's normal
+verification flow.
+
 Paid models are disabled by default. Use:
 
 ```bash
