@@ -9,7 +9,6 @@ from examples.deepseek_web_study_agent_api import (
     build_profile_agent,
     get_or_create_profile_agent,
 )
-from web_test_helpers import read_frontend_source
 
 
 def _template_agent():
@@ -70,9 +69,9 @@ def test_same_username_shares_graph_between_model_modes_but_not_runtime_state(tm
     assert alice_web.knowledge_graph.storage_path == alice_api.knowledge_graph.storage_path
     assert alice_web.knowledge_graph.storage_path != bob_web.knowledge_graph.storage_path
     assert alice_api._api_model_factory is api_template._api_model_factory
-    assert alice_web.student_state is not bob_web.student_state or (
-        alice_web.student_state is None and bob_web.student_state is None
-    )
+    alice_web.student_state = object()
+    bob_web.student_state = object()
+    assert alice_web.student_state is not bob_web.student_state
     assert len(server.user_agents) == 3
 
 
