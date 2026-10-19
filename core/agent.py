@@ -6,6 +6,7 @@ from .assessment import AssessmentEvaluator
 from .assessment_generator import AssessmentGenerator
 from .__debug__ import debug
 from .errors import AttachmentUploadError
+from .context_management import Handoff, ROLE_CONTEXTS, current_context
 
 
 class StudyAgent:
@@ -41,6 +42,21 @@ class StudyAgent:
         if self.teacher is None or state.final_answer is None:
             return
         draft_answer = state.final_answer
+        context = current_context()
+        if context is not None:
+            evidence_refs = tuple(
+                str(item.get("url") or item.get("identifier"))
+                for item in (getattr(state, "evidence", []) or [])
+                if isinstance(item, dict) and (item.get("url") or item.get("identifier"))
+            )
+            ROLE_CONTEXTS.handoff(context.user_id, Handoff(
+                task_id=context.task_id,
+                source_role="reasoner",
+                target_role="teacher",
+                artifact_version=f"step-{getattr(state, 'step_count', 0)}",
+                payload={"draft_answer": str(draft_answer)},
+                evidence_refs=evidence_refs,
+            ))
         try:
             if self._teacher_supports_draft():
                 state.final_answer = self.teacher.generate(state, draft_answer=draft_answer)
