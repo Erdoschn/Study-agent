@@ -57,11 +57,11 @@ function persist(){if(!state.username)return false;try{localStorage.setItem(prof
 function load(){state.conversations=[];state.active=null;try{let raw=localStorage.getItem(profileStorageKey());if(!raw&&state.username==="local"){raw=localStorage.getItem("studyagent.ui.v3");if(raw)localStorage.setItem(profileStorageKey(),raw)}const x=JSON.parse(raw||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0]?.id||null}
 function normalizeProfileName(value){
  const raw=String(value??"");
- if(/[\\u0000-\\u001f\\u007f]/.test(raw))throw Error("用户名不能包含控制字符。");
+ if(/[\u0000-\u001f\u007f]/.test(raw))throw Error("用户名不能包含控制字符。");
  const name=raw.normalize("NFKC").trim();
  if(!name)throw Error("请先填写用户名。");
  if(name.length>64)throw Error("用户名不能超过 64 个字符。");
- if(name==="."||name===".."||!/[\\p{L}\\p{N}._-]+/u.test(name)||!/^[\\p{L}\\p{N}._-]+$/u.test(name))throw Error("用户名只允许字母、数字、点、下划线和连字符。");
+ if(name==="."||name===".."||!/[\p{L}\p{N}._-]+/u.test(name)||!/^[\p{L}\p{N}._-]+$/u.test(name))throw Error("用户名只允许字母、数字、点、下划线和连字符。");
  return name.toLowerCase();
 }
 function switchProfile(){
@@ -181,7 +181,7 @@ async function health(){
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
- const typed=input.value.trim(),c=active();if(!c||state.running)return;
+ const typed=input.value.trim(),c=active();if(!c||state.running)return;if(!state.username){alert("请先填写用户名，再开始对话。不同用户名会使用独立的学习数据和本地历史。");$("#username").focus();return;}
  // Attachments are one-shot: snapshot this submission's files, then clear the
  // composer. Keep the snapshot for this request only; later messages are text-only
  // unless the user explicitly attaches the files again.

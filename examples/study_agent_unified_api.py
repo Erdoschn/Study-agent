@@ -829,6 +829,8 @@ class Handler(BaseHTTPRequestHandler):
                     "model": model_id,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                 })
+        except UserProfileLimitError as exc:
+            self._json({"error": {"message": str(exc), "type": "profile_limit_exceeded"}}, 429)
         except ValueError as exc:
             status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
             self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, status)
