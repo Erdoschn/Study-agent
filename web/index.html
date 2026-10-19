@@ -34,16 +34,17 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
   <div class="side-bottom"><button class="secondary" id="settings">⚙ 设置</button><div class="backend"><div class="dot" id="dot"></div><div><strong id="health">连接检查中</strong><small id="healthDetail">/health</small></div></div></div>
 </aside>
 <section class="main">
-<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modeLabel">等待选择模型</span></div><button class="mode-switch" id="changeMode" type="button">切换模型</button><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
+<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="userLabel">未选择用户</span><span id="modeLabel">等待选择模型</span></div><button class="mode-switch" id="changeUser" type="button">切换用户</button><button class="mode-switch" id="changeMode" type="button">切换模型</button><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
 <main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>同一套 StudyAgent 前端，可按本次需要选择 Web Model 或 API Model；两种模式共用学习 Agent 和知识图谱。</p><div class="chips"><span>Web / API 模式</span><span>Markdown</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
 <footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">对话文本和附件文件名会保存在当前浏览器本地存储；附件二进制不会持久保存。Provider API Key 从本地 config/providers.json 读取，不会发送到前端。API 模式可能产生第三方 API 费用；PDF、Word 和图片附件请使用 Web Model。</div></footer>
 </section></div>
+<div class="modal hidden" id="profilePicker" role="dialog" aria-modal="true" aria-labelledby="profileTitle"><div class="card"><div class="mhead"><div><h2 id="profileTitle">选择用户 Profile</h2><p>不同用户名使用独立的学习者状态、知识图谱和本地对话记录。</p></div></div><label class="field"><span>用户名（1–64 位，字母/数字/点/下划线/连字符；支持中文）</span><input id="usernameInput" maxlength="64" autocomplete="username" placeholder="例如：alice 或 张三" required></label><p class="mode-warning">用户名用于划分本地 Profile，不是登录认证。共享服务器请为每个用户配置独立身份认证。</p><div class="actions"><button class="secondary hidden" id="cancelUser" type="button">取消</button><button class="send" id="confirmUser" type="button">进入个人空间</button></div></div></div>
 <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="card"><div class="mhead"><div><h2 id="settingsTitle">设置</h2><p>默认使用当前页面提供的 StudyAgent API。</p></div><button class="icon" id="close">×</button></div><label class="field"><span>API 地址</span><input id="base" placeholder="/v1"></label><label class="field"><span>API Key（可选）</span><input id="key" type="password" placeholder="STUDY_AGENT_WEB_API_KEY"></label><div class="actions"><button class="secondary" id="reset" type="button">恢复默认</button><button class="send" id="save" type="button">保存</button></div></div></div>
-<div class="modal" id="modePicker" role="dialog" aria-modal="true" aria-labelledby="modeTitle"><div class="card"><div class="mhead"><div><h2 id="modeTitle">选择本次使用的模型</h2><p>每次打开页面都需要选择，也可随时通过顶部按钮切换。</p></div></div><div class="mode-options"><label class="mode-option"><input type="radio" name="modelMode" value="deepseek-web"><span><strong>Web Model · DeepSeek 网页版</strong><small>通过本地 Edge 浏览器使用已登录的 DeepSeek 网页，可原样上传 PDF、Word 和图片等附件。</small></span></label><label class="mode-option" id="apiModeChoice"><input type="radio" name="modelMode" value="study-agent-api" disabled><span><strong>API Model · OpenAI-compatible API</strong><small>使用 config/providers.json 中启用的 API Provider 与模型，不启动网页浏览器。文本/代码类附件会作为文本加入请求。</small></span></label></div><p class="mode-availability" id="apiModeAvailability">正在检查 API Model 配置…</p><p class="mode-warning">API Model 可能产生第三方 API 费用。选择该模式即表示你同意本次请求使用本地配置的 API Provider；请确认 API Key、模型与计费设置正确。</p><div class="actions"><button class="secondary hidden" id="cancelMode" type="button">取消</button><button class="send" id="confirmMode" type="button">进入 StudyAgent</button></div></div></div>
+<div class="modal hidden" id="modePicker" role="dialog" aria-modal="true" aria-labelledby="modeTitle"><div class="card"><div class="mhead"><div><h2 id="modeTitle">选择本次使用的模型</h2><p>每次打开页面都需要选择，也可随时通过顶部按钮切换。</p></div></div><div class="mode-options"><label class="mode-option"><input type="radio" name="modelMode" value="deepseek-web"><span><strong>Web Model · DeepSeek 网页版</strong><small>通过本地 Edge 浏览器使用已登录的 DeepSeek 网页，可原样上传 PDF、Word 和图片等附件。</small></span></label><label class="mode-option" id="apiModeChoice"><input type="radio" name="modelMode" value="study-agent-api" disabled><span><strong>API Model · OpenAI-compatible API</strong><small>使用 config/providers.json 中启用的 API Provider 与模型，不启动网页浏览器。文本/代码类附件会作为文本加入请求。</small></span></label></div><p class="mode-availability" id="apiModeAvailability">正在检查 API Model 配置…</p><p class="mode-warning">API Model 可能产生第三方 API 费用。选择该模式即表示你同意本次请求使用本地配置的 API Provider；请确认 API Key、模型与计费设置正确。</p><div class="actions"><button class="secondary hidden" id="cancelMode" type="button">取消</button><button class="send" id="confirmMode" type="button">进入 StudyAgent</button></div></div></div>
 <script>
-const DEF="/v1",KEY="studyagent.ui.v3",WEB_MODEL="deepseek-web",API_MODEL="study-agent-api";
+const DEF="/v1",KEY_PREFIX="studyagent.ui.v3.user.",USERNAME_KEY="studyagent.username",WEB_MODEL="deepseek-web",API_MODEL="study-agent-api";
 const $=s=>document.querySelector(s);
-const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],mode:null,apiAvailable:null,apiUnavailableReason:"",base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
+const state={username:localStorage.getItem(USERNAME_KEY)||"",conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],mode:null,apiAvailable:null,apiUnavailableReason:"",base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
@@ -53,10 +54,11 @@ function active(){return state.conversations.find(c=>c.id===state.active)||null}
 function base(){let x=(state.base||DEF).trim()||DEF;if(!/^https?:\/\//i.test(x)&&!x.startsWith("/"))x="/"+x;return x.replace(/\/$/,"")}
 function url(p){return base()+p}
 function headers(multipart=false){const h={};if(!multipart)h["Content-Type"]="application/json";if(state.key.trim())h.Authorization="Bearer "+state.key.trim();return h}
-function persist(){localStorage.setItem(KEY,JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem("studyagent.apiBase",state.base);try{localStorage.removeItem("studyagent.apiKey")}catch(_){}}
-function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0].id}
+function profileStorageKey(){return KEY_PREFIX+encodeURIComponent(state.username)}
+function persist(){if(!state.username)return;localStorage.setItem(profileStorageKey(),JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem(USERNAME_KEY,state.username);localStorage.setItem("studyagent.apiBase",state.base);try{localStorage.removeItem("studyagent.apiKey")}catch(_){}}
+function load(){state.conversations=[];state.active=null;if(!state.username)return;try{const x=JSON.parse(localStorage.getItem(profileStorageKey())||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0].id}
 function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value="";renderAttachments()}
-function newChat(save=true){clearPendingFiles();const c={id:id(),title:"新对话",createdAt:Date.now(),messages:[]};state.conversations.unshift(c);state.active=c.id;render();if(save)persist();input.focus();closeSide()}
+function newChat(save=true){if(!state.username){openProfilePicker(true);return}clearPendingFiles();const c={id:id(),title:"新对话",createdAt:Date.now(),messages:[]};state.conversations.unshift(c);state.active=c.id;render();if(save)persist();input.focus();closeSide()}
 function title(t){t=String(t||"").replace(/\s+/g," ").trim();return t.length>28?t.slice(0,28)+"…":t||"新对话"}
 function removeChat(cid){const i=state.conversations.findIndex(c=>c.id===cid);if(i<0)return;state.conversations.splice(i,1);if(state.active===cid)state.active=state.conversations[0]?.id;if(!state.conversations.length)newChat(false);else{render();persist()}}
 function clearChat(){const c=active();if(!c)return;c.messages=[];c.title="新对话";clearPendingFiles();render();persist();input.focus()}
@@ -139,8 +141,34 @@ function updateModePicker(){
  const confirmButton=$("#confirmMode");
  if(confirmButton)confirmButton.disabled=!selected||selected.disabled;
 }
-function openModePicker(){
+function openProfilePicker(required=false){
  if(state.running)return;
+ const picker=$("#profilePicker"),inputBox=$("#usernameInput");
+ inputBox.value=state.username||"";
+ $("#cancelUser").classList.toggle("hidden",required||!state.username);
+ picker.classList.remove("hidden");
+ inputBox.focus();
+}
+function confirmUser(){
+ if(state.running)return;
+ const entered=String($("#usernameInput").value||"").normalize("NFKC").trim();
+ if(!entered||entered.length>64||!/^[\\p{L}\\p{N}._-]+$/u.test(entered)||entered==="."||entered===".."){
+  alert("用户名不能为空，最多 64 位；仅允许字母、数字、点、下划线和连字符。");
+  $("#usernameInput").focus();return;
+ }
+ const username=entered.toLowerCase();
+ if(state.username===username){$("#profilePicker").classList.add("hidden");if(state.mode===null)openModePicker();return;}
+ if(state.username)persist();
+ clearPendingFiles();
+ state.username=username;localStorage.setItem(USERNAME_KEY,username);
+ state.mode=null;state.conversations=[];state.active=null;
+ load();render();persist();
+ $("#userLabel").textContent="用户 Profile："+state.username;
+ $("#profilePicker").classList.add("hidden");
+ openModePicker();
+}
+function openModePicker(){
+ if(state.running||!state.username)return;
  const selected=state.mode?document.querySelector('input[name="modelMode"][value="'+state.mode+'"]'):null;
  document.querySelectorAll('input[name="modelMode"]').forEach(option=>{option.checked=false;});
  if(selected&&!selected.disabled)selected.checked=true;
@@ -177,7 +205,7 @@ async function sendMessage(){
  input.value="";autoResize();clearPendingFiles();persist();render();running(true);scroll();
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
-  const payload={model:state.mode,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+  const payload={username:state.username,model:state.mode,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});
@@ -245,13 +273,13 @@ function saveSettings(){
 function resetSettings(){$("#base").value=DEF;$("#key").value=""}
 function closeSide(){$("#sidebar").classList.remove("open")}
 
-$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#changeMode").onclick=openModePicker;$("#confirmMode").onclick=confirmMode;$("#cancelMode").onclick=()=>$("#modePicker").classList.add("hidden");document.querySelectorAll('input[name="modelMode"]').forEach(option=>option.addEventListener("change",updateModePicker));$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
+$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#changeUser").onclick=()=>openProfilePicker(false);$("#confirmUser").onclick=confirmUser;$("#cancelUser").onclick=()=>$("#profilePicker").classList.add("hidden");$("#usernameInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();confirmUser()}};$("#changeMode").onclick=openModePicker;$("#confirmMode").onclick=confirmMode;$("#cancelMode").onclick=()=>$("#modePicker").classList.add("hidden");document.querySelectorAll('input[name="modelMode"]').forEach(option=>option.addEventListener("change",updateModePicker));$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
 const dropTarget=$(".main");
 dropTarget.addEventListener("dragenter",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragover",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragleave",e=>{if(!dropTarget.contains(e.relatedTarget))dropOverlay.classList.add("hidden")});
 dropTarget.addEventListener("drop",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.add("hidden");addFiles(e.dataTransfer.files)});
-load();render();autoResize();updateModePicker();health();setInterval(health,30000);
+load();render();autoResize();updateModePicker();health();setInterval(health,30000);if(state.username){$("#userLabel").textContent="用户 Profile："+state.username;openModePicker()}else{openProfilePicker(true)}
 </script>
 </body>
 </html>
