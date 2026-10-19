@@ -592,18 +592,32 @@ only when paid-model use is explicitly intended.
 
 即使已配置 API Key，也应优先把服务保持在本机回环地址；远程访问应置于经过认证且启用 TLS 的可信代理之后。API Key 认证不能替代 TLS，也不要把 Key 放进 URL、日志或公开页面。
 
-## Web UI / Open WebUI
+## Unified API / Web UI / Open WebUI
 
-The repository can be exposed to Open WebUI without changing the Study Agent core.
+推荐使用统一入口：
+
+```powershell
+python examples/study_agent_unified_api.py
+```
+
+统一入口默认监听 `http://127.0.0.1:8001/v1`，同时提供本地聊天网页和 OpenAI-compatible API。网页右上角可以选择：
+
+- `Web Model` (`deepseek-web`)：通过本机可见浏览器调用 DeepSeek Web，支持原始文件附件。
+- `API Model` (`study-agent`)：通过配置中启用的非浏览器 Provider 和 ModelRouter 运行；需要在 `config` 中配置可用的 API 模型。该模式暂不支持浏览器原始附件。
+
+`/v1/models` 会列出两种逻辑模型。Coder 的本机知识问答桥接保留在 `/internal/study/ask`。旧的 `examples/study_agent_api.py` 和 `examples/deepseek_web_study_agent_api.py` 暂时保留作为兼容/回滚入口；完成迁移与调用方验证前不要删除。
+
+
+The unified API can be exposed to Open WebUI without changing the Study Agent core.
 
 ```
 Open WebUI
     ↓
 /v1/chat/completions
     ↓
-examples/study_agent_api.py
+examples/study_agent_unified_api.py
     ↓
-StudyAgent
+StudyAgent (Web Model or API Model)
 ```
 
 Start the API:
@@ -618,7 +632,7 @@ Endpoints:
 - GET /v1/models
 - POST /v1/chat/completions
 
-The API uses an OpenAI-compatible streaming interface. Agent status is emitted separately through `reasoning_content`, while the final answer is emitted through `content`. The local StudyAgent Web UI presents progress milestones for task analysis, model selection, each reasoning round, tool execution, retrieval-result counts, evidence checks, teaching, and answer validation. These are curated summaries rather than raw debug logs; the UI deduplicates consecutive repeats and retains only a bounded recent timeline. See the [security review and self-evolution roadmap](docs/security-review-self-evolution-roadmap.md) for current trust boundaries, prioritized security findings, and a human-gated path for StudyAgent and Coder to contribute improvements.
+The API uses an OpenAI-compatible streaming interface. Choose `deepseek-web` for the browser-backed Web Model or `study-agent` for the configured API Model. Agent status is emitted separately through `reasoning_content`, while the final answer is emitted through `content`. The local StudyAgent Web UI presents progress milestones for task analysis, model selection, each reasoning round, tool execution, retrieval-result counts, evidence checks, teaching, and answer validation. These are curated summaries rather than raw debug logs; the UI deduplicates consecutive repeats and retains only a bounded recent timeline. See the [security review and self-evolution roadmap](docs/security-review-self-evolution-roadmap.md) for current trust boundaries, prioritized security findings, and a human-gated path for StudyAgent and Coder to contribute improvements.
 
 When Open WebUI runs in Docker and the API runs on the Windows host, use:
 
