@@ -9,6 +9,8 @@ import re
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.request
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +38,7 @@ from core.http_security import (
 from core.cancellation import RunCancelled
 from core.user_identity import UserProfileLimitError, normalize_username, user_graph_path
 from core.model_capabilities import ModelCapabilityCache
+from core.file_ingestion import extract_attachments_to_text
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -265,6 +268,143 @@ def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
         and (allow_paid or not model.get("paid", False))
     }
     return {"providers": api_providers, "models": api_models}
+
+
+
+def _provider_auth_headers(provider: dict[str, Any]) -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    configured_headers = provider.get("headers", {})
+    if isinstance(configured_headers, dict):
+        headers.update({str(key): str(value) for key, value in configured_headers.items()})
+    if "Authorization" not in headers and provider.get("api_key"):
+        headers["Authorization"] = "Bearer " + str(provider["api_key"])
+    return headers
+
+
+def discover_provider_models(
+    api_config: dict[str, Any],
+    *,
+    timeout: float = 5.0,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Discover OpenAI-compatible models without requiring per-model config entries.
+
+    Model IDs are namespaced by provider to avoid collisions. Discovery is best-effort:
+    one provider's timeout or invalid response never hides other providers' models.
+    """
+    providers = api_config.get("providers", {})
+    configured_models = api_config.get("models", {})
+    result = {
+        "providers": dict(providers) if isinstance(providers, dict) else {},
+        "models": {
+            str(name): dict(item)
+            for name, item in (configured_models.items() if isinstance(configured_models, dict) else [])
+            if isinstance(item, dict)
+        },
+    }
+    status: dict[str, dict[str, Any]] = {}
+    for provider_name, provider in result["providers"].items():
+        if not isinstance(provider, dict) or not provider.get("enabled", True):
+            continue
+        if str(provider.get("type", "openai_compatible")).casefold() == "browser":
+            continue
+        base_url = str(provider.get("base_url", "")).rstrip("/")
+        if not base_url:
+            status[str(provider_name)] = {"ok": False, "count": 0, "error": "Provider 缺少 base_url"}
+            continue
+        try:
+            request = urllib.request.Request(
+                base_url + "/models",
+                headers=_provider_auth_headers(provider),
+                method="GET",
+            )
+            with urllib.request.urlopen(request, timeout=max(1.0, min(float(timeout), 15.0))) as response:
+                raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError("模型目录响应超过 2 MiB")
+            payload = json.loads(raw.decode("utf-8"))
+            entries = payload.get("data", []) if isinstance(payload, dict) else []
+            if not isinstance(entries, list) and isinstance(payload, dict):
+                entries = payload.get("models", [])
+            if not isinstance(entries, list):
+                raise ValueError("响应中没有有效的 data/models 数组")
+            live_ids = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                upstream_id = str(entry.get("id", entry.get("name", ""))).strip()
+                if upstream_id and upstream_id not in live_ids:
+                    live_ids.append(upstream_id)
+            configured_pairs = {
+                (str(item.get("provider", "")), str(item.get("model", name)))
+                for name, item in result["models"].items()
+                if isinstance(item, dict)
+            }
+            added = 0
+            for upstream_id in live_ids:
+                if (str(provider_name), upstream_id) in configured_pairs:
+                    continue
+                discovered_id = f"auto:{provider_name}:{upstream_id}"
+                # Provider credentials are already explicitly configured, but model
+                # pricing/capabilities are unknown until the user checks the provider.
+                result["models"][discovered_id] = {
+                    "provider": str(provider_name),
+                    "model": upstream_id,
+                    "enabled": True,
+                    "paid": True,
+                    "discovered": True,
+                    "pricing_unknown": True,
+                }
+                added += 1
+            status[str(provider_name)] = {
+                "ok": True, "count": len(live_ids), "added": added, "error": ""
+            }
+        except (urllib.error.URLError, TimeoutError, OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            status[str(provider_name)] = {
+                "ok": False,
+                "count": 0,
+                "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+            }
+    return result, status
+
+
+def refresh_server_model_catalog(server, *, timeout: float = 5.0) -> dict[str, Any]:
+    """Refresh dynamic model choices atomically while preserving configured models."""
+    if not server.model_catalog_refresh_lock.acquire(blocking=False):
+        return {
+            "status": "refresh_in_progress",
+            "models": list(getattr(server, "available_model_ids", [])),
+            "providers": getattr(server, "model_catalog_status", {}),
+        }
+    try:
+        refreshed, provider_status = discover_provider_models(
+            server.base_api_backend_config, timeout=timeout
+        )
+        single_configs = {
+            name: build_single_model_config(refreshed, name)
+            for name in sorted(refreshed.get("models", {}))
+        }
+        available = [MODEL_ID]
+        if single_configs:
+            available.append(API_MODEL_ID)
+        available.extend(sorted(single_configs))
+        hkust_models = [
+            str(name) for name in refreshed.get("models", {})
+            if is_hkust_model_id(str(name), refreshed)
+        ]
+        with server.model_catalog_lock:
+            server.api_backend_config = refreshed
+            server.single_model_configs = single_configs
+            server.available_model_ids = available
+            server.hkust_model_ids = hkust_models
+            server.model_catalog_status = provider_status
+        return {
+            "status": "ok",
+            "models": available,
+            "providers": provider_status,
+            "count": len(available),
+        }
+    finally:
+        server.model_catalog_refresh_lock.release()
 
 
 def build_single_model_config(api_config: dict[str, Any], model_name: str) -> dict[str, Any]:
@@ -731,9 +871,11 @@ class Handler(BaseHTTPRequestHandler):
                 records.append({
                     "id": model_id, "object": "model", "created": int(time.time()),
                     "owned_by": "Erdoschn/Study-agent",
-                    "display_name": model_id if not provider_id else f"{model_id} · {provider_id}",
+                    "display_name": (str(model.get("model", model_id)) if isinstance(model, dict) else model_id) if not provider_id else f"{str(model.get('model', model_id)) if isinstance(model, dict) else model_id} · {provider_id}",
                     "provider": provider_id or ("browser" if model_id == MODEL_ID else "router"),
-                    "supports_attachments": model_id == MODEL_ID,
+                    "supports_attachments": True,
+                    "attachment_mode": "original" if model_id == MODEL_ID else "local_text_extraction",
+                    "pricing_unknown": bool(model.get("pricing_unknown", False)) if isinstance(model, dict) else False,
                 })
             self._json({"object": "list", "data": records})
             return
@@ -774,6 +916,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
+        if urlparse(self.path).path == "/v1/models/refresh":
+            try:
+                result = refresh_server_model_catalog(self.server)
+                self._json(result, 200 if result.get("status") == "ok" else 202)
+            except Exception as exc:
+                self._json({"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}, 502)
+            return
         if urlparse(self.path).path != "/v1/chat/completions":
             self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
             return
@@ -789,8 +938,6 @@ class Handler(BaseHTTPRequestHandler):
             if model_id not in available_model_ids:
                 raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
             username = resolve_request_username(request)
-            if attachments and model_id != MODEL_ID:
-                raise ValueError("原始附件上传目前仅支持 Web Model（deepseek-web）。请切换到 Web Model 后重试。")
             last_user_question = next(
                 (str(item.get("content", "")).strip() for item in reversed(messages)
                  if isinstance(item, dict) and item.get("role") == "user"
@@ -808,17 +955,21 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             question = self._prompt(messages)
-            if attachments:
+            runtime_attachments = attachments if model_id == MODEL_ID else None
+            if attachments and model_id == MODEL_ID:
                 question = add_attachment_context(question, attachments)
+            elif attachments:
+                question = extract_attachments_to_text(question, attachments)
+            if attachments:
                 debug.log(
                     "StudyAgentUnifiedAPI",
                     f"ATTACHMENTS RECEIVED → count={len(attachments)}, "
                     f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
-                self._stream(question, attachments=attachments, model_id=model_id, username=username)
+                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username)
             else:
-                result = self._run(question, lambda _: None, attachments=attachments, model_id=model_id, username=username)
+                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -1100,6 +1251,10 @@ def main() -> None:
     server = Server((HOST, PORT), Handler)
     server.agent = web_agent
     server.api_backend_config = api_config
+    server.base_api_backend_config = api_config
+    server.model_catalog_lock = threading.RLock()
+    server.model_catalog_refresh_lock = threading.Lock()
+    server.model_catalog_status = {}
     server.api_model_available = bool(api_config.get("models"))
     server.agents = {MODEL_ID: web_agent, API_MODEL_ID: api_agent}
     server.model_factories = {
@@ -1126,6 +1281,12 @@ def main() -> None:
         and str(name) in server.single_model_configs
     ]
     capability_cache = ModelCapabilityCache(ROOT)
+    # Model discovery is best-effort and runs outside server startup's critical path.
+    threading.Thread(
+        target=lambda: refresh_server_model_catalog(server),
+        name="provider-model-discovery",
+        daemon=True,
+    ).start()
     server.model_capability_cache = capability_cache
 
     # Best-effort asynchronous discovery must never block the browser-only server startup.
