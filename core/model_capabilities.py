@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import tempfile
+import threading
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,7 @@ class ModelCapabilityCache:
     def __init__(self, root: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS):
         self.path = Path(root) / "data" / "model_capabilities.json"
         self.ttl_seconds = max(60, int(ttl_seconds))
-        self._lock = __import__("threading").RLock()
+        self._lock = threading.RLock()
         self._entries: dict[str, dict[str, Any]] = {}
         self._load()
 
