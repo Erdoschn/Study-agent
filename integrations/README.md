@@ -36,7 +36,7 @@ python -m integrations.mcp_server
 Configure the Harness MCP client to launch `python -m integrations.mcp_server` over stdio from the repository root. Use the virtual-environment Python's absolute path if needed. Stdout is reserved for MCP messages.
 
 Tools:
-- `study_agent_ask(question, context?)`
+- `study_agent_ask(username, question, context?)` — username is required for profile isolation.
 - `study_agent_health()`
 
 ## Native Harness plugin
@@ -51,4 +51,4 @@ Copy `skills/study-agent/` into a skill directory recognized by the target runti
 
 ## Security scope
 
-This integration exposes learning requests and a health check only. It does not expose arbitrary shell execution, filesystem mutation, browser control, authentication cookies, or browser/device identity changes. Context is bounded and should not contain secrets or unrelated personal data.
+The API requires `username` on each request unless `STUDY_AGENT_DEFAULT_USERNAME` is explicitly set for a single-user compatibility setup. Usernames select separate graph files and separate in-memory Agent state, but are not authentication credentials. Do not expose a multi-user server behind a single shared API key and treat profile names as access control. This integration exposes learning requests and health checks only; it does not expose arbitrary shell execution, filesystem mutation, browser control, cookies, or browser/device identity changes. Context is bounded and should not contain secrets or unrelated personal data.
