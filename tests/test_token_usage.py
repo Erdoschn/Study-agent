@@ -225,3 +225,117 @@ def test_load_config_merges_observability_defaults_and_local_overrides(monkeypat
         "console_log": False,
         "backup_count": 2,
     }
+
+
+
+def test_invalid_completion_envelope_is_not_recorded_as_success(monkeypatch, tmp_path):
+    log_path = tmp_path / "invalid-response.jsonl"
+    recorder = TokenUsageRecorder(
+        {"enabled": True, "path": str(log_path), "console_log": False},
+        project_root=tmp_path,
+    )
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1},
+            }).encode("utf-8")
+
+    monkeypatch.setattr("core.reasoner.urllib.request.urlopen", lambda *_args, **_kwargs: Response())
+    client = OpenAICompatibleClient(
+        base_url="https://api.example.invalid/v1",
+        api_key="not-recorded",
+        model="test-model",
+        usage_recorder=recorder,
+    )
+
+    import pytest
+    with pytest.raises(RuntimeError, match="格式异常"):
+        client.generate("", "test prompt")
+
+    event = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert event["status"] == "invalid_response"
+    assert event["usage_available"] is False
+
+
+def test_invalid_or_inconsistent_cache_counters_are_not_reported(tmp_path):
+    log_path = tmp_path / "bad-cache-metrics.jsonl"
+    recorder = TokenUsageRecorder(
+        {"enabled": True, "path": str(log_path), "console_log": False},
+        project_root=tmp_path,
+    )
+    event = recorder.record(
+        provider="provider",
+        model="model",
+        status="success",
+        usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "prompt_cache_hit_tokens": 7.5,
+            "prompt_cache_miss_tokens": 8,
+        },
+        elapsed_seconds=0.1,
+    )
+    assert event is not None
+    assert event["cache_stats_available"] is False
+    assert event["cache_hit_tokens"] is None
+    assert event["cache_miss_tokens"] is None
+    assert event["cache_hit_rate"] is None
+
+
+def test_report_settings_include_local_provider_overrides(monkeypatch, tmp_path):
+    import config.loader as loader
+    from scripts.token_usage_report import _load_settings
+
+    providers_path = tmp_path / "providers.json"
+    providers_path.write_text(
+        json.dumps({
+            "providers": {},
+            "models": {},
+            "observability": {
+                "token_usage": {
+                    "path": "data/local-usage.jsonl",
+                    "backup_count": 1,
+                    "console_log": False,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    observability_path = tmp_path / "observability.json"
+    observability_path.write_text(
+        json.dumps({
+            "token_usage": {
+                "enabled": True,
+                "path": "data/default-usage.jsonl",
+                "backup_count": 3,
+                "console_log": True,
+            }
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(loader, "CONFIG_PATH", providers_path)
+    monkeypatch.setattr(loader, "OBSERVABILITY_CONFIG_PATH", observability_path)
+
+    settings = _load_settings()
+    assert settings["enabled"] is True
+    assert settings["path"] == "data/local-usage.jsonl"
+    assert settings["backup_count"] == 1
+    assert settings["console_log"] is False
+
+
+def test_non_integer_token_counters_are_rejected():
+    from core.token_usage import _non_negative_int
+
+    assert _non_negative_int(4) == 4
+    assert _non_negative_int("4") == 4
+    assert _non_negative_int(4.0) is None
+    assert _non_negative_int(4.5) is None
+    assert _non_negative_int(True) is None

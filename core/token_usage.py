@@ -17,13 +17,19 @@ from typing import Any
 
 
 def _non_negative_int(value: Any) -> int | None:
+    """Accept integer counters (or digit-only JSON/config strings), never truncate floats."""
     if isinstance(value, bool) or value is None:
         return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if result >= 0 else None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.isascii() and normalized.isdecimal():
+            try:
+                return int(normalized)
+            except (ValueError, OverflowError):
+                return None
+    return None
 
 
 def _non_negative_number(value: Any) -> float | None:
@@ -121,17 +127,36 @@ class TokenUsageRecorder:
             raw_usage,
             ("prompt_cache_miss_tokens",),
         )
-        cache_stats_available = hit_present or miss_present
         cache_hit_tokens = _non_negative_int(hit_raw) if hit_present else None
         cache_miss_tokens = _non_negative_int(miss_raw) if miss_present else None
-        if cache_stats_available and cache_hit_tokens is None:
-            cache_hit_tokens = 0
-        if (
-            cache_stats_available
-            and cache_miss_tokens is None
-            and input_tokens is not None
-        ):
-            cache_miss_tokens = max(0, input_tokens - (cache_hit_tokens or 0))
+        cache_stats_available = (
+            cache_hit_tokens is not None or cache_miss_tokens is not None
+        )
+
+        if cache_stats_available and input_tokens is not None:
+            # Providers may report either hits or misses alone; infer the other
+            # only from a valid subset of the reported prompt token count.
+            if cache_hit_tokens is None and cache_miss_tokens is not None:
+                if cache_miss_tokens <= input_tokens:
+                    cache_hit_tokens = input_tokens - cache_miss_tokens
+            elif cache_miss_tokens is None and cache_hit_tokens is not None:
+                if cache_hit_tokens <= input_tokens:
+                    cache_miss_tokens = input_tokens - cache_hit_tokens
+
+            counters_exceed_input = (
+                (cache_hit_tokens is not None and cache_hit_tokens > input_tokens)
+                or (cache_miss_tokens is not None and cache_miss_tokens > input_tokens)
+                or (
+                    cache_hit_tokens is not None
+                    and cache_miss_tokens is not None
+                    and cache_hit_tokens + cache_miss_tokens > input_tokens
+                )
+            )
+            if counters_exceed_input:
+                # Bad metrics must not create hit rates above 100% or fake cost savings.
+                cache_stats_available = False
+                cache_hit_tokens = None
+                cache_miss_tokens = None
 
         total_tokens = (
             _token_count(raw_usage, ("total_tokens",))
@@ -319,6 +344,8 @@ def _add_to_summary(summary: dict[str, Any], event: Mapping[str, Any]) -> None:
 
 def summarize_usage_log(path: str | Path, *, backup_count: int = 3) -> dict[str, Any]:
     """Summarize current and rotated JSONL logs using token-weighted cache rates."""
+    if isinstance(backup_count, bool) or not isinstance(backup_count, int) or backup_count < 0:
+        raise ValueError("backup_count must be a non-negative integer")
     source = Path(path).expanduser().resolve()
     summary: dict[str, Any] = {
         "path": str(source),
@@ -329,7 +356,7 @@ def summarize_usage_log(path: str | Path, *, backup_count: int = 3) -> dict[str,
     }
     candidates = [
         source.with_name(source.name + f".{index}")
-        for index in range(max(0, int(backup_count)), 0, -1)
+        for index in range(backup_count, 0, -1)
     ]
     candidates.append(source)
 

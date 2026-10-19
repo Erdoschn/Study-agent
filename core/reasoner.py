@@ -148,14 +148,36 @@ class OpenAICompatibleClient(ModelClient):
                 started_at=started_at,
                 error_type=type(exc).__name__,
             )
-            raise RuntimeError(f"LLM 返回格式异常：{exc}") from exc
+            raise RuntimeError("LLM 返回格式异常：响应不是有效 JSON。") from exc
 
-        usage = payload.get("usage") if isinstance(payload, dict) else None
-        self._record_usage(status="success", usage=usage, started_at=started_at)
+        if not isinstance(payload, dict):
+            self._record_usage(
+                status="invalid_response",
+                usage=None,
+                started_at=started_at,
+                error_type="InvalidResponseShape",
+            )
+            raise RuntimeError("LLM 返回格式异常：响应顶层必须是 JSON 对象。")
+
+        usage = payload.get("usage")
         try:
-            return payload["choices"][0]["message"]["content"]
-        except Exception as exc:
-            raise RuntimeError(f"LLM 返回格式异常：{exc}") from exc
+            content = payload["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise TypeError("message.content 必须是字符串")
+        except (KeyError, IndexError, TypeError) as exc:
+            self._record_usage(
+                status="invalid_response",
+                usage=usage if isinstance(usage, dict) else None,
+                started_at=started_at,
+                error_type=type(exc).__name__,
+            )
+            raise RuntimeError(
+                "LLM 返回格式异常：响应缺少有效的 choices.message.content。"
+            ) from exc
+
+        self._record_usage(status="success", usage=usage if isinstance(usage, dict) else None,
+                           started_at=started_at)
+        return content
 
 
 class AgentReasoner:

@@ -5,23 +5,14 @@ import argparse
 import json
 from pathlib import Path
 
+from config.loader import load_observability_settings
 from core.token_usage import summarize_usage_log
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = ROOT / "config" / "observability.json"
 
 
 def _load_settings() -> dict:
-    if not DEFAULT_CONFIG.is_file():
-        raise FileNotFoundError(f"找不到可观测性配置文件：{DEFAULT_CONFIG}")
-    with DEFAULT_CONFIG.open("r", encoding="utf-8") as stream:
-        data = json.load(stream)
-    if not isinstance(data, dict):
-        raise ValueError("observability.json 顶层必须是 JSON 对象。")
-    settings = data.get("token_usage", {})
-    if not isinstance(settings, dict):
-        raise ValueError("token_usage 配置必须是对象。")
-    return settings
+    return load_observability_settings()
 
 
 def main() -> int:
