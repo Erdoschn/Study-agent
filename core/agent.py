@@ -54,7 +54,7 @@ class StudyAgent:
                 source_role="reasoner",
                 target_role="teacher",
                 artifact_version=f"step-{getattr(state, 'step_count', 0)}",
-                payload={"draft_answer": str(draft_answer)},
+                payload={"draft_answer": str(draft_answer)[:12000]},
                 evidence_refs=evidence_refs,
             ))
         try:
