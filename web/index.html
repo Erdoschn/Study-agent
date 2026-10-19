@@ -252,7 +252,7 @@ dropTarget.addEventListener("dragenter",e=>{if(!Array.from(e.dataTransfer?.types
 dropTarget.addEventListener("dragover",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragleave",e=>{if(!dropTarget.contains(e.relatedTarget))dropOverlay.classList.add("hidden")});
 dropTarget.addEventListener("drop",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.add("hidden");addFiles(e.dataTransfer.files)});
-load();render();autoResize();setModelChoice(state.model);health();checkStorage();$("#modelChoice").addEventListener("change",e=>setModelChoice(e.target.value));setInterval(health,30000);
+load();render();autoResize();health();checkStorage();$("#modelChoice").addEventListener("change",e=>setModelChoice(e.target.value));setInterval(health,30000);
 </script>
 </body>
 </html>
