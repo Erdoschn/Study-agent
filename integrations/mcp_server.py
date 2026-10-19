@@ -27,13 +27,16 @@ def _json_text(value: Any) -> str:
 
 
 @mcp.tool()
-def study_agent_ask(question: str, context: str = "") -> str:
-    """Ask Study Agent to solve or explain a learning task.
+def study_agent_ask(username: str, question: str, context: str = "") -> str:
+    """Ask Study Agent to solve or explain a learning task for a named profile.
 
+    The username selects a data partition; it is not an authentication credential.
     Use context only for relevant course material or conversation context.
     This tool does not provide arbitrary shell, filesystem, or browser control.
     """
-    return _json_text(StudyAgentClient().ask(question, context=context or None))
+    return _json_text(
+        StudyAgentClient().ask(question, username=username, context=context or None)
+    )
 
 
 @mcp.tool()
