@@ -10,6 +10,7 @@ import contextvars
 import hashlib
 import json
 import threading
+import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -156,7 +157,7 @@ def role_context(role_id: str) -> Callable:
             if current is None:
                 # Isolate standalone/test calls rather than accidentally inheriting
                 # another invocation's context. No user data is guessed from globals.
-                with context_scope("local", "standalone", role):
+                with context_scope("local", "standalone-" + uuid.uuid4().hex, role):
                     return function(*args, **kwargs)
             with context_scope(current.user_id, current.task_id, role):
                 return function(*args, **kwargs)
