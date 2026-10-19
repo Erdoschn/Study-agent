@@ -3,6 +3,7 @@ import inspect
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .context_management import Handoff, ROLE_CONTEXTS, current_context, role_context
 from .teaching_validator import TeachingValidator
 
 
@@ -192,6 +193,25 @@ class Teacher:
         debug.log("Teacher", f"PROMPT → chars={len(prompt)}")
         return prompt
 
+    @staticmethod
+    def _record_validator_handoff(state, draft_answer: str) -> None:
+        context = current_context()
+        if context is None:
+            return
+        evidence_refs = tuple(
+            str(item.get("url") or item.get("identifier"))
+            for item in (getattr(state, "evidence", []) or [])
+            if isinstance(item, dict) and (item.get("url") or item.get("identifier"))
+        )
+        ROLE_CONTEXTS.handoff(context.user_id, Handoff(
+            task_id=context.task_id,
+            source_role="teacher",
+            target_role="teaching_validator",
+            artifact_version=f"draft-{getattr(state, 'step_count', 0)}",
+            payload={"draft_answer": str(draft_answer)[:12000]},
+            evidence_refs=evidence_refs,
+        ))
+
     def _call_model(self, model, state, prompt, effort: str | None = None) -> str:
         debug.log("Teacher", f"CALL LLM → {model.name} effort={effort or 'default'}")
         result = call_model_with_effort(
@@ -242,6 +262,7 @@ class Teacher:
                 lines.append(f"  建议核对：{correction}")
         return f"{str(answer or '').rstrip()}\n\n" + "\n".join(lines)
 
+    @role_context("teacher")
     def generate(self, state, draft_answer: str | None = None) -> str:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
@@ -278,6 +299,7 @@ class Teacher:
                     state.metrics["teaching_validation_status"] = "DISABLED"
                     return result
 
+                self._record_validator_handoff(state, result)
                 validation = self.teaching_validator.validate(state, result)
                 status = str(validation.get("status", "UNCERTAIN")).upper()
                 findings = self.teaching_validator.revision_findings(validation)
@@ -335,6 +357,7 @@ class Teacher:
 
                 state.metrics["teaching_revision"] = True
                 try:
+                    self._record_validator_handoff(state, revised)
                     revised_validation = self.teaching_validator.validate(state, revised)
                 except Exception as audit_exc:
                     debug.log(
