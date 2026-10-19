@@ -86,11 +86,17 @@ def test_frontend_requires_profile_and_partitions_chat_history():
     assert "if(state.username){$(\"#userLabel\")" in source
 
 
-def test_api_defaults_legacy_clients_to_one_explicit_local_profile():
-    from core.user_identity import DEFAULT_USERNAME, normalize_username
+def test_api_requires_username_unless_single_user_default_is_explicitly_configured(monkeypatch):
+    import pytest
+    from examples.deepseek_web_study_agent_api import resolve_request_username
 
-    assert normalize_username(DEFAULT_USERNAME) == "local"
-    assert "STUDY_AGENT_DEFAULT_USERNAME" in read_api_source()
+    monkeypatch.delenv("STUDY_AGENT_DEFAULT_USERNAME", raising=False)
+    with pytest.raises(ValueError, match="缺少 username"):
+        resolve_request_username({"model": "study-agent-api"})
+
+    assert resolve_request_username({"username": "Alice"}) == "alice"
+    monkeypatch.setenv("STUDY_AGENT_DEFAULT_USERNAME", "LegacyUser")
+    assert resolve_request_username({"model": "deepseek-web"}) == "legacyuser"
 
 
 def read_frontend_source():
