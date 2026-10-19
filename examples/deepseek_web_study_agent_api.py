@@ -33,7 +33,7 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
-from core.user_identity import DEFAULT_USERNAME, UserProfileLimitError, normalize_username, user_graph_path
+from core.user_identity import UserProfileLimitError, normalize_username, user_graph_path
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -379,6 +379,19 @@ def _configured_max_user_profiles() -> int:
     except (TypeError, ValueError):
         value = 256
     return min(100_000, max(1, value))
+
+
+def resolve_request_username(request: dict[str, Any]) -> str:
+    """Require an explicit profile name unless a single-user default was configured."""
+    if "username" in request:
+        return normalize_username(request["username"])
+    configured_default = os.getenv("STUDY_AGENT_DEFAULT_USERNAME", "").strip()
+    if configured_default:
+        return normalize_username(configured_default)
+    raise ValueError(
+        "请求缺少 username。每个请求都必须指定用户 Profile；"
+        "单用户旧客户端可显式设置 STUDY_AGENT_DEFAULT_USERNAME。"
+    )
 
 
 def build_profile_agent(
@@ -836,14 +849,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(messages) > MAX_CHAT_MESSAGES:
                 raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
             requested_model = str(request.get("model", MODEL_ID) or MODEL_ID).strip()
-            if "username" in request:
-                username = normalize_username(request["username"])
-            else:
-                # Backwards-compatible single-profile fallback for older clients.
-                # The frontend and official adapters always send an explicit username.
-                username = normalize_username(
-                    os.getenv("STUDY_AGENT_DEFAULT_USERNAME", DEFAULT_USERNAME)
-                )
+            username = resolve_request_username(request)
 
             if requested_model == MODEL_ID:
                 template_agent = self.server.agent
