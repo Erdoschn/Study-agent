@@ -575,30 +575,57 @@ only when paid-model use is explicitly intended.
 
 | API | 监听地址变量 | 必需的远程访问 Key 变量 |
 |---|---|---|
-| Study Agent API | STUDY_AGENT_HOST | STUDY_AGENT_API_KEY |
+| Legacy Study Agent API | STUDY_AGENT_HOST | STUDY_AGENT_API_KEY |
+| Unified Study Agent API | STUDY_AGENT_WEB_HOST | STUDY_AGENT_WEB_API_KEY (or legacy STUDY_AGENT_API_KEY) |
 | Coder Web API | CODER_WEB_HOST | CODER_WEB_API_KEY |
-| DeepSeek Web API | STUDY_AGENT_WEB_HOST | STUDY_AGENT_WEB_API_KEY |
 
 即使已配置 API Key，也应优先把服务保持在本机回环地址；远程访问应置于经过认证且启用 TLS 的可信代理之后。API Key 认证不能替代 TLS，也不要把 Key 放进 URL、日志或公开页面。
 
-## Web UI / Open WebUI
+## Unified API / Web UI / Open WebUI
 
-The repository can be exposed to Open WebUI without changing the Study Agent core.
+推荐使用统一入口：
+
+```powershell
+python examples/study_agent_unified_api.py
+```
+
+统一入口默认监听 `http://127.0.0.1:8001/v1`，同时提供本地聊天网页和 OpenAI-compatible API。网页右上角可以选择：
+
+- `Web Model` (`deepseek-web`)：通过本机可见浏览器调用 DeepSeek Web，支持原始文件附件。
+- `API Model` (`study-agent`)：通过配置中启用的非浏览器 Provider 和 ModelRouter 运行；需要在 `config` 中配置可用的 API 模型。该模式暂不支持浏览器原始附件。
+
+`/v1/models` 会列出 Web Model，并在配置存在可用的非浏览器模型时列出 API Model。Coder 的本机知识问答桥接保留在 `/internal/study/ask`。旧的 `examples/study_agent_api.py` 和 `examples/deepseek_web_study_agent_api.py` 暂时保留作为兼容/回滚入口；完成迁移与调用方验证前不要删除。
+
+前端模型选择器会从 `/v1/models` 动态读取模型列表：除 `deepseek-web` 和自动路由别名 `study-agent` 外，也会列出 `config/providers.json` 中已启用的每个 API 模型。选择具体模型时，后端会按需创建只包含该模型的独立 Router，避免静默切换到其他 Provider。多轮对话会按顺序发送当前对话中已完成的 user/assistant 历史；切换模型不会清空历史。提示词固定前缀保持稳定、变化的对话历史追加在后，有利于支持 prompt caching 的 Provider 复用前缀；实际缓存命中率由所选模型/服务端决定，不能由客户端保证。
+
+### 启动前检查 HKUST GenAI
+
+在 Windows PowerShell 中先运行：
+
+```powershell
+python scripts/check_hkust_model.py
+python scripts/check_hkust_model.py --smoke-test hkust-qwen3-32b
+```
+
+第二条命令会用最多 1 个输出 token 发起实际推理请求，可能消耗少量 credit。将模型名替换为本机 `config/providers.json` 中的 HKUST 模型配置名。脚本不会输出 API Key。HKUST 官方公开的 OpenAI-compatible API 文档未提供可验证的剩余额度 API，因此每次运行结束会明确输出余额不可由该 API 查询，并提示到 [HKUST GenAI Portal](https://genai.ust.hk) 查看；不会把 token 用量冒充剩余 credit。
+
+
+The unified API can be exposed to Open WebUI without changing the Study Agent core.
 
 ```
 Open WebUI
     ↓
 /v1/chat/completions
     ↓
-examples/study_agent_api.py
+examples/study_agent_unified_api.py
     ↓
-StudyAgent
+StudyAgent (Web Model or API Model)
 ```
 
 Start the API:
 
 ```bash
-python examples/study_agent_api.py
+python examples/study_agent_unified_api.py
 ```
 
 Endpoints:
@@ -607,12 +634,12 @@ Endpoints:
 - GET /v1/models
 - POST /v1/chat/completions
 
-The API uses an OpenAI-compatible streaming interface. Agent status is emitted separately through `reasoning_content`, while the final answer is emitted through `content`. The local StudyAgent Web UI presents progress milestones for task analysis, model selection, each reasoning round, tool execution, retrieval-result counts, evidence checks, teaching, and answer validation. These are curated summaries rather than raw debug logs; the UI deduplicates consecutive repeats and retains only a bounded recent timeline. See the [security review and self-evolution roadmap](docs/security-review-self-evolution-roadmap.md) for current trust boundaries, prioritized security findings, and a human-gated path for StudyAgent and Coder to contribute improvements.
+The API uses an OpenAI-compatible streaming interface. Choose `deepseek-web` for the browser-backed Web Model or `study-agent` for the configured API Model. Agent status is emitted separately through `reasoning_content`, while the final answer is emitted through `content`. The local StudyAgent Web UI presents progress milestones for task analysis, model selection, each reasoning round, tool execution, retrieval-result counts, evidence checks, teaching, and answer validation. These are curated summaries rather than raw debug logs; the UI deduplicates consecutive repeats and retains only a bounded recent timeline. See the [security review and self-evolution roadmap](docs/security-review-self-evolution-roadmap.md) for current trust boundaries, prioritized security findings, and a human-gated path for StudyAgent and Coder to contribute improvements.
 
 When Open WebUI runs in Docker and the API runs on the Windows host, use:
 
 ```
-http://host.docker.internal:8000/v1
+http://host.docker.internal:8001/v1
 ```
 
 ## Project Structure
@@ -639,7 +666,9 @@ Study-agent/
 │   └── providers.json         # Provider / Model 配置
 ├── examples/
 │   ├── module_demos.py        # 离线模块演示
-│   └── study_agent_api.py     # OpenAI-compatible API 外壳
+│   ├── study_agent_unified_api.py # 推荐统一 API（Web Model + API Model）
+│   ├── study_agent_api.py     # 旧版 API 兼容入口
+│   └── deepseek_web_study_agent_api.py # 旧版 Web API 兼容入口
 └── test/                      # 自动化测试
 ```
 
