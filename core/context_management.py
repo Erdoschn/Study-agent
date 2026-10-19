@@ -47,7 +47,10 @@ class _TaskContext:
 class RoleContextManager:
     """Thread-safe in-memory task ledger with strict user/task/role boundaries."""
 
-    def __init__(self, *, max_tasks: int = 512, history_limit: int = 24):
+    MAX_HISTORY_TEXT_CHARS = 4000
+    MAX_CONTEXT_VALUE_CHARS = 16000
+
+    def __init__(self, *, max_tasks: int = 128, history_limit: int = 12):
         if max_tasks < 1 or history_limit < 1:
             raise ValueError("max_tasks and history_limit must be positive")
         self.max_tasks = max_tasks
@@ -93,7 +96,10 @@ class RoleContextManager:
         role = self._identity(role_id, "role_id")
         with self._lock:
             task = self._task(user_id, task_id)
-            task.role_histories[role].append({"prompt": str(prompt), "response": str(response)})
+            task.role_histories[role].append({
+                "prompt": str(prompt)[:self.MAX_HISTORY_TEXT_CHARS],
+                "response": str(response)[:self.MAX_HISTORY_TEXT_CHARS],
+            })
 
     def role_history(self, user_id: str, task_id: str, role_id: str) -> list[dict[str, str]]:
         role = self._identity(role_id, "role_id")
@@ -103,6 +109,12 @@ class RoleContextManager:
 
     def put_fact(self, user_id: str, task_id: str, key: str, value: Any) -> None:
         fact_key = self._identity(key, "fact key")
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("task fact must be JSON-serializable") from exc
+        if len(encoded) > self.MAX_CONTEXT_VALUE_CHARS:
+            raise ValueError("task fact exceeds the in-memory context size limit")
         with self._lock:
             self._task(user_id, task_id).facts[fact_key] = value
 
@@ -112,9 +124,25 @@ class RoleContextManager:
             return dict(task.facts) if task else {}
 
     def handoff(self, user_id: str, record: Handoff) -> None:
+        if not isinstance(record, Handoff):
+            raise TypeError("record must be a Handoff")
+        try:
+            encoded = json.dumps(record.payload, ensure_ascii=False, separators=(",", ":"), default=str)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("handoff payload must be JSON-serializable") from exc
+        if len(encoded) > self.MAX_CONTEXT_VALUE_CHARS:
+            raise ValueError("handoff payload exceeds the in-memory context size limit")
+        bounded = Handoff(
+            task_id=self._identity(record.task_id, "task_id"),
+            source_role=self._identity(record.source_role, "source_role"),
+            target_role=self._identity(record.target_role, "target_role"),
+            artifact_version=self._identity(record.artifact_version, "artifact_version"),
+            payload=dict(record.payload),
+            evidence_refs=tuple(str(ref)[:500] for ref in record.evidence_refs[:64]),
+        )
         with self._lock:
-            task = self._task(user_id, record.task_id)
-            task.handoffs.append(record)
+            task = self._task(user_id, bounded.task_id)
+            task.handoffs.append(bounded)
 
     def handoffs(self, user_id: str, task_id: str, *, target_role: str | None = None) -> list[Handoff]:
         with self._lock:
