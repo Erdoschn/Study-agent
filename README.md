@@ -172,30 +172,12 @@ flowchart TB
 
 ## Core Reasoning Loop
 
-```
-                ┌──────────────┐
-                │    Reason    │
-                │  当前该做什么？ │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │     Act      │
-                │ Search/Calc/ │
-                │ Verify/...   │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │   Observe    │
-                │ 结果/证据/错误 │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │ Update State │
-                │ evidence /   │
-                │ learner / KG │
-                └──────┬───────┘
-                       │
-                       └──────→ Reason
+```mermaid
+flowchart LR
+    D["Decide<br/>当前该做什么？"] --> A["Act<br/>Search / Calculate / Verify"]
+    A --> O["Observe<br/>结果、证据、错误与状态更新"]
+    O --> D
+    D -->|ANSWER / STOP| F["Finish"]
 ```
 
 AgentReasoner 是动态决策中心，ToolExecutor 只负责执行。这样把“决定做什么”和“真正执行工具”分离，便于测试、替换模型和研究不同 Agent 策略。
