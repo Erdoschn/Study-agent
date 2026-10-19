@@ -23,7 +23,7 @@ def test_api_attachment_extraction_supports_json_and_csv():
     )
     csv_result = extract_attachments_to_text(
         "分析表格",
-        [{"name": "scores.csv", "buffer": b"name,score\\nAlice,95\\n"}],
+        [{"name": "scores.csv", "buffer": b"name,score\nAlice,95\n"}],
     )
     assert '"enabled": true' in json_result
     assert "Alice,95" in csv_result
@@ -41,5 +41,5 @@ def test_api_attachment_rejects_unsupported_binary():
     with pytest.raises(ValueError, match="暂不支持解析"):
         extract_attachments_to_text(
             "阅读压缩包",
-            [{"name": "archive.zip", "buffer": b"PK\\x03\\x04"}],
+            [{"name": "archive.zip", "buffer": b"PK\x03\x04"}],
         )
