@@ -129,9 +129,10 @@ class ModelCapabilityCache:
                 generation = self._generation
 
             changed = False
+            active_keys: set[str] = set()
             provider_catalogs: dict[str, tuple[list[dict[str, Any]] | None, str | None]] = {}
             for model_name, model in models.items():
-                if not isinstance(model, dict):
+                if not isinstance(model, dict) or not model.get("enabled", True):
                     continue
                 provider_name = str(model.get("provider", "")).strip()
                 provider = providers.get(provider_name)
@@ -144,6 +145,7 @@ class ModelCapabilityCache:
                 if not base_url or not model_id:
                     continue
                 key = self._key(provider_name, provider, model_id)
+                active_keys.add(key)
                 with self._lock:
                     if generation != self._generation:
                         return self.snapshot()
@@ -247,10 +249,16 @@ class ModelCapabilityCache:
                     self._entries[key] = entry
                     changed = True
 
-            if changed:
-                with self._lock:
-                    if generation == self._generation:
-                        self._save()
+            with self._lock:
+                if generation != self._generation:
+                    return self.snapshot()
+                inactive_keys = set(self._entries) - active_keys
+                if inactive_keys:
+                    for key in inactive_keys:
+                        self._entries.pop(key, None)
+                    changed = True
+                if changed:
+                    self._save()
             return self.snapshot()
         finally:
             self._refresh_lock.release()
