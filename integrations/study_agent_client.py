@@ -19,6 +19,23 @@ DEFAULT_API_URL = "http://127.0.0.1:8001/v1/chat/completions"
 MAX_QUESTION_CHARS = 8_000
 MAX_CONTEXT_CHARS = 4_000
 MAX_RESPONSE_BYTES = 1_048_576
+MAX_USERNAME_LENGTH = 64
+
+
+def normalize_username(value: object) -> str:
+    """Client-side guard; the API independently validates the profile identity."""
+    import unicodedata
+
+    if not isinstance(value, str):
+        raise ValueError("username 必须是字符串。")
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if not normalized or len(normalized) > MAX_USERNAME_LENGTH:
+        raise ValueError("username 必须为 1 到 64 个字符。")
+    if normalized in {".", ".."} or any(
+        not (char.isalnum() or char in "._-") for char in normalized
+    ):
+        raise ValueError("username 只允许字母、数字、点、下划线和连字符。")
+    return normalized.lower()
 
 
 class StudyAgentClientError(RuntimeError):
@@ -88,8 +105,9 @@ class StudyAgentClient:
             api_key if api_key is not None else os.getenv("STUDY_AGENT_WEB_API_KEY", "")
         ).strip()
 
-    def ask(self, question: str, *, context: str | None = None) -> dict[str, str]:
+    def ask(self, question: str, *, username: str, context: str | None = None) -> dict[str, str]:
         """Ask Study Agent and return a normalized answer."""
+        username = normalize_username(username)
         question = str(question or "").strip()
         if not question:
             raise ValueError("question 不能为空。")
@@ -110,6 +128,7 @@ class StudyAgentClient:
                     f"当前请求：\n{question}"
                 )
         payload = {
+            "username": username,
             "model": "study-agent",
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
