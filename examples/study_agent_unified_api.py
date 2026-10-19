@@ -242,7 +242,7 @@ def build_web_agent(config: dict[str, Any]) -> StudyAgent:
 
 
 def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Keep API Model on configured non-browser providers only."""
+    """Keep API Model on configured, enabled non-browser providers only."""
     providers = config.get("providers", {})
     models = config.get("models", {})
     if not isinstance(providers, dict):
@@ -260,6 +260,37 @@ def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
         and model.get("enabled", True)
     }
     return {"providers": api_providers, "models": api_models}
+
+
+def build_single_model_config(api_config: dict[str, Any], model_name: str) -> dict[str, Any]:
+    """Create an isolated router config so the selected model cannot silently switch."""
+    models = api_config.get("models", {})
+    providers = api_config.get("providers", {})
+    model = models.get(model_name) if isinstance(models, dict) else None
+    if not isinstance(model, dict):
+        raise ValueError(f"未配置或不可用的 API 模型：{model_name}")
+    provider_name = str(model.get("provider", "")).strip()
+    provider = providers.get(provider_name) if isinstance(providers, dict) else None
+    if not isinstance(provider, dict) or not provider.get("enabled", True):
+        raise ValueError(f"模型 {model_name} 对应的 Provider 不可用")
+    return {"providers": {provider_name: dict(provider)}, "models": {model_name: dict(model)}}
+
+
+def is_hkust_model_id(model_id: str, config: dict[str, Any]) -> bool:
+    """Check local config for HKUST model/provider without exposing credentials."""
+    models = config.get("models", {})
+    providers = config.get("providers", {})
+    model = models.get(model_id) if isinstance(models, dict) else None
+    if not isinstance(model, dict) and isinstance(models, dict):
+        model = next((item for item in models.values()
+                      if isinstance(item, dict) and str(item.get("model", "")) == model_id), None)
+    if not isinstance(model, dict):
+        return False
+    provider_name = str(model.get("provider", ""))
+    provider = providers.get(provider_name) if isinstance(providers, dict) else None
+    return isinstance(provider, dict) and (
+        "hkust" in provider_name.casefold() or "hkust" in str(provider.get("base_url", "")).casefold()
+    )
 
 
 def _prewarm_browser_model(agent: StudyAgent) -> bool:
@@ -605,15 +636,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
         if path in {"/health", "/v1/health"}:
-            models = [MODEL_ID] + ([API_MODEL_ID] if getattr(self.server, "api_model_available", False) else [])
-            self._json({"status": "ok", "model": MODEL_ID, "models": models, "backend": "unified", "agent": "StudyAgent"})
+            model_ids = list(getattr(self.server, "available_model_ids", [MODEL_ID]))
+            self._json({"status": "ok", "model": MODEL_ID, "models": model_ids, "backend": "unified", "agent": "StudyAgent"})
             return
         if path == "/v1/models":
-            model_ids = [MODEL_ID] + ([API_MODEL_ID] if getattr(self.server, "api_model_available", False) else [])
-            self._json({"object": "list", "data": [
-                {"id": model_id, "object": "model", "created": int(time.time()), "owned_by": "Erdoschn/Study-agent"}
-                for model_id in model_ids
-            ]})
+            model_ids = list(getattr(self.server, "available_model_ids", [MODEL_ID]))
+            api_config = getattr(self.server, "api_backend_config", {})
+            providers = api_config.get("providers", {}) if isinstance(api_config, dict) else {}
+            models = api_config.get("models", {}) if isinstance(api_config, dict) else {}
+            records = []
+            for model_id in model_ids:
+                model = models.get(model_id, {}) if isinstance(models, dict) else {}
+                provider_id = str(model.get("provider", "")) if isinstance(model, dict) else ""
+                records.append({
+                    "id": model_id, "object": "model", "created": int(time.time()),
+                    "owned_by": "Erdoschn/Study-agent",
+                    "display_name": model_id if not provider_id else f"{model_id} · {provider_id}",
+                    "provider": provider_id or ("browser" if model_id == MODEL_ID else "router"),
+                    "supports_attachments": model_id == MODEL_ID,
+                })
+            self._json({"object": "list", "data": records})
             return
         if path == "/v1/models/capabilities":
             cache = getattr(self.server, "model_capability_cache", None)
@@ -663,10 +705,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(messages) > MAX_CHAT_MESSAGES:
                 raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
             model_id = str(request.get("model", MODEL_ID) or MODEL_ID).strip()
-            if model_id not in {MODEL_ID, API_MODEL_ID}:
-                raise ValueError(f"不支持的模型：{model_id}。可用模型：{MODEL_ID}, {API_MODEL_ID}")
-            if model_id == API_MODEL_ID and not getattr(self.server, "api_model_available", False):
-                raise ValueError("API Model 当前不可用：请在配置中启用至少一个非浏览器 Provider 模型。")
+            available_model_ids = set(getattr(self.server, "available_model_ids", [MODEL_ID]))
+            if model_id not in available_model_ids:
+                raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
             if attachments and model_id != MODEL_ID:
                 raise ValueError("原始附件上传目前仅支持 Web Model（deepseek-web）。请切换到 Web Model 后重试。")
             last_user_question = next(
@@ -839,9 +880,15 @@ class Handler(BaseHTTPRequestHandler):
                             "StudyAgentUnifiedAPI",
                             f"RUN CLEANUP FAILED → {type(exc).__name__}",
                         )
-                # The browser client is prewarmed once at API startup and remains
-                # available across requests. end_run() removes this request's
-                # raw attachment bytes and best-effort deletes its temporary chat.
+                # Attachment bytes and temporary browser chats are request-scoped.
+                # HKUST documents its OpenAI-compatible model endpoint, but no public
+                # remaining-credit API. Never present token usage as account balance.
+                if getattr(self.server, "hkust_model_ids", []):
+                    print(
+                        "[HKUST GenAI] 剩余 credit：API 未提供可验证的余额字段；"
+                        "请在 https://genai.ust.hk 查看账户余额。",
+                        flush=True,
+                    )
 
     def _write(self, data: bytes) -> None:
         self.wfile.write(data)
@@ -948,12 +995,34 @@ def main() -> None:
     api_agent = build_api_agent(api_config)
     server = Server((HOST, PORT), Handler)
     server.agent = web_agent
-    server.agents = {MODEL_ID: web_agent, API_MODEL_ID: api_agent}
+    server.api_backend_config = api_config
     server.api_model_available = bool(api_config.get("models"))
+    server.agents = {MODEL_ID: web_agent, API_MODEL_ID: api_agent}
     server.model_factories = {
         MODEL_ID: getattr(web_agent, "_web_model_factory", None),
         API_MODEL_ID: getattr(getattr(api_agent, "reasoner", None), "model_factory", None),
     }
+    # Explicit per-model choices use isolated registries, so the selected model
+    # cannot silently fall back to a different provider.
+    for configured_model_id in sorted(api_config.get("models", {})):
+        try:
+            single_config = build_single_model_config(api_config, configured_model_id)
+            single_agent = build_api_agent(single_config)
+            server.agents[configured_model_id] = single_agent
+            server.model_factories[configured_model_id] = getattr(
+                getattr(single_agent, "reasoner", None), "model_factory", None
+            )
+        except Exception as exc:
+            debug.log("StudyAgentUnifiedAPI",
+                      f"MODEL INIT FAILED → model={configured_model_id}, error_type={type(exc).__name__}")
+    server.available_model_ids = [MODEL_ID] + (
+        [API_MODEL_ID] if server.api_model_available else []
+    ) + [name for name in sorted(api_config.get("models", {})) if name in server.agents]
+    server.hkust_model_ids = [
+        str(name) for name, model in config.get("models", {}).items()
+        if isinstance(model, dict) and is_hkust_model_id(str(name), config)
+        and str(name) in server.agents
+    ]
     capability_cache = ModelCapabilityCache(ROOT)
     server.model_capability_cache = capability_cache
 
@@ -969,7 +1038,7 @@ def main() -> None:
     print(f"Study Agent Unified API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Web UI: http://{HOST}:{PORT}/")
-    print(f"Models: deepseek-web (browser){', study-agent (configured non-browser ModelRouter)' if server.api_model_available else ''}")
+    print("Models: " + ", ".join(server.available_model_ids))
     print("Agent: StudyAgent")
     print("Web Model backend: visible local browser -> DeepSeek Web")
     print(f"API Model backend: {len(api_config.get('models', {}))} configured model(s)")
