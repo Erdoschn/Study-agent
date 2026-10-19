@@ -3,6 +3,8 @@ from examples.deepseek_web_study_agent_api import (
     Handler,
     WEB_ROOT,
     add_attachment_context,
+    add_api_attachment_text_context,
+    build_api_only_config,
     build_web_only_config,
     parse_chat_request_body,
     web_asset_path,
@@ -556,3 +558,95 @@ def test_web_frontend_progress_timeline_is_deduplicated_and_bounded():
     assert "a.statuses.length>60" in source
     assert "arr.slice(-7,-1)" in source
 
+
+
+
+def test_api_mode_isolates_openai_compatible_providers_and_excludes_browser_models():
+    config = {
+        "providers": {
+            "deepseek_web": {"type": "browser", "enabled": True},
+            "deepseek": {
+                "type": "openai_compatible",
+                "enabled": True,
+                "base_url": "https://api.deepseek.com",
+                "api_key": "secret",
+            },
+            "disabled": {"type": "openai_compatible", "enabled": False},
+        },
+        "models": {
+            "deepseek-web": {"provider": "deepseek_web", "enabled": True, "paid": False},
+            "deepseek-api": {"provider": "deepseek", "enabled": True, "paid": True},
+            "disabled-model": {"provider": "disabled", "enabled": True, "paid": False},
+        },
+    }
+
+    isolated = build_api_only_config(config)
+
+    assert list(isolated["providers"]) == ["deepseek"]
+    assert list(isolated["models"]) == ["deepseek-api"]
+    assert isolated["providers"]["deepseek"]["api_key"] == "secret"
+
+
+def test_api_mode_embeds_supported_text_attachments_with_a_total_bound():
+    question = add_api_attachment_text_context(
+        "Summarize the files",
+        [
+            {"name": "notes.md", "buffer": b"# Notes\\nImportant details"},
+            {"name": "example.py", "buffer": b"print('hello')"},
+        ],
+    )
+    assert "【附件：notes.md】" in question
+    assert "Important details" in question
+    assert "【附件：example.py】" in question
+    assert "print('hello')" in question
+    assert "不可信输入" in question
+
+
+def test_api_mode_rejects_binary_attachments_instead_of_claiming_to_read_them():
+    try:
+        add_api_attachment_text_context(
+            "Summarize this document",
+            [{"name": "paper.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-binary-content"}],
+        )
+    except ValueError as exc:
+        assert "Web Model" in str(exc)
+        assert "不支持直接读取" in str(exc)
+    else:
+        raise AssertionError("API mode must fail clearly for unsupported binary attachments")
+
+
+def test_frontend_requires_a_per_page_mode_choice_and_sends_the_selected_model():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'id="modePicker"' in source
+    assert 'value="deepseek-web"' in source
+    assert 'value="study-agent-api"' in source
+    assert 'if(state.mode===null){openModePicker();return;}' in source
+    assert "model:state.mode" in source
+    assert '$("#changeMode").onclick=openModePicker' in source
+
+
+def test_run_can_execute_the_selected_api_agent_without_using_the_web_factory():
+    from examples.deepseek_web_study_agent_api import Handler
+
+    events = []
+    class Factory:
+        def __init__(self):
+            self.ended = False
+        def begin_run(self, cancellation_event, attachments=None):
+            assert attachments is None
+        def end_run(self, cancellation_event):
+            self.ended = True
+
+    api_factory = Factory()
+    class Agent:
+        _api_model_factory = api_factory
+        def run(self, question):
+            assert question == "API question"
+            return SimpleNamespace(step_count=1, evidence=[], claims=[])
+
+    web_agent = SimpleNamespace(run=lambda question: (_ for _ in ()).throw(AssertionError("web Agent was called")))
+    handler = object.__new__(Handler)
+    handler.server = SimpleNamespace(agent=web_agent)
+    result = handler._run("API question", events.append, agent=Agent())
+    assert result.step_count == 1
+    assert api_factory.ended
