@@ -173,7 +173,7 @@ class ModelCapabilityCache:
                 if isinstance(raw_headers, dict):
                     headers.update({str(k): str(v) for k, v in raw_headers.items()})
                 auth_identity = provider.get("api_key", "") or headers.get("Authorization", "")
-                provider_cache_key = hashlib.sha256("\\0".join((
+                provider_cache_key = hashlib.sha256("\0".join((
                     provider_name,
                     base_url,
                     hashlib.sha256(str(auth_identity).encode()).hexdigest(),
