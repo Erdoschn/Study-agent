@@ -586,9 +586,9 @@ only when paid-model use is explicitly intended.
 
 | API | 监听地址变量 | 必需的远程访问 Key 变量 |
 |---|---|---|
-| Study Agent API | STUDY_AGENT_HOST | STUDY_AGENT_API_KEY |
+| Legacy Study Agent API | STUDY_AGENT_HOST | STUDY_AGENT_API_KEY |
+| Unified Study Agent API | STUDY_AGENT_WEB_HOST | STUDY_AGENT_WEB_API_KEY (or legacy STUDY_AGENT_API_KEY) |
 | Coder Web API | CODER_WEB_HOST | CODER_WEB_API_KEY |
-| DeepSeek Web API | STUDY_AGENT_WEB_HOST | STUDY_AGENT_WEB_API_KEY |
 
 即使已配置 API Key，也应优先把服务保持在本机回环地址；远程访问应置于经过认证且启用 TLS 的可信代理之后。API Key 认证不能替代 TLS，也不要把 Key 放进 URL、日志或公开页面。
 
@@ -605,7 +605,7 @@ python examples/study_agent_unified_api.py
 - `Web Model` (`deepseek-web`)：通过本机可见浏览器调用 DeepSeek Web，支持原始文件附件。
 - `API Model` (`study-agent`)：通过配置中启用的非浏览器 Provider 和 ModelRouter 运行；需要在 `config` 中配置可用的 API 模型。该模式暂不支持浏览器原始附件。
 
-`/v1/models` 会列出两种逻辑模型。Coder 的本机知识问答桥接保留在 `/internal/study/ask`。旧的 `examples/study_agent_api.py` 和 `examples/deepseek_web_study_agent_api.py` 暂时保留作为兼容/回滚入口；完成迁移与调用方验证前不要删除。
+`/v1/models` 会列出 Web Model，并在配置存在可用的非浏览器模型时列出 API Model。Coder 的本机知识问答桥接保留在 `/internal/study/ask`。旧的 `examples/study_agent_api.py` 和 `examples/deepseek_web_study_agent_api.py` 暂时保留作为兼容/回滚入口；完成迁移与调用方验证前不要删除。
 
 
 The unified API can be exposed to Open WebUI without changing the Study Agent core.
@@ -623,7 +623,7 @@ StudyAgent (Web Model or API Model)
 Start the API:
 
 ```bash
-python examples/study_agent_api.py
+python examples/study_agent_unified_api.py
 ```
 
 Endpoints:
@@ -637,7 +637,7 @@ The API uses an OpenAI-compatible streaming interface. Choose `deepseek-web` for
 When Open WebUI runs in Docker and the API runs on the Windows host, use:
 
 ```
-http://host.docker.internal:8000/v1
+http://host.docker.internal:8001/v1
 ```
 
 ## Project Structure
