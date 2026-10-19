@@ -33,16 +33,31 @@ class ModelCapabilityCache:
     def _key(provider_name: str, provider: dict[str, Any], model_id: str) -> str:
         # Hash credentials into the identity so accounts with different permissions
         # cannot accidentally share capabilities. The secret itself is never persisted.
+        headers = provider.get("headers", {})
+        auth_identity = provider.get("api_key", "")
+        if not auth_identity and isinstance(headers, dict):
+            auth_identity = headers.get("Authorization", "")
         identity = "\0".join((
             provider_name,
             str(provider.get("base_url", "")).rstrip("/"),
             model_id,
-            hashlib.sha256(str(provider.get("api_key", "")).encode()).hexdigest(),
+            hashlib.sha256(str(auth_identity).encode()).hexdigest(),
         ))
         return hashlib.sha256(identity.encode()).hexdigest()
 
+    @staticmethod
+    def _number(value: Any, default: float = 0.0) -> float:
+        try:
+            number = float(value)
+            return number if number == number and abs(number) != float("inf") else default
+        except (TypeError, ValueError, OverflowError):
+            return default
+
     def _load(self) -> None:
         try:
+            if self.path.stat().st_size > 1024 * 1024:
+                self._entries = {}
+                return
             payload = json.loads(self.path.read_text(encoding="utf-8"))
             entries = payload.get("entries", {}) if isinstance(payload, dict) else {}
             if isinstance(entries, dict):
@@ -130,7 +145,7 @@ class ModelCapabilityCache:
                         return self.snapshot()
                     cached = dict(self._entries.get(key, {}))
                 now = time.time()
-                if not force and cached and now - float(cached.get("fetched_at", 0)) < self.ttl_seconds:
+                if not force and cached and now - self._number(cached.get("fetched_at")) < self.ttl_seconds:
                     continue
 
                 levels: list[str] = []
@@ -217,7 +232,7 @@ class ModelCapabilityCache:
             entries = []
             for item in self._entries.values():
                 record = dict(item)
-                record["stale"] = bool(record.get("stale")) or now >= float(record.get("expires_at", 0))
+                record["stale"] = bool(record.get("stale")) or now >= self._number(record.get("expires_at"))
                 entries.append(record)
             return {
                 "items": entries,
