@@ -20,7 +20,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
 .chat{flex:1;min-height:0;overflow:auto;scroll-behavior:smooth}.welcome{width:min(760px,calc(100% - 40px));margin:10vh auto 22px;text-align:center;color:var(--muted)}.welcome .mark{width:52px;height:52px;margin:0 auto 15px;border-radius:15px;font-size:20px}.welcome h1{margin:0;color:var(--text);font-size:clamp(24px,3vw,34px);letter-spacing:-.03em}.welcome p{max-width:700px;margin:10px auto 16px}.chips{display:flex;justify-content:center;flex-wrap:wrap;gap:8px}.chips span{padding:3px 9px;border:1px solid var(--border);border-radius:999px;background:#14171d;font-size:11px}.hidden{display:none!important}
 .messages{width:min(920px,calc(100% - 36px));margin:auto;padding:25px 0 80px}.msg{display:flex;gap:13px;padding:18px 5px}.avatar{width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;background:var(--accent);color:#111;font-size:12px;font-weight:800}.msg.user .avatar{background:#303846;color:var(--text)}.bubble{min-width:0;flex:1}.msg.user .bubble{padding:11px 14px;background:var(--user);border:1px solid #2e3542;border-radius:15px}.text{white-space:pre-wrap;overflow-wrap:anywhere}.content{overflow-wrap:anywhere}.content p:first-child{margin-top:0}.content p:last-child{margin-bottom:0}.content h1,.content h2,.content h3{line-height:1.3;margin:1.1em 0 .55em}.content a{color:#b9d6ff}.content table{display:block;max-width:100%;overflow:auto;border-collapse:collapse}.content th,.content td{border:1px solid #333946;padding:6px 9px;white-space:nowrap}.content blockquote{margin:1em 0;padding:.2em 1em;border-left:3px solid #515a69;color:#b5bdc9;background:#151920}.content :not(pre)>code{background:#1c2028;border:1px solid #303744;border-radius:6px;padding:.12em .35em;font-family:ui-monospace,Consolas,monospace;font-size:.9em}.code{margin:1em 0;border:1px solid #303744;border-radius:12px;overflow:hidden;background:#0c0e12}.code-head{display:flex;justify-content:space-between;padding:7px 10px;background:#161a21;border-bottom:1px solid #303744;color:#9199a7;font-size:10px}.copy{border:0;background:transparent;color:#a0a8b5;padding:2px 6px}.code pre{margin:0;padding:13px;overflow:auto}.code code{font:12px/1.55 ui-monospace,Consolas,monospace}.content img{max-width:100%;border-radius:10px}.answer-tools{display:flex;justify-content:flex-end;margin-top:9px}.answer-copy{border:0;background:transparent;color:var(--muted2);font-size:11px;padding:4px 7px;border-radius:7px}.answer-copy:hover{background:var(--panel2);color:var(--text)}.answer-copy:disabled{opacity:.5;cursor:default}.status{margin-top:8px;color:var(--muted);font-size:12px}.status-line{display:flex;align-items:center;gap:8px}.spin{width:13px;height:13px;border:2px solid #3c4350;border-top-color:#e5e8ed;border-radius:50%;animation:r .8s linear infinite}.done .spin{display:none}.hist{display:grid;gap:3px;margin:4px 0 0 21px;color:#71798a}.hist div{white-space:pre-wrap}@keyframes r{to{transform:rotate(360deg)}}
 .composer-wrap{flex:none;padding:9px 18px 18px;background:linear-gradient(to bottom,transparent,var(--bg) 24%)}.composer{position:relative;width:min(920px,100%);margin:auto;border:1px solid #353d49;background:#171a21;border-radius:17px;padding:11px 12px 8px;box-shadow:var(--shadow)}.left-tools{display:flex;align-items:center;gap:9px;min-width:0}.attach{padding:5px 9px;font-size:12px;white-space:nowrap}.attachments{display:flex;flex-wrap:wrap;gap:7px;padding:8px 2px 3px}.attachment-pill{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 7px;border:1px solid #333b48;border-radius:9px;background:#202630;color:#c8d0dc;font-size:11px}.attachment-pill span{max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attachment-pill small{color:var(--muted2);white-space:nowrap}.attachment-pill button{width:20px;height:20px;padding:0;border:0;background:transparent;color:var(--muted);font-size:14px}.message-attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.message-attachment{padding:3px 7px;border:1px solid #394150;border-radius:8px;color:#b9c3d2;font-size:11px}.drop-overlay{position:absolute;inset:3px;z-index:3;display:grid;place-items:center;border:2px dashed #b5c6e4;border-radius:14px;background:rgba(16,20,28,.94);color:#f1f4fa;font-weight:700;pointer-events:none}.drop-overlay.hidden{display:none}textarea{width:100%;min-height:28px;max-height:220px;display:block;resize:none;border:0;outline:0;background:transparent;color:var(--text);line-height:1.5;padding:3px 2px}textarea::placeholder{color:#687181}.tools{display:flex;justify-content:space-between;align-items:center;margin-top:7px}.hint,.foot{color:var(--muted2);font-size:10px}.send{padding:8px 15px;background:var(--accent);color:var(--accentText);border-color:transparent;font-weight:700}.send.stop{background:#3a2528;color:#f0c7c8}.foot{width:min(920px,100%);margin:7px auto 0;text-align:center}
-.modal{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.6)}.modal.hidden{display:none}.card{width:min(520px,100%);padding:19px;border:1px solid var(--border);border-radius:18px;background:#171a21;box-shadow:var(--shadow)}.mhead{display:flex;justify-content:space-between;gap:12px}.mhead h2{margin:0}.mhead p{margin:3px 0 0;color:var(--muted);font-size:11px}.field{display:grid;gap:6px;margin-top:13px}.field span{font-size:11px;color:#a6aeba}.field input{width:100%;padding:9px 10px;border:1px solid #363e4a;border-radius:10px;background:#101319;color:var(--text);outline:0}.actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.actions .secondary{width:auto}
+.mode-switch{padding:6px 10px;font-size:11px;white-space:nowrap}.mode-options{display:grid;gap:10px;margin-top:16px}.mode-option{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border);border-radius:12px;background:#11141a;cursor:pointer}.mode-option:has(input:checked){border-color:#8496b4;background:#1b222d}.mode-option input{width:auto;margin-top:5px;accent-color:#dce3ee}.mode-option strong{display:block;font-size:13px}.mode-option small{display:block;color:var(--muted);font-size:11px;line-height:1.5}.mode-warning,.mode-availability{margin:12px 0 0;color:var(--muted);font-size:11px}.mode-warning{color:#d9c39c}.mode-availability.error{color:var(--danger)}.modal{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.6)}.modal.hidden{display:none}.card{width:min(520px,100%);padding:19px;border:1px solid var(--border);border-radius:18px;background:#171a21;box-shadow:var(--shadow)}.mhead{display:flex;justify-content:space-between;gap:12px}.mhead h2{margin:0}.mhead p{margin:3px 0 0;color:var(--muted);font-size:11px}.field{display:grid;gap:6px;margin-top:13px}.field span{font-size:11px;color:#a6aeba}.field input{width:100%;padding:9px 10px;border:1px solid #363e4a;border-radius:10px;background:#101319;color:var(--text);outline:0}.actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}.actions .secondary{width:auto}
 @media(max-width:800px){.sidebar{position:fixed;inset:0 auto 0 0;z-index:10;transform:translateX(-101%);transition:transform .2s ease;box-shadow:18px 0 40px rgba(0,0,0,.3)}.sidebar.open{transform:translateX(0)}.mobile{display:grid}.top{padding:0 12px;gap:9px}.info{flex:1}.messages{width:calc(100% - 22px)}.composer-wrap{padding-left:9px;padding-right:9px}}@media(max-width:520px){.hint{display:none}.msg{gap:9px;padding:14px 2px}.avatar{width:28px;height:28px}.msg.user .bubble{padding:10px 12px}.welcome{margin-top:7vh}.welcome p{font-size:13px}}
 </style>
 </head>
@@ -34,15 +34,16 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
   <div class="side-bottom"><button class="secondary" id="settings">⚙ 设置</button><div class="backend"><div class="dot" id="dot"></div><div><strong id="health">连接检查中</strong><small id="healthDetail">/health</small></div></div></div>
 </aside>
 <section class="main">
-<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span>DeepSeek Web · Browser Model</span></div><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
-<main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>完整的 StudyAgent 会分析、搜索、推理和教学，并通过本地浏览器调用 DeepSeek Web。</p><div class="chips"><span>Markdown</span><span>代码高亮</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
-<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件会以原始文件形式发送给 DeepSeek Web；请勿上传不应交给第三方的文件。对话文本和附件文件名会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。</div></footer>
+<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modeLabel">等待选择模型</span></div><button class="mode-switch" id="changeMode" type="button">切换模型</button><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
+<main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>同一套 StudyAgent 前端，可按本次需要选择 Web Model 或 API Model；两种模式共用学习 Agent 和知识图谱。</p><div class="chips"><span>Web / API 模式</span><span>Markdown</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
+<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">对话文本和附件文件名保存在当前浏览器；附件二进制不会持久保存。Provider API Key 从本地 config/providers.json 读取，不会发送到前端。API 模式可能产生第三方 API 费用；PDF、Word 和图片附件请使用 Web Model。</div></footer>
 </section></div>
 <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="card"><div class="mhead"><div><h2 id="settingsTitle">设置</h2><p>默认使用当前页面提供的 StudyAgent API。</p></div><button class="icon" id="close">×</button></div><label class="field"><span>API 地址</span><input id="base" placeholder="/v1"></label><label class="field"><span>API Key（可选）</span><input id="key" type="password" placeholder="STUDY_AGENT_WEB_API_KEY"></label><div class="actions"><button class="secondary" id="reset" type="button">恢复默认</button><button class="send" id="save" type="button">保存</button></div></div></div>
+<div class="modal" id="modePicker" role="dialog" aria-modal="true" aria-labelledby="modeTitle"><div class="card"><div class="mhead"><div><h2 id="modeTitle">选择本次使用的模型</h2><p>每次打开页面都需要选择，也可随时通过顶部按钮切换。</p></div></div><div class="mode-options"><label class="mode-option"><input type="radio" name="modelMode" value="deepseek-web" checked><span><strong>Web Model · DeepSeek 网页版</strong><small>通过本地 Edge 浏览器使用已登录的 DeepSeek 网页，可原样上传 PDF、Word 和图片等附件。</small></span></label><label class="mode-option" id="apiModeChoice"><input type="radio" name="modelMode" value="study-agent-api" disabled><span><strong>API Model · OpenAI-compatible API</strong><small>使用 config/providers.json 中启用的 API Provider 与模型，不启动网页浏览器。文本/代码类附件会作为文本加入请求。</small></span></label></div><p class="mode-availability" id="apiModeAvailability">正在检查 API Model 配置…</p><p class="mode-warning">API Model 可能产生第三方 API 费用。选择该模式即表示你同意本次请求使用本地配置的 API Provider；请确认 API Key、模型与计费设置正确。</p><div class="actions"><button class="secondary hidden" id="cancelMode" type="button">取消</button><button class="send" id="confirmMode" type="button">进入 StudyAgent</button></div></div></div>
 <script>
-const DEF="/v1",KEY="studyagent.ui.v3";
+const DEF="/v1",KEY="studyagent.ui.v3",WEB_MODEL="deepseek-web",API_MODEL="study-agent-api";
 const $=s=>document.querySelector(s);
-const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
+const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],mode:null,apiAvailable:null,apiUnavailableReason:"",base:localStorage.getItem("studyagent.apiBase")||DEF,key:""};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
@@ -122,11 +123,45 @@ function renderStatus(arr,isRunning){
  return box;
 }
 function running(x){state.running=x;send.textContent=x?"取消等待":"发送";send.classList.toggle("stop",x);input.disabled=x}
-async function health(){try{const r=await fetch(url("/health"),{headers:headers(),cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();$("#dot").className="dot ok";$("#health").textContent="API 在线";$("#healthDetail").textContent=d.model||"StudyAgent"}catch(e){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(e.message||e)}}
+function updateModePicker(){
+ const apiInput=$('input[name="modelMode"][value="'+API_MODEL+'"]');
+ const apiChoice=$("#apiModeChoice");
+ const availability=$("#apiModeAvailability");
+ if(apiInput)apiInput.disabled=state.apiAvailable!==true;
+ if(apiChoice)apiChoice.style.opacity=state.apiAvailable===false?".55":"1";
+ if(availability){
+  availability.classList.toggle("error",state.apiAvailable===false);
+  availability.textContent=state.apiAvailable===true
+   ?"API Model 已配置；API 调用可能产生费用。"
+   :(state.apiAvailable===false?(state.apiUnavailableReason||"未找到可用 API Provider，请检查 config/providers.json。"):"正在检查 API Model 配置…");
+ }
+}
+function openModePicker(){
+ if(state.running)return;
+ const selected=document.querySelector('input[name="modelMode"][value="'+(state.mode||WEB_MODEL)+'"]');
+ if(selected&&!selected.disabled)selected.checked=true;
+ $("#cancelMode").classList.toggle("hidden",!state.mode);
+ $("#modePicker").classList.remove("hidden");
+ updateModePicker();
+}
+function confirmMode(){
+ const selected=document.querySelector('input[name="modelMode"]:checked');
+ if(!selected)return;
+ if(selected.value===API_MODEL&&state.apiAvailable!==true){
+  alert(state.apiUnavailableReason||"API Model 当前不可用，请检查 config/providers.json。");
+  return;
+ }
+ state.mode=selected.value;
+ $("#modePicker").classList.add("hidden");
+ $("#modeLabel").textContent=state.mode===API_MODEL?"API Model · OpenAI-compatible":"Web Model · DeepSeek 网页版";
+ input.focus();
+}
+async function health(){try{const r=await fetch(url("/health"),{headers:headers(),cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);const d=await r.json();state.apiAvailable=d.api_model_available===true;state.apiUnavailableReason=String(d.api_model_error||"");$("#dot").className="dot ok";$("#health").textContent="API 在线";$("#healthDetail").textContent=state.mode===API_MODEL?"API Model":(state.mode===WEB_MODEL?"Web Model":(d.model||"StudyAgent"));updateModePicker()}catch(e){state.apiAvailable=false;state.apiUnavailableReason="无法连接本地 StudyAgent 服务，无法确认 API Model 是否可用。";$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(e.message||e);updateModePicker()}}
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
  const typed=input.value.trim(),c=active();if(!c||state.running)return;
+ if(state.mode===null){openModePicker();return;}
  // Attachments are one-shot: snapshot this submission's files, then clear the
  // composer. Keep the snapshot for this request only; later messages are text-only
  // unless the user explicitly attaches the files again.
@@ -138,7 +173,7 @@ async function sendMessage(){
  input.value="";autoResize();clearPendingFiles();persist();render();running(true);scroll();
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
-  const payload={model:"deepseek-web",messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+  const payload={model:state.mode,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});
@@ -206,13 +241,13 @@ function saveSettings(){
 function resetSettings(){$("#base").value=DEF;$("#key").value=""}
 function closeSide(){$("#sidebar").classList.remove("open")}
 
-$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
+$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#changeMode").onclick=openModePicker;$("#confirmMode").onclick=confirmMode;$("#cancelMode").onclick=()=>$("#modePicker").classList.add("hidden");$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
 const dropTarget=$(".main");
 dropTarget.addEventListener("dragenter",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragover",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragleave",e=>{if(!dropTarget.contains(e.relatedTarget))dropOverlay.classList.add("hidden")});
 dropTarget.addEventListener("drop",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.add("hidden");addFiles(e.dataTransfer.files)});
-load();render();autoResize();health();setInterval(health,30000);
+load();render();autoResize();updateModePicker();health();setInterval(health,30000);
 </script>
 </body>
 </html>
