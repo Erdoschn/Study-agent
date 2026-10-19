@@ -24,6 +24,8 @@ class ModelCapabilityCache:
         self.path = Path(root) / "data" / "model_capabilities.json"
         self.ttl_seconds = max(60, int(ttl_seconds))
         self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock()
+        self._generation = 0
         self._entries: dict[str, dict[str, Any]] = {}
         self._load()
 
@@ -97,12 +99,17 @@ class ModelCapabilityCache:
         return levels, default
 
     def refresh(self, config: dict[str, Any], force: bool = False) -> dict[str, Any]:
-        providers = config.get("providers", {})
-        models = config.get("models", {})
-        if not isinstance(providers, dict) or not isinstance(models, dict):
+        # Single-flight refresh; do not hold the data lock during network I/O.
+        if not self._refresh_lock.acquire(blocking=False):
             return self.snapshot()
-        now = time.time()
-        with self._lock:
+        try:
+            providers = config.get("providers", {})
+            models = config.get("models", {})
+            if not isinstance(providers, dict) or not isinstance(models, dict):
+                return self.snapshot()
+            with self._lock:
+                generation = self._generation
+
             changed = False
             for model_name, model in models.items():
                 if not isinstance(model, dict):
@@ -118,7 +125,11 @@ class ModelCapabilityCache:
                 if not base_url or not model_id:
                     continue
                 key = self._key(provider_name, provider, model_id)
-                cached = self._entries.get(key, {})
+                with self._lock:
+                    if generation != self._generation:
+                        return self.snapshot()
+                    cached = dict(self._entries.get(key, {}))
+                now = time.time()
                 if not force and cached and now - float(cached.get("fetched_at", 0)) < self.ttl_seconds:
                     continue
 
@@ -136,24 +147,23 @@ class ModelCapabilityCache:
                 timeout = min(max(int(provider.get("timeout", 30)), 3), 15)
                 try:
                     with urllib.request.urlopen(request, timeout=timeout) as response:
-                        payload = json.loads(response.read(2 * 1024 * 1024 + 1).decode("utf-8"))
+                        raw = response.read(2 * 1024 * 1024 + 1)
+                    if len(raw) > 2 * 1024 * 1024:
+                        raise ValueError("models catalog exceeds 2 MiB")
+                    payload = json.loads(raw.decode("utf-8"))
                     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
                         raise ValueError("invalid models catalog")
                     match = next((item for item in payload["data"] if isinstance(item, dict) and str(item.get("id", "")).strip() == model_id), None)
                     if match:
                         levels, default = self._extract_metadata(match)
-                        if levels or default:
-                            source = "provider_metadata"
-                        else:
-                            source = "provider_catalog_no_effort_metadata"
+                        source = "provider_metadata" if levels or default else "provider_catalog_no_effort_metadata"
                     else:
                         source = "model_not_in_provider_catalog"
                 except Exception as exc:
                     error_type = type(exc).__name__
 
-                # A provider's explicit capability metadata takes precedence. For
-                # OpenAI-compatible catalogs that omit it, use the existing trusted
-                # model profile/configuration rather than guessing or probe-calling.
+                # Provider metadata wins. Existing trusted config/profile is the
+                # fallback for providers whose models catalog omits effort data.
                 if not levels:
                     configured_levels = self._levels(model.get("reasoning_efforts"))
                     if not configured_levels and isinstance(model.get("extra"), dict):
@@ -163,15 +173,17 @@ class ModelCapabilityCache:
                         default_value = str(model.get("reasoning_effort_default", "")).strip().lower()
                         default = default_value if default_value in ALLOWED_EFFORTS else None
                         source = "configured_profile"
-                if not levels and not default:
-                    # Preserve a last-known-good record on transient failures.
-                    if cached.get("capabilities", {}).get("supported_levels") and error_type:
-                        cached["stale"] = True
-                        cached["last_refresh_error"] = error_type
+                if not levels and not default and cached.get("capabilities", {}).get("supported_levels") and error_type:
+                    cached["stale"] = True
+                    cached["last_refresh_error"] = error_type
+                    with self._lock:
+                        if generation != self._generation:
+                            return self.snapshot()
                         self._entries[key] = cached
                         changed = True
-                        continue
-                self._entries[key] = {
+                    continue
+
+                entry = {
                     "provider": provider_name,
                     "model": model_id,
                     "capabilities": {
@@ -185,10 +197,19 @@ class ModelCapabilityCache:
                     "stale": bool(error_type),
                     **({"last_refresh_error": error_type} if error_type else {}),
                 }
-                changed = True
+                with self._lock:
+                    if generation != self._generation:
+                        return self.snapshot()
+                    self._entries[key] = entry
+                    changed = True
+
             if changed:
-                self._save()
+                with self._lock:
+                    if generation == self._generation:
+                        self._save()
             return self.snapshot()
+        finally:
+            self._refresh_lock.release()
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -214,6 +235,7 @@ class ModelCapabilityCache:
 
     def clear(self) -> dict[str, Any]:
         with self._lock:
+            self._generation += 1
             self._entries.clear()
             try:
                 self.path.unlink()
