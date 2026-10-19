@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config.loader import load_config, setup_debug
-from examples.study_agent_api import build_agent as build_api_agent
+from examples.study_agent_api import Handler as LegacyHandler, build_agent as build_api_agent
 from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
 from core.__debug__ import debug
 from core.http_security import (
@@ -669,6 +669,22 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("API Model 当前不可用：请在配置中启用至少一个非浏览器 Provider 模型。")
             if attachments and model_id != MODEL_ID:
                 raise ValueError("原始附件上传目前仅支持 Web Model（deepseek-web）。请切换到 Web Model 后重试。")
+            last_user_question = next(
+                (str(item.get("content", "")).strip() for item in reversed(messages)
+                 if isinstance(item, dict) and item.get("role") == "user"
+                 and str(item.get("content", "")).strip()),
+                "",
+            )
+            ui_result = LegacyHandler._handle_ui_auxiliary_request(last_user_question, messages)
+            if ui_result is not None:
+                self._json({
+                    "id": "chatcmpl-" + uuid.uuid4().hex,
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model_id,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": ui_result}, "finish_reason": "stop"}],
+                })
+                return
             question = self._prompt(messages)
             if attachments:
                 question = add_attachment_context(question, attachments)
