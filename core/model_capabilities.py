@@ -95,6 +95,8 @@ class ModelCapabilityCache:
             return []
         result = []
         for item in value:
+            if item is None:
+                continue
             level = str(item).strip().lower()
             if level in ALLOWED_EFFORTS and level not in result:
                 result.append(level)
