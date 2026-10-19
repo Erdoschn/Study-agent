@@ -14,7 +14,7 @@ from .search_strategy import SearchStrategy
 from .goal import GoalMatcher
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
-from .context_management import current_context, role_context
+from .context_management import current_context, role_context, stable_prefix_fingerprint
 
 
 @dataclass
@@ -76,6 +76,7 @@ class OpenAICompatibleClient(ModelClient):
         usage: dict[str, Any] | None,
         started_at: float,
         error_type: str | None = None,
+        prefix_fingerprint: str | None = None,
     ) -> None:
         recorder = self.usage_recorder
         if recorder is None:
@@ -87,6 +88,7 @@ class OpenAICompatibleClient(ModelClient):
                 role_id=context.role_id if context else None,
                 user_id=context.user_id if context else None,
                 task_id=context.task_id if context else None,
+                prefix_fingerprint=prefix_fingerprint,
                 model=self.model,
                 status=status,
                 usage=usage,
@@ -105,6 +107,7 @@ class OpenAICompatibleClient(ModelClient):
         json_mode: bool = False,
         reasoning_effort: str | None = None,
     ) -> str:
+        prefix_fingerprint = stable_prefix_fingerprint(system_prompt, version="system-prompt-v1")
         payload = {
             "model": self.model,
             "messages": [
@@ -129,18 +132,18 @@ class OpenAICompatibleClient(ModelClient):
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             self._record_usage(
-                status="error", usage=None, started_at=started_at, error_type="HTTPError"
+                status="error", usage=None, started_at=started_at, prefix_fingerprint=prefix_fingerprint, error_type="HTTPError"
             )
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"LLM HTTP {exc.code}: {body}") from exc
         except TimeoutError as exc:
             self._record_usage(
-                status="error", usage=None, started_at=started_at, error_type=type(exc).__name__
+                status="error", usage=None, started_at=started_at, prefix_fingerprint=prefix_fingerprint, error_type=type(exc).__name__
             )
             raise ModelTimeoutError(f"LLM 请求超时：{self.timeout}s，model={self.model}") from exc
         except Exception as exc:
             self._record_usage(
-                status="error", usage=None, started_at=started_at, error_type=type(exc).__name__
+                status="error", usage=None, started_at=started_at, prefix_fingerprint=prefix_fingerprint, error_type=type(exc).__name__
             )
             raise RuntimeError(f"LLM 请求失败：{type(exc).__name__}: {exc}") from exc
 
@@ -150,7 +153,7 @@ class OpenAICompatibleClient(ModelClient):
             self._record_usage(
                 status="invalid_response",
                 usage=None,
-                started_at=started_at,
+                started_at=started_at, prefix_fingerprint=prefix_fingerprint,
                 error_type=type(exc).__name__,
             )
             raise RuntimeError("LLM 返回格式异常：响应不是有效 JSON。") from exc
@@ -159,7 +162,7 @@ class OpenAICompatibleClient(ModelClient):
             self._record_usage(
                 status="invalid_response",
                 usage=None,
-                started_at=started_at,
+                started_at=started_at, prefix_fingerprint=prefix_fingerprint,
                 error_type="InvalidResponseShape",
             )
             raise RuntimeError("LLM 返回格式异常：响应顶层必须是 JSON 对象。")
@@ -173,7 +176,7 @@ class OpenAICompatibleClient(ModelClient):
             self._record_usage(
                 status="invalid_response",
                 usage=usage if isinstance(usage, dict) else None,
-                started_at=started_at,
+                started_at=started_at, prefix_fingerprint=prefix_fingerprint,
                 error_type=type(exc).__name__,
             )
             raise RuntimeError(
