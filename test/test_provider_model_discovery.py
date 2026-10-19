@@ -68,4 +68,4 @@ def test_provider_discovery_failure_does_not_drop_existing_models(monkeypatch):
     discovered, status = unified.discover_provider_models(config)
     assert "configured" in discovered["models"]
     assert status["provider-a"]["ok"] is False
-    assert "timeout" in status["provider-a"]["error"]
+    assert "Timeout" in status["provider-a"]["error"]
