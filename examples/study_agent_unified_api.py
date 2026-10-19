@@ -714,6 +714,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": "Study Agent Bridge 仅允许本机调用。"}}, 403)
             return
         bridge_key = os.getenv("STUDY_AGENT_BRIDGE_KEY", os.getenv("STUDY_AGENT_API_KEY", "")).strip()
+        if not getattr(self.server, "api_model_available", False):
+            self._json({"error": {"message": "API Model 不可用：请先配置非浏览器 Provider 模型。", "type": "backend_unavailable"}}, 503)
+            return
         if bridge_key and self.headers.get("Authorization", "") != f"Bearer {bridge_key}":
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
