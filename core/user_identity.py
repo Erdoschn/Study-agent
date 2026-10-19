@@ -35,7 +35,7 @@ def normalize_username(value: object) -> str:
         raise ValueError("username 格式无效。")
     if any(not (char.isalnum() or char in "._-") for char in normalized):
         raise ValueError("username 只允许字母、数字、点、下划线和连字符。")
-    return normalized.casefold()
+    return normalized.lower()
 
 
 def _profile_limit(value: int | None) -> int:
