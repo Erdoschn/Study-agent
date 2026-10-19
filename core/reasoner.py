@@ -14,6 +14,7 @@ from .search_strategy import SearchStrategy
 from .goal import GoalMatcher
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .context_management import current_context, role_context
 
 
 @dataclass
@@ -80,8 +81,12 @@ class OpenAICompatibleClient(ModelClient):
         if recorder is None:
             return
         try:
+            context = current_context()
             recorder.record(
                 provider=self.provider_name,
+                role_id=context.role_id if context else None,
+                user_id=context.user_id if context else None,
+                task_id=context.task_id if context else None,
                 model=self.model,
                 status=status,
                 usage=usage,
@@ -189,6 +194,7 @@ class AgentReasoner:
         self.model_factory = model_factory
         self.allow_paid = allow_paid
 
+    @role_context("reasoner")
     def decide(self, state, tool_specs=None):
         with debug.scope("AgentReasoner", f"DECIDE → step={state.step_count + 1}"):
             prompt = self._build_prompt(state, tool_specs or [])
