@@ -325,7 +325,7 @@ ModelRouter 只负责为当前需要调用的角色选择模型与 reasoning eff
 因此即使问题非常简单，Agent 也会进入 Loop，只是 Reasoner 可能在第一轮直接选择 ANSWER。
 复杂问题则可以继续搜索、计算、验证，再根据新观察重新决策。
 
-`StudyAgent` 不提供 direct / direct_verified / reasoner 之类的运行模式。任何实验对照应替换 Reasoner policy，而不是绕过 Agent Loop。
+`StudyAgent` 当前支持 `direct`、`direct_verified` 和 `reasoner` 执行策略。若实验目标是单独评估 Agent Loop，应固定任务集和其他条件，仅比较 Reasoner policy，避免把执行策略差异与模型差异混在一起。
 
 ### 1. Learner-aware Agent
 
