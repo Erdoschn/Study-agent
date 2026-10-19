@@ -99,6 +99,7 @@ class TokenUsageRecorder:
         role_id: str | None = None,
         user_id: str | None = None,
         task_id: str | None = None,
+        prefix_fingerprint: str | None = None,
     ) -> dict[str, Any] | None:
         """Append one metadata-only event. Returns the event, or None when disabled."""
         if not self.enabled:
@@ -191,6 +192,7 @@ class TokenUsageRecorder:
             "role_id": str(role_id)[:80] if role_id else None,
             "user_id": str(user_id)[:128] if user_id else None,
             "task_id": str(task_id)[:128] if task_id else None,
+            "prefix_fingerprint": str(prefix_fingerprint)[:64] if prefix_fingerprint else None,
             "status": normalized_status,
             "duration_ms": round(elapsed * 1000, 2) if elapsed is not None else None,
             "error_type": str(error_type)[:120] if error_type else None,
