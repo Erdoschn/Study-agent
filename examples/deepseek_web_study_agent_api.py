@@ -33,6 +33,7 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
+from core.user_identity import DEFAULT_USERNAME, UserProfileLimitError, normalize_username, user_graph_path
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -276,7 +277,11 @@ def build_web_only_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_agent(config: dict[str, Any]) -> StudyAgent:
+def build_agent(
+    config: dict[str, Any],
+    *,
+    knowledge_graph_path: str | Path | None = None,
+) -> StudyAgent:
     isolated = build_web_only_config(config)
     registry = ModelRegistry(isolated)
     # This endpoint intentionally has exactly one LLM candidate. Core routing
@@ -295,7 +300,7 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
         teacher=teacher,
         tool_executor=ToolExecutor(search_router=build_search_router()),
         max_steps=None,
-        knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
+        knowledge_graph_path=knowledge_graph_path,
     )
     agent._web_model_factory = factory
     agent._web_model_registry = registry
@@ -337,7 +342,11 @@ def build_api_only_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_api_agent(config: dict[str, Any]) -> StudyAgent | None:
+def build_api_agent(
+    config: dict[str, Any],
+    *,
+    knowledge_graph_path: str | Path | None = None,
+) -> StudyAgent | None:
     """Build an Agent that cannot route to browser-backed providers."""
     isolated = build_api_only_config(config)
     if not isolated["models"]:
@@ -357,11 +366,84 @@ def build_api_agent(config: dict[str, Any]) -> StudyAgent | None:
         teacher=teacher,
         tool_executor=ToolExecutor(search_router=build_search_router()),
         max_steps=None,
-        knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
+        knowledge_graph_path=knowledge_graph_path,
     )
     agent._api_model_factory = factory
     agent._api_model_registry = registry
     return agent
+
+
+def _configured_max_user_profiles() -> int:
+    try:
+        value = int(os.getenv("STUDY_AGENT_MAX_USER_PROFILES", "256"))
+    except (TypeError, ValueError):
+        value = 256
+    return min(100_000, max(1, value))
+
+
+def build_profile_agent(
+    template_agent: StudyAgent,
+    username: str,
+    *,
+    data_root: str | Path = ROOT / "data",
+    max_profiles: int = 256,
+) -> StudyAgent:
+    """Create a per-profile StudyAgent with isolated in-memory and persistent state."""
+    canonical_username = normalize_username(username)
+    graph_path = user_graph_path(
+        canonical_username,
+        data_root=data_root,
+        max_profiles=max_profiles,
+    )
+    agent = StudyAgent(
+        reasoner=template_agent.reasoner,
+        teacher=getattr(template_agent, "teacher", None),
+        tool_executor=getattr(template_agent, "tool_executor", None),
+        max_steps=getattr(template_agent, "max_steps", None),
+        knowledge_graph_path=graph_path,
+    )
+    # Model factories are runtime dependencies shared by the API's serialized
+    # execution slot. Student state, pending assessments and graph objects are
+    # deliberately NOT shared between profile agents.
+    for attribute in (
+        "_web_model_factory",
+        "_web_model_registry",
+        "_api_model_factory",
+        "_api_model_registry",
+    ):
+        if hasattr(template_agent, attribute):
+            setattr(agent, attribute, getattr(template_agent, attribute))
+    agent.username = canonical_username
+    return agent
+
+
+def get_or_create_profile_agent(
+    server,
+    template_agent: StudyAgent,
+    username: str,
+    model_id: str,
+) -> StudyAgent:
+    """Return the cached Agent instance for one normalized username and model mode."""
+    canonical_username = normalize_username(username)
+    cache_key = (canonical_username, str(model_id))
+    cache = server.user_agents
+    with server.user_agents_lock:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        known_users = {key[0] for key in cache}
+        if canonical_username not in known_users and len(known_users) >= server.max_user_profiles:
+            raise UserProfileLimitError(
+                f"已达到活动用户 Profile 数量上限（{server.max_user_profiles}）。"
+            )
+        profile_agent = build_profile_agent(
+            template_agent,
+            canonical_username,
+            data_root=server.data_root,
+            max_profiles=server.max_user_profiles,
+        )
+        cache[cache_key] = profile_agent
+        return profile_agent
 
 
 def _prewarm_browser_model(agent: StudyAgent) -> bool:
@@ -754,13 +836,22 @@ class Handler(BaseHTTPRequestHandler):
             if len(messages) > MAX_CHAT_MESSAGES:
                 raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
             requested_model = str(request.get("model", MODEL_ID) or MODEL_ID).strip()
+            if "username" in request:
+                username = normalize_username(request["username"])
+            else:
+                # Backwards-compatible single-profile fallback for older clients.
+                # The frontend and official adapters always send an explicit username.
+                username = normalize_username(
+                    os.getenv("STUDY_AGENT_DEFAULT_USERNAME", DEFAULT_USERNAME)
+                )
+
             if requested_model == MODEL_ID:
-                active_agent = self.server.agent
+                template_agent = self.server.agent
                 response_model = MODEL_ID
             elif requested_model == API_MODEL_ID:
-                active_agent = getattr(self.server, "api_agent", None)
+                template_agent = getattr(self.server, "api_agent", None)
                 response_model = API_MODEL_ID
-                if active_agent is None:
+                if template_agent is None:
                     self._json({
                         "error": {
                             "message": getattr(
@@ -777,6 +868,10 @@ class Handler(BaseHTTPRequestHandler):
                     f"不支持的 model：{requested_model}。"
                     f"可用模式为 {MODEL_ID} 和 {API_MODEL_ID}。"
                 )
+
+            active_agent = get_or_create_profile_agent(
+                self.server, template_agent, username, response_model
+            )
 
             question = self._prompt(messages)
             run_attachments = attachments if response_model == MODEL_ID else None
@@ -819,6 +914,8 @@ class Handler(BaseHTTPRequestHandler):
                     "model": response_model,
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
                 })
+        except UserProfileLimitError as exc:
+            self._json({"error": {"message": str(exc), "type": "profile_limit_exceeded"}}, 429)
         except ValueError as exc:
             status = 413 if isinstance(exc, RequestBodyTooLarge) else 400
             self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, status)
@@ -1017,6 +1114,10 @@ def main() -> None:
     server = Server((HOST, PORT), Handler)
     server.agent = agent
     server.api_agent = api_agent
+    server.user_agents = {}
+    server.user_agents_lock = threading.RLock()
+    server.data_root = ROOT / "data"
+    server.max_user_profiles = _configured_max_user_profiles()
     server.api_model_error = (
         None
         if api_agent is not None
@@ -1026,7 +1127,7 @@ def main() -> None:
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Web UI: http://{HOST}:{PORT}/")
     print(f"Available modes: {MODEL_ID}" + (f", {API_MODEL_ID}" if api_agent is not None else ""))
-    print("Agent: StudyAgent (shared learning graph)")
+    print("Agent: StudyAgent (isolated per-username learning graphs)")
     print("Web Model: Edge browser starts on first Web Model request.")
     if api_agent is None:
         print("API Model unavailable: check enabled openai_compatible providers/models in config/providers.json.")
