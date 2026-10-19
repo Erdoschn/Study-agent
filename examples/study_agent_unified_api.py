@@ -1,4 +1,4 @@
-"""OpenAI-compatible API and lightweight browser UI for StudyAgent + DeepSeek Web."""
+"""Unified OpenAI-compatible API and browser UI for StudyAgent."""
 from __future__ import annotations
 
 import json
@@ -41,7 +41,7 @@ MODEL_ID = "deepseek-web"
 API_MODEL_ID = "study-agent"
 HOST = os.getenv("STUDY_AGENT_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("STUDY_AGENT_WEB_PORT", "8001"))
-API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", "").strip()
+API_KEY = os.getenv("STUDY_AGENT_WEB_API_KEY", os.getenv("STUDY_AGENT_API_KEY", "")).strip()
 MAX_UPLOAD_FILES = 8
 MAX_UPLOAD_FILE_BYTES = 48 * 1024 * 1024
 MAX_UPLOAD_TOTAL_BYTES = 48 * 1024 * 1024
@@ -251,7 +251,8 @@ def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
         models = {}
     api_providers = {
         name: dict(provider) for name, provider in providers.items()
-        if isinstance(provider, dict) and str(provider.get("type", "")).casefold() != "browser"
+        if isinstance(provider, dict) and provider.get("enabled", True)
+        and str(provider.get("type", "")).casefold() != "browser"
     }
     api_models = {
         name: dict(model) for name, model in models.items()
@@ -604,12 +605,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
             return
         if path in {"/health", "/v1/health"}:
-            self._json({"status": "ok", "model": MODEL_ID, "models": [MODEL_ID, API_MODEL_ID], "backend": "unified", "agent": "StudyAgent"})
+            models = [MODEL_ID] + ([API_MODEL_ID] if getattr(self.server, "api_model_available", False) else [])
+            self._json({"status": "ok", "model": MODEL_ID, "models": models, "backend": "unified", "agent": "StudyAgent"})
             return
         if path == "/v1/models":
+            model_ids = [MODEL_ID] + ([API_MODEL_ID] if getattr(self.server, "api_model_available", False) else [])
             self._json({"object": "list", "data": [
-                {"id": MODEL_ID, "object": "model", "created": int(time.time()), "owned_by": "Erdoschn/Study-agent"},
-                {"id": API_MODEL_ID, "object": "model", "created": int(time.time()), "owned_by": "Erdoschn/Study-agent"},
+                {"id": model_id, "object": "model", "created": int(time.time()), "owned_by": "Erdoschn/Study-agent"}
+                for model_id in model_ids
             ]})
             return
         if path == "/v1/models/capabilities":
@@ -918,7 +921,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     _require_auth_for_non_loopback_bind()
-    config = load_config(refresh_remote_models=False)
+    # This unified entrypoint must preserve the legacy API route's model discovery.
+    config = load_config()
     setup_debug(config)
     web_agent = build_web_agent(config)
     api_config = build_api_backend_config(config)
@@ -946,7 +950,7 @@ def main() -> None:
     print(f"Study Agent Unified API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
     print(f"Web UI: http://{HOST}:{PORT}/")
-    print("Models: deepseek-web (browser), study-agent (configured non-browser ModelRouter)")
+    print(f"Models: deepseek-web (browser){', study-agent (configured non-browser ModelRouter)' if server.api_model_available else ''}")
     print("Agent: StudyAgent")
     print("Web Model backend: visible local browser -> DeepSeek Web")
     print(f"API Model backend: {len(api_config.get('models', {}))} configured model(s)")
