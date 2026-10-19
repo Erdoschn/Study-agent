@@ -851,8 +851,19 @@ class Handler(BaseHTTPRequestHandler):
         with _RUN_LOCK:
             if cancellation_event.is_set():
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
-            agent = self.server.agents[model_id]
+            agent = self.server.agents.get(model_id)
             factory = self.server.model_factories.get(model_id)
+            if agent is None:
+                single_config = getattr(self.server, "single_model_configs", {}).get(model_id)
+                if single_config is None:
+                    raise RuntimeError(f"模型 {model_id} 没有可用的运行配置")
+                with self.server.agent_init_lock:
+                    agent = self.server.agents.get(model_id)
+                    if agent is None:
+                        agent = build_api_agent(single_config)
+                        self.server.agents[model_id] = agent
+                        factory = getattr(getattr(agent, "reasoner", None), "model_factory", None)
+                        self.server.model_factories[model_id] = factory
             begin_run = getattr(factory, "begin_run", None)
             debug.bind_thread(log_hook)
             try:
@@ -1002,26 +1013,20 @@ def main() -> None:
         MODEL_ID: getattr(web_agent, "_web_model_factory", None),
         API_MODEL_ID: getattr(getattr(api_agent, "reasoner", None), "model_factory", None),
     }
-    # Explicit per-model choices use isolated registries, so the selected model
-    # cannot silently fall back to a different provider.
-    for configured_model_id in sorted(api_config.get("models", {})):
-        try:
-            single_config = build_single_model_config(api_config, configured_model_id)
-            single_agent = build_api_agent(single_config)
-            server.agents[configured_model_id] = single_agent
-            server.model_factories[configured_model_id] = getattr(
-                getattr(single_agent, "reasoner", None), "model_factory", None
-            )
-        except Exception as exc:
-            debug.log("StudyAgentUnifiedAPI",
-                      f"MODEL INIT FAILED → model={configured_model_id}, error_type={type(exc).__name__}")
+    # Keep startup light: per-model agents are constructed lazily on first use.
+    # Each model still receives an isolated config, preventing silent provider fallback.
+    server.single_model_configs = {
+        name: build_single_model_config(api_config, name)
+        for name in sorted(api_config.get("models", {}))
+    }
+    server.agent_init_lock = threading.Lock()
     server.available_model_ids = [MODEL_ID] + (
         [API_MODEL_ID] if server.api_model_available else []
-    ) + [name for name in sorted(api_config.get("models", {})) if name in server.agents]
+    ) + sorted(server.single_model_configs)
     server.hkust_model_ids = [
         str(name) for name, model in config.get("models", {}).items()
         if isinstance(model, dict) and is_hkust_model_id(str(name), config)
-        and str(name) in server.agents
+        and str(name) in server.single_model_configs
     ]
     capability_cache = ModelCapabilityCache(ROOT)
     server.model_capability_cache = capability_cache
