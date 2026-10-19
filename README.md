@@ -2,6 +2,15 @@
 
 一个面向**学习场景的自主智能体（Study Agent）研究原型**。
 
+## Startup and cache behavior
+
+- `load_config()` 默认仍会刷新远程 Provider 模型目录，保持现有调用方的兼容行为。
+- 浏览器版 DeepSeek Web API 使用 `load_config(refresh_remote_models=False)`，避免启动时同步查询远程模型目录；模型能力元数据由后台线程尽力预热，不阻塞 Web 服务启动。
+- 模型能力缓存只保存模型支持的 reasoning-effort 等元数据，不保存提示词、对话内容或 API 密钥；缓存默认 24 小时过期。
+- 缓存只针对已启用、当前配置的模型进行发现；已禁用或已移除模型的缓存项会在刷新时清理。
+- Web UI 的缓存状态检查复用 `/cache` 响应，避免重复请求；清除模型能力缓存不会删除浏览器本地的历史对话。
+- 远程 Provider 不可用时，能力发现属于尽力而为：服务启动不应依赖它成功，未知能力不应被伪装成已确认能力。
+
 ## Architecture
 
 ```mermaid
@@ -91,8 +100,7 @@ Execution Strategy
               Teacher
 ```
 
-这里不再存在 CHAT / KNOWLEDGE_DIRECT / KNOWLEDGE_AGENT 等固定执行模式。每个请求都进入同一个 Agent Loop；Reasoner 每一轮自行决定下一步是 ANSWER、SEARCH、CALCULATE、VERIFY、ASSESS 或 STOP。
-## Agent Reasoning Loop
+TaskAnalyzer 先分析任务，再由执行策略选择直接回答、回答后验证，或进入 Reasoner 工具循环。只有进入 Reasoner 路径的请求才会执行 Agent Loop；在循环中，Reasoner 每一轮决定下一步是 ANSWER、SEARCH、CALCULATE、VERIFY、ASSESS 或 STOP。
 ## Agent Reasoning Loop
 
 ```mermaid
@@ -164,30 +172,12 @@ flowchart TB
 
 ## Core Reasoning Loop
 
-```
-                ┌──────────────┐
-                │    Reason    │
-                │  当前该做什么？ │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │     Act      │
-                │ Search/Calc/ │
-                │ Verify/...   │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │   Observe    │
-                │ 结果/证据/错误 │
-                └──────┬───────┘
-                       ↓
-                ┌──────────────┐
-                │ Update State │
-                │ evidence /   │
-                │ learner / KG │
-                └──────┬───────┘
-                       │
-                       └──────→ Reason
+```mermaid
+flowchart LR
+    D["Decide<br/>当前该做什么？"] --> A["Act<br/>Search / Calculate / Verify"]
+    A --> O["Observe<br/>结果、证据、错误与状态更新"]
+    O --> D
+    D -->|ANSWER / STOP| F["Finish"]
 ```
 
 AgentReasoner 是动态决策中心，ToolExecutor 只负责执行。这样把“决定做什么”和“真正执行工具”分离，便于测试、替换模型和研究不同 Agent 策略。
@@ -335,9 +325,8 @@ ModelRouter 只负责为当前需要调用的角色选择模型与 reasoning eff
 因此即使问题非常简单，Agent 也会进入 Loop，只是 Reasoner 可能在第一轮直接选择 ANSWER。
 复杂问题则可以继续搜索、计算、验证，再根据新观察重新决策。
 
-`StudyAgent` 不提供 direct / direct_verified / reasoner 之类的运行模式。任何实验对照应替换 Reasoner policy，而不是绕过 Agent Loop。
+`StudyAgent` 当前支持 `direct`、`direct_verified` 和 `reasoner` 执行策略。若实验目标是单独评估 Agent Loop，应固定任务集和其他条件，仅比较 Reasoner policy，避免把执行策略差异与模型差异混在一起。
 
-### 1. Learner-aware Agent
 ### 1. Learner-aware Agent
 
 普通 Agent 可以抽象成：
@@ -1268,7 +1257,6 @@ LearnerState
 | Agent ASSESS | 仅在当前任务已被识别为用户明确要求测试时使用 |
 | /test / natural-language assessment | 学生明确要求进行正式测试 |
 
-## Agent Safety Boundary
 ## Agent Safety Boundary
 
 安全性是 Harness 的硬约束，而不是依赖模型 prompt 自觉遵守。
