@@ -278,7 +278,7 @@ def test_invalid_or_inconsistent_cache_counters_are_not_reported(tmp_path):
         usage={
             "prompt_tokens": 10,
             "completion_tokens": 2,
-            "prompt_cache_hit_tokens": 7.5,
+            "prompt_cache_hit_tokens": 7,
             "prompt_cache_miss_tokens": 8,
         },
         elapsed_seconds=0.1,
