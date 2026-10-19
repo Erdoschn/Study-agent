@@ -152,7 +152,7 @@ function openProfilePicker(required=false){
 function confirmUser(){
  if(state.running)return;
  const entered=String($("#usernameInput").value||"").normalize("NFKC").trim();
- if(!entered||entered.length>64||!/^[\\p{L}\\p{N}._-]+$/u.test(entered)||entered==="."||entered===".."){
+ if(!entered||entered.length>64||!/^[\p{L}\p{N}._-]+$/u.test(entered)||entered==="."||entered===".."){
   alert("用户名不能为空，最多 64 位；仅允许字母、数字、点、下划线和连字符。");
   $("#usernameInput").focus();return;
  }
