@@ -148,7 +148,20 @@ class ModelCapabilityCache:
                         return self.snapshot()
                     cached = dict(self._entries.get(key, {}))
                 now = time.time()
-                if not force and cached and now - self._number(cached.get("fetched_at")) < self.ttl_seconds:
+                configured_profile_levels = self._levels(model.get("reasoning_efforts"))
+                if not configured_profile_levels and isinstance(model.get("extra"), dict):
+                    configured_profile_levels = self._levels(model["extra"].get("reasoning_efforts"))
+                configured_default = str(model.get("reasoning_effort_default", "")).strip().lower()
+                if configured_default not in ALLOWED_EFFORTS:
+                    configured_default = None
+                profile_changed = (
+                    cached.get("source") == "configured_profile"
+                    and (
+                        cached.get("capabilities", {}).get("supported_levels", []) != configured_profile_levels
+                        or cached.get("capabilities", {}).get("default_level") != configured_default
+                    )
+                )
+                if not force and cached and not profile_changed and now - self._number(cached.get("fetched_at")) < self.ttl_seconds:
                     continue
 
                 levels: list[str] = []
