@@ -165,9 +165,6 @@ def add_attachment_context(
     )
 
 
-
-
-
 API_TEXT_ATTACHMENT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".json", ".jsonl",
     ".xml", ".html", ".htm", ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx",
@@ -303,9 +300,6 @@ def build_agent(config: dict[str, Any]) -> StudyAgent:
     agent._web_model_factory = factory
     agent._web_model_registry = registry
     return agent
-
-
-
 
 
 def build_api_only_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -877,6 +871,13 @@ class Handler(BaseHTTPRequestHandler):
         with _RUN_LOCK:
             if cancellation_event.is_set():
                 raise RunCancelled("客户端已断开，Study Agent 请求已取消。")
+            graph = getattr(active_agent, "knowledge_graph", None)
+            reload_graph = getattr(graph, "load", None)
+            if callable(reload_graph):
+                # Web and API Agents use separate in-memory objects backed by the
+                # same SQLite graph; reload inside the shared run lock to prevent
+                # the selected mode from using stale learner state.
+                reload_graph()
             factory = (
                 getattr(active_agent, "_web_model_factory", None)
                 or getattr(active_agent, "_api_model_factory", None)
