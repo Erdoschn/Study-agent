@@ -3,6 +3,7 @@ import inspect
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .context_management import role_context
 from .teaching_validator import TeachingValidator
 
 
@@ -242,6 +243,7 @@ class Teacher:
                 lines.append(f"  建议核对：{correction}")
         return f"{str(answer or '').rstrip()}\n\n" + "\n".join(lines)
 
+    @role_context("teacher")
     def generate(self, state, draft_answer: str | None = None) -> str:
         """根据学生状态和 Reasoner 草稿生成最终教学回答。"""
         prompt = self._build_prompt(state, draft_answer)
