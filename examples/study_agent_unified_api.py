@@ -384,7 +384,7 @@ def refresh_server_model_catalog(server, *, timeout: float = 5.0) -> dict[str, A
             for name in sorted(refreshed.get("models", {}))
         }
         available = [MODEL_ID]
-        if single_configs:
+        if getattr(server, "api_model_available", False):
             available.append(API_MODEL_ID)
         available.extend(sorted(single_configs))
         hkust_models = [
