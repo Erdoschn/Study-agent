@@ -208,7 +208,7 @@ class Teacher:
             source_role="teacher",
             target_role="teaching_validator",
             artifact_version=f"draft-{getattr(state, 'step_count', 0)}",
-            payload={"draft_answer": str(draft_answer)},
+            payload={"draft_answer": str(draft_answer)[:12000]},
             evidence_refs=evidence_refs,
         ))
 
