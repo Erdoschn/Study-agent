@@ -254,10 +254,14 @@ def build_api_backend_config(config: dict[str, Any]) -> dict[str, Any]:
         if isinstance(provider, dict) and provider.get("enabled", True)
         and str(provider.get("type", "")).casefold() != "browser"
     }
+    allow_paid = os.getenv("STUDY_AGENT_ALLOW_PAID", "0").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
     api_models = {
         name: dict(model) for name, model in models.items()
         if isinstance(model, dict) and str(model.get("provider", "")) in api_providers
         and model.get("enabled", True)
+        and (allow_paid or not model.get("paid", False))
     }
     return {"providers": api_providers, "models": api_models}
 
