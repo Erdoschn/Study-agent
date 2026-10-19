@@ -52,6 +52,17 @@ class RoleContextManagerTests(unittest.TestCase):
         self.assertNotEqual(key, application_cache_key(**{**base, "user_id": "bob"}))
         self.assertNotEqual(key, application_cache_key(**{**base, "prompt_version": "v2"}))
         self.assertNotEqual(key, application_cache_key(**{**base, "evidence_version": "new"}))
+        self.assertNotEqual(key, application_cache_key(**{**base, "permission_scope": "restricted"}))
+
+    def test_clear_task_removes_only_selected_users_task(self):
+        manager = RoleContextManager()
+        manager.put_fact("alice", "task-1", "key", "private")
+        manager.put_fact("alice", "task-2", "key", "keep")
+        manager.put_fact("bob", "task-1", "key", "keep-too")
+        manager.clear_task("alice", "task-1")
+        self.assertEqual(manager.task_facts("alice", "task-1"), {})
+        self.assertEqual(manager.task_facts("alice", "task-2"), {"key": "keep"})
+        self.assertEqual(manager.task_facts("bob", "task-1"), {"key": "keep-too"})
 
     def test_stable_prefix_fingerprint_ignores_no_dynamic_data_by_construction(self):
         self.assertEqual(stable_prefix_fingerprint("system", "role", version="v1"),
