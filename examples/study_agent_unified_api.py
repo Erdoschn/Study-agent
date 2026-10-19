@@ -359,10 +359,13 @@ def discover_provider_models(
                 "ok": True, "count": len(live_ids), "added": added, "error": ""
             }
         except Exception as exc:
+            # Do not echo exception text: URL query strings and upstream errors can contain secrets.
+            code = getattr(exc, "code", None)
+            detail = f"HTTP {int(code)}" if isinstance(code, int) else type(exc).__name__
             status[str(provider_name)] = {
                 "ok": False,
                 "count": 0,
-                "error": f"{type(exc).__name__}: {str(exc)[:180]}",
+                "error": detail,
             }
     return result, status
 
