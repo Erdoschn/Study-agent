@@ -34,6 +34,7 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
+from core.user_identity import UserProfileLimitError, normalize_username, user_graph_path
 from core.model_capabilities import ModelCapabilityCache
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
@@ -295,6 +296,81 @@ def is_hkust_model_id(model_id: str, config: dict[str, Any]) -> bool:
     return isinstance(provider, dict) and (
         "hkust" in provider_name.casefold() or "hkust" in str(provider.get("base_url", "")).casefold()
     )
+
+
+def resolve_request_username(request: dict[str, Any]) -> str:
+    """Resolve a canonical profile name; a profile name is not authentication."""
+    if "username" in request:
+        return normalize_username(request["username"])
+    configured_default = os.getenv("STUDY_AGENT_DEFAULT_USERNAME", "").strip()
+    if configured_default:
+        return normalize_username(configured_default)
+    raise ValueError(
+        "请求缺少 username。每个请求都必须指定用户 Profile；"
+        "单用户旧客户端可显式设置 STUDY_AGENT_DEFAULT_USERNAME。"
+    )
+
+
+def _configured_max_user_profiles() -> int:
+    try:
+        value = int(os.getenv("STUDY_AGENT_MAX_USER_PROFILES", "256"))
+    except (TypeError, ValueError):
+        value = 256
+    if not 1 <= value <= 100_000:
+        return 256
+    return value
+
+
+def build_profile_agent(
+    template_agent: StudyAgent,
+    username: str,
+    *,
+    data_root: str | Path = ROOT / "data",
+    max_profiles: int = 256,
+) -> StudyAgent:
+    """Give one user/model pair isolated mutable Agent state and graph storage."""
+    canonical = normalize_username(username)
+    graph_path = user_graph_path(
+        canonical, data_root=data_root, max_profiles=max_profiles
+    )
+    agent = StudyAgent(
+        reasoner=template_agent.reasoner,
+        teacher=getattr(template_agent, "teacher", None),
+        tool_executor=getattr(template_agent, "tool_executor", None),
+        max_steps=getattr(template_agent, "max_steps", None),
+        knowledge_graph_path=graph_path,
+    )
+    for attribute in (
+        "_web_model_factory", "_web_model_registry",
+        "_api_model_factory", "_api_model_registry",
+    ):
+        if hasattr(template_agent, attribute):
+            setattr(agent, attribute, getattr(template_agent, attribute))
+    agent.username = canonical
+    return agent
+
+
+def get_or_create_profile_agent(server, template_agent: StudyAgent, username: str, model_id: str) -> StudyAgent:
+    """Cache isolated runtime state by canonical username and selected model."""
+    canonical = normalize_username(username)
+    cache_key = (canonical, str(model_id))
+    with server.user_agents_lock:
+        cached = server.user_agents.get(cache_key)
+        if cached is not None:
+            return cached
+        known_users = {key[0] for key in server.user_agents}
+        if canonical not in known_users and len(known_users) >= server.max_user_profiles:
+            raise UserProfileLimitError(
+                f"已达到活动用户 Profile 数量上限（{server.max_user_profiles}）。"
+            )
+        profile = build_profile_agent(
+            template_agent,
+            canonical,
+            data_root=server.data_root,
+            max_profiles=server.max_user_profiles,
+        )
+        server.user_agents[cache_key] = profile
+        return profile
 
 
 def _prewarm_browser_model(agent: StudyAgent) -> bool:
@@ -712,6 +788,7 @@ class Handler(BaseHTTPRequestHandler):
             available_model_ids = set(getattr(self.server, "available_model_ids", [MODEL_ID]))
             if model_id not in available_model_ids:
                 raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
+            username = resolve_request_username(request)
             if attachments and model_id != MODEL_ID:
                 raise ValueError("原始附件上传目前仅支持 Web Model（deepseek-web）。请切换到 Web Model 后重试。")
             last_user_question = next(
@@ -739,9 +816,9 @@ class Handler(BaseHTTPRequestHandler):
                     f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
-                self._stream(question, attachments=attachments, model_id=model_id)
+                self._stream(question, attachments=attachments, model_id=model_id, username=username)
             else:
-                result = self._run(question, lambda _: None, attachments=attachments, model_id=model_id)
+                result = self._run(question, lambda _: None, attachments=attachments, model_id=model_id, username=username)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -801,7 +878,7 @@ class Handler(BaseHTTPRequestHandler):
                 + json.dumps(context, ensure_ascii=False)[:16_000]
                 + "\\n\\nCoder 的问题：\\n" + question
             )
-            result = self._run(prompt, lambda _: None, model_id=API_MODEL_ID)
+            result = self._run(prompt, lambda _: None, model_id=API_MODEL_ID, username=resolve_request_username(request) if "username" in request or os.getenv("STUDY_AGENT_DEFAULT_USERNAME", "").strip() else "local")
             graph_context = {}
             graph = getattr(result, "knowledge_graph", None)
             context_for = getattr(graph, "context_for", None) if graph is not None else None
@@ -827,6 +904,7 @@ class Handler(BaseHTTPRequestHandler):
         cancellation_event: threading.Event | None = None,
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
+        username: str = "local",
     ) -> Any:
         cancellation_event = cancellation_event or threading.Event()
 
@@ -868,6 +946,13 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.agents[model_id] = agent
                         factory = getattr(getattr(agent, "reasoner", None), "model_factory", None)
                         self.server.model_factories[model_id] = factory
+            agent = get_or_create_profile_agent(
+                self.server, agent, username, model_id
+            )
+            graph = getattr(agent, "knowledge_graph", None)
+            reload_graph = getattr(graph, "load", None)
+            if callable(reload_graph):
+                reload_graph()
             begin_run = getattr(factory, "begin_run", None)
             debug.bind_thread(log_hook)
             try:
@@ -915,6 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
         *,
         attachments: list[dict[str, Any]] | None = None,
         model_id: str = MODEL_ID,
+        username: str = "local",
     ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -943,6 +1029,7 @@ class Handler(BaseHTTPRequestHandler):
                         cancellation_event,
                         attachments=attachments,
                         model_id=model_id,
+                        username=username,
                     ),
                 ))
             except Exception as exc:
@@ -1024,6 +1111,10 @@ def main() -> None:
         for name in sorted(api_config.get("models", {}))
     }
     server.agent_init_lock = threading.Lock()
+    server.user_agents = {}
+    server.user_agents_lock = threading.RLock()
+    server.data_root = ROOT / "data"
+    server.max_user_profiles = _configured_max_user_profiles()
     server.available_model_ids = [MODEL_ID] + (
         [API_MODEL_ID] if server.api_model_available else []
     ) + sorted(server.single_model_configs)

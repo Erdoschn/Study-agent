@@ -34,15 +34,15 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
   <div class="side-bottom"><div class="storage-info" id="storageInfo" role="status">本地存储：尚未检测</div><div class="storage-actions"><button class="secondary" id="checkStorage" type="button">检测占用</button><button class="secondary" id="clearCache" type="button">清除缓存</button></div><button class="secondary" id="clearHistory" type="button">清除全部历史</button><button class="secondary" id="settings">⚙ 设置</button><div class="backend"><div class="dot" id="dot"></div><div><strong id="health">连接检查中</strong><small id="healthDetail">/health</small></div></div></div>
 </aside>
 <section class="main">
-<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><select id="modelChoice" class="model-select" aria-label="选择模型"><option value="deepseek-web">Web Model · DeepSeek</option></select><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
+<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><input id="username" class="model-select" style="max-width:145px" maxlength="64" value="" placeholder="用户名" aria-label="用户 Profile" title="不同用户名对应不同学习数据"><select id="modelChoice" class="model-select" aria-label="选择模型"><option value="deepseek-web">Web Model · DeepSeek</option></select><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
 <main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>完整的 StudyAgent 会分析、搜索、推理和教学，并通过本地浏览器调用 DeepSeek Web。</p><div class="chips"><span>Markdown</span><span>代码高亮</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
-<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件会以原始文件形式发送给 DeepSeek Web；请勿上传不应交给第三方的文件。对话文本和附件文件名会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。</div></footer>
+<footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，原样交给 DeepSeek 阅读</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">附件会以原始文件形式发送给 DeepSeek Web；请勿上传不应交给第三方的文件。对话文本和附件文件名会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。请为不同使用者设置不同用户名；用户名只是本地 Profile 标识，不是身份认证。</div></footer>
 </section></div>
 <div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="card"><div class="mhead"><div><h2 id="settingsTitle">设置</h2><p>默认使用当前页面提供的 StudyAgent API。</p></div><button class="icon" id="close">×</button></div><label class="field"><span>API 地址</span><input id="base" placeholder="/v1"></label><label class="field"><span>API Key（可选）</span><input id="key" type="password" placeholder="STUDY_AGENT_WEB_API_KEY"></label><div class="actions"><button class="secondary" id="reset" type="button">恢复默认</button><button class="send" id="save" type="button">保存</button></div></div></div>
 <script>
-const DEF="/v1",KEY="studyagent.ui.v3";
+const DEF="/v1",KEY_PREFIX="studyagent.ui.v3.user.",USERNAME_KEY="studyagent.username";
 const $=s=>document.querySelector(s);
-const state={conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"deepseek-web"};
+const state={username:localStorage.getItem(USERNAME_KEY)||"",conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"deepseek-web"};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
@@ -52,8 +52,25 @@ function active(){return state.conversations.find(c=>c.id===state.active)||null}
 function base(){let x=(state.base||DEF).trim()||DEF;if(!/^https?:\/\//i.test(x)&&!x.startsWith("/"))x="/"+x;return x.replace(/\/$/,"")}
 function url(p){return base()+p}
 function headers(multipart=false){const h={};if(!multipart)h["Content-Type"]="application/json";if(state.key.trim())h.Authorization="Bearer "+state.key.trim();return h}
-function persist(){try{localStorage.setItem(KEY,JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem("studyagent.apiBase",state.base);try{localStorage.removeItem("studyagent.apiKey")}catch(_){}return true}catch(e){const info=$("#storageInfo");if(info)info.textContent="本地保存失败：存储空间可能已满。请清理存储后重试。";console.error("StudyAgent persistence failed",e);return false}}
-function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0].id}
+function profileStorageKey(){return KEY_PREFIX+encodeURIComponent(state.username)}
+function persist(){if(!state.username)return false;try{localStorage.setItem(profileStorageKey(),JSON.stringify({conversations:state.conversations,active:state.active}));localStorage.setItem(USERNAME_KEY,state.username);localStorage.setItem("studyagent.apiBase",state.base);try{localStorage.removeItem("studyagent.apiKey")}catch(_){}return true}catch(e){const info=$("#storageInfo");if(info)info.textContent="本地保存失败：存储空间可能已满。请清理存储后重试。";console.error("StudyAgent persistence failed",e);return false}}
+function load(){state.conversations=[];state.active=null;try{let raw=localStorage.getItem(profileStorageKey());if(!raw&&state.username==="local"){raw=localStorage.getItem("studyagent.ui.v3");if(raw)localStorage.setItem(profileStorageKey(),raw)}const x=JSON.parse(raw||"null");if(x&&Array.isArray(x.conversations))state.conversations=x.conversations;if(x&&state.conversations.some(c=>c.id===x.active))state.active=x.active}catch(_){state.conversations=[]}if(!state.conversations.length)newChat(false);if(!state.active)state.active=state.conversations[0]?.id||null}
+function normalizeProfileName(value){
+ const raw=String(value??"");
+ if(/[\\u0000-\\u001f\\u007f]/.test(raw))throw Error("用户名不能包含控制字符。");
+ const name=raw.normalize("NFKC").trim();
+ if(!name)throw Error("请先填写用户名。");
+ if(name.length>64)throw Error("用户名不能超过 64 个字符。");
+ if(name==="."||name===".."||!/[\\p{L}\\p{N}._-]+/u.test(name)||!/^[\\p{L}\\p{N}._-]+$/u.test(name))throw Error("用户名只允许字母、数字、点、下划线和连字符。");
+ return name.toLowerCase();
+}
+function switchProfile(){
+ if(state.running){alert("任务执行中，暂不能切换用户 Profile。");$("#username").value=state.username;return}
+ let next;try{next=normalizeProfileName($("#username").value)}catch(error){alert(error.message);$("#username").value=state.username;return}
+ if(next===state.username){$("#username").value=next;return}
+ persist();clearPendingFiles();state.username=next;localStorage.setItem(USERNAME_KEY,next);load();render();$("#username").value=next;
+ $("#healthDetail").textContent="当前用户 Profile："+next+"；学习数据与本地对话历史已隔离。";
+}
 function clearPendingFiles(){state.pendingFiles=[];if(fileInput)fileInput.value="";renderAttachments()}
 function newChat(save=true){clearPendingFiles();const c={id:id(),title:"新对话",createdAt:Date.now(),messages:[]};state.conversations.unshift(c);state.active=c.id;render();if(save)persist();input.focus();closeSide()}
 function title(t){t=String(t||"").replace(/\s+/g," ").trim();return t.length>28?t.slice(0,28)+"…":t||"新对话"}
@@ -177,7 +194,7 @@ async function sendMessage(){
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
   if(filesForRequest.length&&state.model!=="deepseek-web")throw Error("API Model 不支持原始浏览器附件，请切换到 Web Model。");
-   const payload={model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+   const payload={username:state.username,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});
@@ -246,7 +263,7 @@ function saveSettings(){
 function resetSettings(){$("#base").value=DEF;$("#key").value=""}
 function closeSide(){$("#sidebar").classList.remove("open")}
 
-$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#checkStorage").onclick=checkStorage;$("#clearCache").onclick=clearCache;$("#clearHistory").onclick=clearAllHistory;$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
+$("#username").value=state.username;$("#username").addEventListener("change",switchProfile);$("#username").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();switchProfile();$("#username").blur()}});$("#newChat").onclick=()=>newChat();$("#clear").onclick=clearChat;$("#checkStorage").onclick=checkStorage;$("#clearCache").onclick=clearCache;$("#clearHistory").onclick=clearAllHistory;$("#settings").onclick=settings;$("#close").onclick=closeSettings;$("#save").onclick=saveSettings;$("#reset").onclick=resetSettings;$("#toggle").onclick=()=>$("#sidebar").classList.add("open");$("#modal").onclick=e=>{if(e.target.id==="modal")closeSettings()};$("#form").onsubmit=e=>{e.preventDefault();if(state.running)state.ctrl?.abort();else sendMessage()};input.oninput=autoResize;input.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!state.running)sendMessage()}};window.onkeydown=e=>{if(e.key==="Escape"){closeSettings();closeSide()}};$("#attach").onclick=()=>{if(!state.running)fileInput.click()};fileInput.onchange=()=>{addFiles(fileInput.files);fileInput.value=""};
 const dropTarget=$(".main");
 dropTarget.addEventListener("dragenter",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragover",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";dropOverlay.classList.remove("hidden")});
