@@ -1,0 +1,9 @@
+{
+  "token_usage": {
+    "enabled": true,
+    "path": "data/token_usage.jsonl",
+    "console_log": true,
+    "max_file_bytes": 10485760,
+    "backup_count": 3
+  }
+}

@@ -20,6 +20,26 @@ MODEL_PROFILES_PATH = (
     / "model_profiles.json"
 )
 
+OBSERVABILITY_CONFIG_PATH = (
+    Path(__file__).resolve().parent
+    / "observability.json"
+)
+
+
+def _load_observability_config() -> dict[str, Any]:
+    """Load the tracked observability defaults without loading provider secrets."""
+    if not OBSERVABILITY_CONFIG_PATH.exists():
+        return {}
+    try:
+        with OBSERVABILITY_CONFIG_PATH.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"observability.json 格式错误：{exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError("observability.json 顶层必须是 JSON 对象。")
+    return data
 
 
 def _refresh_provider_models(config: dict[str, Any]) -> None:
@@ -139,6 +159,35 @@ def _merge_model_profiles(config: dict[str, Any]) -> None:
     )
 
 
+def merge_observability_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Merge tracked observability defaults with a local providers.json override."""
+    if not isinstance(config, dict):
+        raise ValueError("providers.json 顶层必须是 JSON 对象。")
+    override = config.get("observability", {})
+    if not isinstance(override, dict):
+        raise ValueError("providers.json 的 observability 必须是对象。")
+    return deep_merge_config(_load_observability_config(), override)
+
+
+def load_observability_settings() -> dict[str, Any]:
+    """Load token usage settings without initializing providers or making network calls."""
+    local_config: dict[str, Any] = {}
+    if CONFIG_PATH.exists():
+        try:
+            with CONFIG_PATH.open("r", encoding="utf-8") as file:
+                local_config = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"providers.json 格式错误：{exc}") from exc
+        if not isinstance(local_config, dict):
+            raise ValueError("providers.json 顶层必须是 JSON 对象。")
+
+    merged = merge_observability_config(local_config)
+    settings = merged.get("token_usage", {})
+    if not isinstance(settings, dict):
+        raise ValueError("observability.token_usage 必须是对象。")
+    return settings
+
+
 def load_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(
@@ -165,6 +214,7 @@ def load_config() -> dict[str, Any]:
         load_browser_automation_config(),
         browser_automation_override,
     )
+    config["observability"] = merge_observability_config(config)
     _merge_model_profiles(config)
     _refresh_provider_models(config)
     debug.log(
