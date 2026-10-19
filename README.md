@@ -2,6 +2,11 @@
 
 一个面向**学习场景的自主智能体（Study Agent）研究原型**。
 
+
+### Role context isolation and cache behavior
+
+StudyAgent scopes model calls by user profile, conversation/task ID, and role. Role histories are bounded and separate; task facts and inter-role handoffs are explicit and user/task-scoped. Stable system/role instructions should remain byte-identical at the start of requests to give compatible Providers the best chance of prompt-cache reuse. Provider cache behavior is not guaranteed by the application. See [role context and cache design](docs/role-context-and-cache.md).
+
 ## Architecture
 
 ```mermaid
