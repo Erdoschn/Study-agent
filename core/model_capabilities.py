@@ -129,6 +129,7 @@ class ModelCapabilityCache:
                 generation = self._generation
 
             changed = False
+            provider_catalogs: dict[str, tuple[list[dict[str, Any]] | None, str | None]] = {}
             for model_name, model in models.items():
                 if not isinstance(model, dict):
                     continue
@@ -167,31 +168,43 @@ class ModelCapabilityCache:
                 levels: list[str] = []
                 default: str | None = None
                 source = "unknown"
-                error_type = None
-                headers = {"Accept": "application/json"}
                 raw_headers = provider.get("headers", {})
+                headers = {"Accept": "application/json"}
                 if isinstance(raw_headers, dict):
                     headers.update({str(k): str(v) for k, v in raw_headers.items()})
-                if "Authorization" not in headers and provider.get("api_key"):
-                    headers["Authorization"] = "Bearer " + str(provider["api_key"])
-                request = urllib.request.Request(base_url + "/models", headers=headers, method="GET")
-                timeout = min(max(int(provider.get("timeout", 30)), 3), 15)
-                try:
-                    with urllib.request.urlopen(request, timeout=timeout) as response:
-                        raw = response.read(2 * 1024 * 1024 + 1)
-                    if len(raw) > 2 * 1024 * 1024:
-                        raise ValueError("models catalog exceeds 2 MiB")
-                    payload = json.loads(raw.decode("utf-8"))
-                    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-                        raise ValueError("invalid models catalog")
-                    match = next((item for item in payload["data"] if isinstance(item, dict) and str(item.get("id", "")).strip() == model_id), None)
+                auth_identity = provider.get("api_key", "") or headers.get("Authorization", "")
+                provider_cache_key = hashlib.sha256("\\0".join((
+                    provider_name,
+                    base_url,
+                    hashlib.sha256(str(auth_identity).encode()).hexdigest(),
+                )).encode()).hexdigest()
+                if provider_cache_key not in provider_catalogs:
+                    error_type = None
+                    try:
+                        if "Authorization" not in headers and provider.get("api_key"):
+                            headers["Authorization"] = "Bearer " + str(provider["api_key"])
+                        request = urllib.request.Request(base_url + "/models", headers=headers, method="GET")
+                        timeout = min(max(int(provider.get("timeout", 30)), 3), 15)
+                        with urllib.request.urlopen(request, timeout=timeout) as response:
+                            raw = response.read(2 * 1024 * 1024 + 1)
+                        if len(raw) > 2 * 1024 * 1024:
+                            raise ValueError("models catalog exceeds 2 MiB")
+                        payload = json.loads(raw.decode("utf-8"))
+                        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                            raise ValueError("invalid models catalog")
+                        catalog = [item for item in payload["data"] if isinstance(item, dict)]
+                    except Exception as exc:
+                        catalog = None
+                        error_type = type(exc).__name__
+                    provider_catalogs[provider_cache_key] = (catalog, error_type)
+                catalog, error_type = provider_catalogs[provider_cache_key]
+                if catalog is not None:
+                    match = next((item for item in catalog if str(item.get("id", "")).strip() == model_id), None)
                     if match:
                         levels, default = self._extract_metadata(match)
                         source = "provider_metadata" if levels or default else "provider_catalog_no_effort_metadata"
                     else:
                         source = "model_not_in_provider_catalog"
-                except Exception as exc:
-                    error_type = type(exc).__name__
 
                 # Provider metadata wins. Existing trusted config/profile is the
                 # fallback for providers whose models catalog omits effort data.
