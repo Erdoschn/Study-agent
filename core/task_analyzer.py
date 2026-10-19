@@ -5,6 +5,7 @@ from typing import Any
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .context_management import role_context
 from .errors import AttachmentUploadError
 
 
@@ -48,6 +49,7 @@ class TaskAnalyzer:
         self.model_factory = reasoner.model_factory
         self.allow_paid = reasoner.allow_paid
 
+    @role_context("task_analyzer")
     def analyze(self, question: str, student_state=None) -> TaskAnalysis:
         with debug.scope("TaskAnalyzer", "ANALYZE"):
             prompt = json.dumps(

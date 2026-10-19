@@ -3,6 +3,7 @@ import json
 from .__debug__ import debug
 from .model_router import get_model_choices, call_model_with_effort
 from .prompt_config import get_prompt
+from .context_management import role_context
 
 
 class TeachingValidator:
@@ -260,6 +261,7 @@ class TeachingValidator:
         }
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
+    @role_context("teaching_validator")
     def validate(self, state, draft_answer: str) -> dict:
         choices = get_model_choices(self.model_router, "verification", allow_paid=self.allow_paid, task_analysis=getattr(state, "task_analysis", None), plan=getattr(state, "plan", None))
         if not choices:
