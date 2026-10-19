@@ -55,3 +55,50 @@ def test_refresh_uses_cached_record_until_ttl_expires(tmp_path, monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", forbidden)
     cache.refresh(config)
     assert cache.snapshot()["count"] == 1
+
+
+
+def test_refresh_fetches_provider_catalog_once_for_multiple_models(tmp_path, monkeypatch):
+    cache = ModelCapabilityCache(tmp_path)
+    provider = {
+        "type": "openai_compatible",
+        "enabled": True,
+        "base_url": "https://example.invalid/v1",
+        "api_key": "secret",
+    }
+    config = {
+        "providers": {"provider-a": provider},
+        "models": {
+            "model-a": {"provider": "provider-a", "model": "model-a"},
+            "model-b": {"provider": "provider-a", "model": "model-b"},
+        },
+    }
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return json.dumps({
+                "data": [
+                    {"id": "model-a", "effort": {"supported_levels": ["low"]}},
+                    {"id": "model-b", "effort": {"supported_levels": ["high"]}},
+                ]
+            }).encode()
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    snapshot = cache.refresh(config)
+    assert len(calls) == 1
+    assert snapshot["count"] == 2
+    assert {item["model"]: item["capabilities"]["supported_levels"] for item in snapshot["items"]} == {
+        "model-a": ["low"],
+        "model-b": ["high"],
+    }
