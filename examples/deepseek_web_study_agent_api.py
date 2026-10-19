@@ -33,6 +33,7 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
+from core.model_capabilities import ModelCapabilityCache
 from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
@@ -459,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
         if origin and _allowed_browser_origin(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 
     def _json(self, payload: dict[str, Any], status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode()
@@ -586,7 +587,32 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1/models":
             self._json({"object": "list", "data": [{"id": MODEL_ID, "object": "model", "created": int(time.time()), "owned_by": "Erdoschn/Study-agent"}]})
             return
+        if path == "/v1/models/capabilities":
+            cache = getattr(self.server, "model_capability_cache", None)
+            self._json(cache.snapshot() if cache else {"items": [], "count": 0, "status": "unavailable"})
+            return
+        if path == "/v1/cache":
+            cache = getattr(self.server, "model_capability_cache", None)
+            self._json({"server": cache.storage_info() if cache else {"bytes": 0, "items": 0}})
+            return
         self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
+
+    def do_DELETE(self) -> None:
+        if not self._origin_allowed():
+            self._json({"error": {"message": "不允许此浏览器来源访问本地 API。", "type": "authentication_error"}}, 403)
+            return
+        if not self._authorized():
+            self._json({"error": {"message": "Unauthorized", "type": "authentication_error"}}, 401)
+            return
+        if urlparse(self.path).path != "/v1/cache":
+            self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
+            return
+        cache = getattr(self.server, "model_capability_cache", None)
+        if cache is None:
+            self._json({"cleared": False, "error": "cache_unavailable"}, 503)
+            return
+        result = cache.clear()
+        self._json(result, 200 if result.get("cleared") else 500)
 
     def do_POST(self) -> None:
         if not self._origin_allowed():
@@ -808,6 +834,17 @@ def main() -> None:
     agent = build_agent(config)
     server = Server((HOST, PORT), Handler)
     server.agent = agent
+    capability_cache = ModelCapabilityCache(ROOT)
+    server.model_capability_cache = capability_cache
+
+    # Best-effort asynchronous discovery must never block the browser-only server startup.
+    def refresh_capabilities() -> None:
+        try:
+            capability_cache.refresh(config)
+        except Exception as exc:
+            debug.log("StudyAgentWebAPI", f"CAPABILITY PREWARM FAILED → {type(exc).__name__}")
+    threading.Thread(target=refresh_capabilities, name="model-capability-prewarm", daemon=True).start()
+
     browser_prewarmed = _prewarm_browser_model(agent)
     print(f"Study Agent Web API listening on http://{HOST}:{PORT}")
     print(f"OpenAI endpoint: http://{HOST}:{PORT}/v1")
