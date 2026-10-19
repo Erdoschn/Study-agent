@@ -18,11 +18,15 @@ from .browser_automation_config import (
     deep_merge_config,
 )
 from .operation_timing import OperationTiming
+from .browser_environment import write_browser_environment_report
 
 
 _DEFAULT_BROWSER_UI = DEFAULT_BROWSER_AUTOMATION_CONFIG.get("ui", {})
 if not isinstance(_DEFAULT_BROWSER_UI, dict):
     _DEFAULT_BROWSER_UI = {}
+_DEFAULT_BROWSER_ENVIRONMENT = DEFAULT_BROWSER_AUTOMATION_CONFIG.get("environment", {})
+if not isinstance(_DEFAULT_BROWSER_ENVIRONMENT, dict):
+    _DEFAULT_BROWSER_ENVIRONMENT = {}
 _DEFAULT_UI_SELECTORS = _DEFAULT_BROWSER_UI.get("selectors", {})
 if not isinstance(_DEFAULT_UI_SELECTORS, dict):
     _DEFAULT_UI_SELECTORS = {}
@@ -156,6 +160,7 @@ class BrowserModel(ModelClient):
         min_send_interval_seconds: float | None = None,
         timing_config: dict[str, Any] | None = None,
         ui_config: dict[str, Any] | None = None,
+        environment_config: dict[str, Any] | None = None,
         poll_interval: float = 0.5,
         stable_seconds: float = 1.2,
         invalid_json_grace_seconds: float = 3.0,
@@ -177,6 +182,15 @@ class BrowserModel(ModelClient):
         if ui_config is not None and not isinstance(ui_config, dict):
             raise ValueError("ui_config 必须是对象。")
         self.ui_config = deep_merge_config(_DEFAULT_BROWSER_UI, ui_config or {})
+        if environment_config is not None and not isinstance(environment_config, dict):
+            raise ValueError("environment_config 必须是对象。")
+        self.environment_config = deep_merge_config(
+            _DEFAULT_BROWSER_ENVIRONMENT, environment_config or {}
+        )
+        diagnostics_enabled = self.environment_config.get("diagnostics_enabled", True)
+        if not isinstance(diagnostics_enabled, bool):
+            raise ValueError("browser_automation.environment.diagnostics_enabled 必须是布尔值。")
+        self.environment_diagnostics_enabled = diagnostics_enabled
         selectors = self.ui_config.get("selectors", {})
         labels = self.ui_config.get("labels", {})
         timeouts_ms = self.ui_config.get("timeouts_ms", {})
@@ -480,6 +494,7 @@ class BrowserModel(ModelClient):
                 "PREWARM LOGIN → chat input still not detected; manual login or site-side check may be required",
             )
         self._send_browser_window_to_back(page)
+        self._record_environment_diagnostics()
         debug.log(
             "BrowserModel",
             f"BROWSER READY → profile={self.user_data_dir}, url={self.url}, "
@@ -932,6 +947,33 @@ class BrowserModel(ModelClient):
             ensure_ascii=False,
             separators=(",", ":"),
         )
+
+    def _record_environment_diagnostics(self) -> None:
+        """Record safe local environment metadata without touching site identity."""
+        if not self.environment_diagnostics_enabled:
+            return
+        browser = getattr(self._context, "browser", None)
+        browser_version = getattr(browser, "version", None)
+        try:
+            report = write_browser_environment_report(
+                user_data_dir=self.user_data_dir,
+                browser_channel=self.browser_channel,
+                target_url=self.url,
+                browser_version=browser_version,
+            )
+            debug.log(
+                "BrowserModel",
+                "ENVIRONMENT REPORT → "
+                f"settings_signature={report['settings_signature']}, "
+                f"environment_signature={report['environment_signature']}, "
+                f"browser_version={report['browser'].get('version') or 'unknown'}",
+            )
+        except Exception as exc:
+            # Diagnostics must never block browser startup or model requests.
+            debug.log(
+                "BrowserModel",
+                f"ENVIRONMENT REPORT SKIP → {type(exc).__name__}",
+            )
 
     def close(self, *, preserve_send_throttle: bool = False) -> None:
         """Close the owned browser context, optionally preserving send spacing."""

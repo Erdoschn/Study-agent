@@ -54,6 +54,7 @@ class CoderBrowserSession:
             ),
             "timing_config": model_kwargs.get("timing_config"),
             "ui_config": model_kwargs.get("ui_config"),
+            "environment_config": model_kwargs.get("environment_config"),
             "debug_mode": bool(model_kwargs.get("debug_mode", False)),
         }
         self.model = self._model_kwargs["model"]

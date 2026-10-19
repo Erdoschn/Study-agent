@@ -26,5 +26,6 @@ Thumbs.db
 .coder-browser/
 
 # Local runtime / user state (keep directory placeholders when desired).
+data/browser-environment/
 data/*.sqlite3
 data/*.db
