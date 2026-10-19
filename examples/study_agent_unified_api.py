@@ -322,7 +322,7 @@ def discover_provider_models(
             if len(raw) > 2 * 1024 * 1024:
                 raise ValueError("模型目录响应超过 2 MiB")
             payload = json.loads(raw.decode("utf-8"))
-            entries = payload.get("data", []) if isinstance(payload, dict) else []
+            entries = payload.get("data") if isinstance(payload, dict) else None
             if not isinstance(entries, list) and isinstance(payload, dict):
                 entries = payload.get("models", [])
             if not isinstance(entries, list):
@@ -358,7 +358,7 @@ def discover_provider_models(
             status[str(provider_name)] = {
                 "ok": True, "count": len(live_ids), "added": added, "error": ""
             }
-        except (urllib.error.URLError, TimeoutError, OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        except Exception as exc:
             status[str(provider_name)] = {
                 "ok": False,
                 "count": 0,
@@ -938,6 +938,9 @@ class Handler(BaseHTTPRequestHandler):
             if model_id not in available_model_ids:
                 raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
             username = resolve_request_username(request)
+            model_entry = (getattr(self.server, "api_backend_config", {}).get("models", {}) or {}).get(model_id, {})
+            if isinstance(model_entry, dict) and model_entry.get("pricing_unknown") and not request.get("allow_unknown_cost", False):
+                raise ValueError("该自动发现模型的价格/credit 状态未知。请在前端确认费用风险后重试，或先核实 Provider 定价。")
             last_user_question = next(
                 (str(item.get("content", "")).strip() for item in reversed(messages)
                  if isinstance(item, dict) and item.get("role") == "user"

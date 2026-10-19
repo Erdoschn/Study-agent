@@ -42,7 +42,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
 <script>
 const DEF="/v1",KEY_PREFIX="studyagent.ui.v3.user.",USERNAME_KEY="studyagent.username";
 const $=s=>document.querySelector(s);
-const state={username:localStorage.getItem(USERNAME_KEY)||"",conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"deepseek-web"};
+const state={username:localStorage.getItem(USERNAME_KEY)||"",unknownCostApproved:new Set(),conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"deepseek-web"};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
@@ -160,7 +160,7 @@ async function refreshModelOptions(){
  select.textContent="";
  for(const model of records){
   if(!model||typeof model.id!=="string"||!model.id)continue;
-  const option=document.createElement("option");option.value=model.id;
+  const option=document.createElement("option");option.value=model.id;option.dataset.pricingUnknown=model.pricing_unknown?"1":"0";
   option.textContent=(model.display_name||model.id)+(model.pricing_unknown?" · 费用未知":"");
   option.title=(model.provider||"provider unknown")+" · "+model.id+(model.pricing_unknown?" · 请先核实 Provider 定价/额度":"");
   select.append(option);
@@ -193,7 +193,8 @@ async function sendMessage(){
  input.value="";autoResize();clearPendingFiles();persist();render();running(true);scroll();
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
-   const payload={username:state.username,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+   const selectedOption=$("#modelChoice").selectedOptions[0];if(selectedOption?.dataset.pricingUnknown==="1"&&!state.unknownCostApproved?.has(state.model)){if(!confirm("该模型由 Provider 的 /models 接口自动发现，但费用/credit 状态未知。请先核实价格。继续发送可能消耗 API 额度或产生费用。是否继续？"))return;if(!state.unknownCostApproved)state.unknownCostApproved=new Set();state.unknownCostApproved.add(state.model)}
+  const payload={username:state.username,allow_unknown_cost:state.unknownCostApproved?.has(state.model)||false,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});

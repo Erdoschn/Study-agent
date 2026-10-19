@@ -5,7 +5,7 @@ documents are parsed locally and their extracted text is added as untrusted cont
 """
 from __future__ import annotations
 
-import csv
+import zipfile
 import io
 import json
 from pathlib import PurePosixPath
@@ -38,6 +38,19 @@ def _decode_text(data: bytes, filename: str) -> str:
     raise ValueError(f"文件 {filename} 不是可识别的文本编码。")
 
 
+def _validate_office_archive(filename: str, data: bytes) -> None:
+    """Reject malformed or oversized Office ZIP containers before parsing."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            infos = archive.infolist()
+            if len(infos) > 5000:
+                raise ValueError(f"文件 {filename} 包含过多的压缩条目。")
+            if sum(info.file_size for info in infos) > 100 * 1024 * 1024:
+                raise ValueError(f"文件 {filename} 解压后超过 100 MiB 安全上限。")
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"文件 {filename} 不是有效的 Office 文档。") from exc
+
+
 def _extract_one(filename: str, data: bytes) -> str:
     suffix = PurePosixPath(filename.replace("\\", "/")).suffix.casefold()
     if suffix in TEXT_SUFFIXES or not suffix:
@@ -66,6 +79,7 @@ def _extract_one(filename: str, data: bytes) -> str:
             raise ValueError(f"PDF {filename} 未提取到可搜索文字；扫描件/图片型 PDF 需要 OCR 或 Web Model。")
         return text[:MAX_FILE_TEXT_CHARS]
     if suffix == ".docx":
+        _validate_office_archive(filename, data)
         try:
             from docx import Document
         except ImportError as exc:
@@ -77,6 +91,7 @@ def _extract_one(filename: str, data: bytes) -> str:
                 chunks.append(" | ".join(cell.text.replace("\n", " ") for cell in row.cells))
         return "\n".join(chunks)[:MAX_FILE_TEXT_CHARS]
     if suffix == ".xlsx":
+        _validate_office_archive(filename, data)
         try:
             from openpyxl import load_workbook
         except ImportError as exc:
@@ -101,6 +116,7 @@ def _extract_one(filename: str, data: bytes) -> str:
             workbook.close()
         return "\n".join(chunks)[:MAX_FILE_TEXT_CHARS]
     if suffix == ".pptx":
+        _validate_office_archive(filename, data)
         try:
             from pptx import Presentation
         except ImportError as exc:
