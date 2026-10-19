@@ -188,7 +188,7 @@ def load_observability_settings() -> dict[str, Any]:
     return settings
 
 
-def load_config() -> dict[str, Any]:
+def load_config(*, refresh_remote_models: bool = True) -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(
             f"找不到配置文件：{CONFIG_PATH}"
@@ -216,7 +216,8 @@ def load_config() -> dict[str, Any]:
     )
     config["observability"] = merge_observability_config(config)
     _merge_model_profiles(config)
-    _refresh_provider_models(config)
+    if refresh_remote_models:
+        _refresh_provider_models(config)
     debug.log(
         "ConfigLoader",
         f"CONFIG → providers={len(config.get('providers', {}) if isinstance(config.get('providers', {}), dict) else {})}, models={len(config.get('models', {}) if isinstance(config.get('models', {}), dict) else {})}, debug={bool(config.get('debug', False))}",

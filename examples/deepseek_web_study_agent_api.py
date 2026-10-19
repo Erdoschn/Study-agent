@@ -829,7 +829,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     _require_auth_for_non_loopback_bind()
-    config = load_config()
+    config = load_config(refresh_remote_models=False)
     setup_debug(config)
     agent = build_agent(config)
     server = Server((HOST, PORT), Handler)
