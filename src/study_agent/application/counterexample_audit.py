@@ -49,17 +49,36 @@ class CounterexampleAuditService:
         if dossier_claims.get(claim.id) != claim:
             raise ValueError("claim must belong to the supplied dossier version")
 
-        candidates = tuple(self._generator.find_counterexamples(dossier, claim))[
+        raw_candidates = tuple(self._generator.find_counterexamples(dossier, claim))[
             : self._policy.max_candidates_per_claim
         ]
+        candidates_list = []
+        seen_candidate_ids: set[str] = set()
+        malformed_candidate_count = 0
+        for candidate in raw_candidates:
+            if not isinstance(candidate, CounterexampleCandidate):
+                malformed_candidate_count += 1
+                continue
+            if candidate.id in seen_candidate_ids:
+                malformed_candidate_count += 1
+                continue
+            seen_candidate_ids.add(candidate.id)
+            candidates_list.append(candidate)
+        candidates = tuple(candidates_list)
+
         if not candidates:
-            # Generator was invoked, but no counterexample was found.
-            # This is deliberately not a claim that the answer is true.
+            # An empty clean response is "not falsified", not proof. Malformed
+            # output is a protocol failure and must remain unresolved.
+            malformed = malformed_candidate_count > 0
             return ClaimAuditResult(
                 claim_id=claim.id,
-                outcome=AuditOutcome.NOT_FALSIFIED,
+                outcome=AuditOutcome.UNRESOLVED if malformed else AuditOutcome.NOT_FALSIFIED,
                 attempted=True,
-                finding="No candidate counterexample was returned; this is not proof of correctness.",
+                finding=(
+                    "Counterexample generator returned malformed or duplicate candidates; audit remains unresolved."
+                    if malformed else
+                    "No candidate counterexample was returned; this is not proof of correctness."
+                ),
             )
 
         validations: list[CandidateValidation] = []
@@ -119,18 +138,28 @@ class CounterexampleAuditService:
             or item.contradiction_confirmed is False
             for item in validations
         )
-        outcome = AuditOutcome.NOT_FALSIFIED if all_invalid else AuditOutcome.UNRESOLVED
+        outcome = (
+            AuditOutcome.UNRESOLVED
+            if malformed_candidate_count
+            else AuditOutcome.NOT_FALSIFIED if all_invalid else AuditOutcome.UNRESOLVED
+        )
+        findings = []
+        if all_invalid:
+            findings.append("All candidate counterexamples were invalid; no claim of correctness is implied.")
+        else:
+            findings.append("Available checks did not resolve whether a counterexample refutes this claim.")
+        if malformed_candidate_count:
+            findings.append(
+                f"Generator returned {malformed_candidate_count} malformed or duplicate candidate(s); "
+                "the audit is incomplete."
+            )
         return ClaimAuditResult(
             claim_id=claim.id,
             outcome=outcome,
             attempted=True,
             candidates=candidates,
             validations=tuple(validations),
-            finding=(
-                "All candidate counterexamples were invalid; no claim of correctness is implied."
-                if all_invalid else
-                "Available checks did not resolve whether a counterexample refutes this claim."
-            ),
+            finding=" ".join(findings),
         )
 
     def audit_dossier(self, dossier: TaskDossier) -> AuditReport:
