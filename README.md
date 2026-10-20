@@ -1542,3 +1542,8 @@ Neither snapshot is exposed as a Coder action, neither is mounted into the execu
 ### Role context isolation and cache behavior
 
 StudyAgent scopes model calls by user profile, conversation/task ID, and role. Role histories are bounded and separate; task facts and inter-role handoffs are explicit and user/task-scoped. Stable system/role instructions should remain byte-identical at the start of requests to give compatible Providers the best chance of prompt-cache reuse. Provider cache behavior is not guaranteed by the application. See [role context and cache design](docs/role-context-and-cache.md).
+
+
+## Architecture governance
+
+The target module boundaries, dependency rules and staged migration plan are documented in [Architecture](docs/architecture/README.md). See the [current module ownership map](docs/architecture/module-ownership.md), [migration plan](docs/architecture/migration-plan.md), [epistemic integrity design](docs/architecture/epistemic-integrity.md), and [ADR 0001: modular monolith](docs/architecture/decisions/0001-modular-monolith.md). These documents describe the intended architecture; they do not claim that the codebase has already completed the migration.

@@ -7,6 +7,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 KNOWLEDGE_GRAPH_PATH = PROJECT_ROOT / "data" / "knowledge_graph.sqlite3"
 
 from config.loader import (
@@ -14,117 +18,11 @@ from config.loader import (
     setup_debug,
 )
 
-from core import (
-    AgentReasoner,
-    ModelClientFactory,
-    ModelRegistry,
-    ModelRouter,
-    StudyAgent,
-    Teacher,
-    ToolExecutor,
+from study_agent.bootstrap import (
+    KNOWLEDGE_GRAPH_PATH,
+    build_agent,
+    build_search_router,
 )
-
-from tools.search import (
-    ArxivSearchProvider,
-    SearchRouter,
-    WikipediaSearchProvider,
-)
-
-
-def build_search_router() -> SearchRouter:
-    """
-    创建搜索工具路由器。
-    """
-
-    router = SearchRouter()
-
-    router.register(
-        ArxivSearchProvider()
-    )
-
-    router.register(
-        WikipediaSearchProvider()
-    )
-
-    return router
-
-
-def build_agent(
-    config: dict,
-    *,
-    allow_paid: bool = False,
-) -> StudyAgent:
-    """
-    根据配置创建完整 Study Agent。
-    """
-
-    # -----------------------------
-    # Model Registry
-    # -----------------------------
-    registry = ModelRegistry(
-        config
-    )
-
-    # -----------------------------
-    # Model Router
-    # -----------------------------
-    model_router = ModelRouter(
-        registry
-    )
-
-    # -----------------------------
-    # Model Factory
-    # -----------------------------
-    model_factory = ModelClientFactory(
-        config
-    )
-
-    # -----------------------------
-    # Reasoner
-    #
-    # 默认不允许付费模型。
-    # -----------------------------
-    reasoner = AgentReasoner(
-        model_router=model_router,
-        model_factory=model_factory,
-        allow_paid=allow_paid,  # 仅显式 --allow-paid 时允许付费模型
-    )
-
-    # -----------------------------
-    # Teacher
-    #
-    # 与 Reasoner 使用相同的付费模型策略。
-    # -----------------------------
-    teacher = Teacher(
-        model_router=model_router,
-        model_factory=model_factory,
-        allow_paid=allow_paid,
-    )
-
-    # -----------------------------
-    # Search Router
-    # -----------------------------
-    search_router = (
-        build_search_router()
-    )
-
-    # -----------------------------
-    # Tool Executor
-    # -----------------------------
-    executor = ToolExecutor(
-        search_router=search_router
-    )
-
-    # -----------------------------
-    # Study Agent
-    # -----------------------------
-    return StudyAgent(
-        reasoner=reasoner,
-        teacher=teacher,
-        tool_executor=executor,
-        max_steps=None,
-        knowledge_graph_path=KNOWLEDGE_GRAPH_PATH,
-    )
 
 
 def print_trace(

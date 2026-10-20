@@ -24,9 +24,14 @@ WEB_ROOT = ROOT / "web"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 from config.loader import load_config, setup_debug
 from examples.study_agent_api import Handler as LegacyHandler, build_agent as build_api_agent
-from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
+from core import StudyAgent
+from study_agent.bootstrap import build_agent as _build_agent, build_search_router
 from core.__debug__ import debug
 from core.http_security import (
     RequestBodyTooLarge,
@@ -40,7 +45,6 @@ from core.user_identity import UserProfileLimitError, normalize_username, user_g
 from core.model_capabilities import ModelCapabilityCache
 from core.file_ingestion import extract_attachments_to_text
 from core.context_management import context_scope
-from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 MODEL_ID = "deepseek-web"
 API_MODEL_ID = "study-agent"
@@ -191,13 +195,6 @@ def _run_agent_with_cancellation(agent, question: str, cancellation_event: threa
     return run(question)
 
 
-def build_search_router() -> SearchRouter:
-    router = SearchRouter()
-    router.register(ArxivSearchProvider())
-    router.register(WikipediaSearchProvider())
-    return router
-
-
 def build_web_only_config(config: dict[str, Any]) -> dict[str, Any]:
     providers = config.get("providers", {})
     models = config.get("models", {})
@@ -222,27 +219,35 @@ def build_web_only_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def build_web_agent(config: dict[str, Any]) -> StudyAgent:
     isolated = build_web_only_config(config)
-    registry = ModelRegistry(isolated)
-    # This endpoint intentionally has exactly one LLM candidate. Core routing
-    # cooldowns would turn one transient browser error into "no available model"
-    # for the rest of the same request, so the isolated registry retries the
-    # browser backend instead of hiding the only candidate.
-    registry.BASE_COOLDOWN_SECONDS = 0.0
-    registry.MAX_COOLDOWN_SECONDS = 0.0
-    registry.PROVIDER_COOLDOWN_SECONDS = 0.0
-    router = ModelRouter(registry)
-    factory = ModelClientFactory(isolated)
-    reasoner = AgentReasoner(router, factory, allow_paid=False)
-    teacher = Teacher(router, factory, allow_paid=False)
-    agent = StudyAgent(
-        reasoner=reasoner,
-        teacher=teacher,
-        tool_executor=ToolExecutor(search_router=build_search_router()),
-        max_steps=None,
+    runtime_components: dict[str, Any] = {}
+
+    def configure_registry(registry: Any) -> None:
+        # This endpoint intentionally has one candidate; a transient failure
+        # must not cool down the only browser model for the rest of the request.
+        registry.BASE_COOLDOWN_SECONDS = 0.0
+        registry.MAX_COOLDOWN_SECONDS = 0.0
+        registry.PROVIDER_COOLDOWN_SECONDS = 0.0
+
+    def capture_components(
+        _config: dict[str, Any],
+        registry: Any,
+        _model_router: Any,
+        model_factory: Any,
+    ) -> None:
+        runtime_components["registry"] = registry
+        runtime_components["factory"] = model_factory
+
+    agent = _build_agent(
+        isolated,
+        allow_paid=False,
         knowledge_graph_path=ROOT / "data" / "knowledge_graph.sqlite3",
+        configure_registry=configure_registry,
+        before_agent=capture_components,
     )
-    agent._web_model_factory = factory
-    agent._web_model_registry = registry
+    # Legacy browser lifecycle hooks read these attributes. Keep them while
+    # callers migrate to an explicit runtime handle.
+    agent._web_model_factory = runtime_components["factory"]
+    agent._web_model_registry = runtime_components["registry"]
     return agent
 
 
