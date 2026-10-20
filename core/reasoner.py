@@ -108,13 +108,18 @@ class OpenAICompatibleClient(ModelClient):
         reasoning_effort: str | None = None,
     ) -> str:
         prefix_fingerprint = stable_prefix_fingerprint(system_prompt, version="system-prompt-v1")
+        # GPT-5-family endpoints reject custom temperature values (LiteLLM
+        # returns HTTP 400 for temperature=0.1). Keep the existing sampling
+        # behavior for other models, but use the supported default for GPT-5.
+        model_id = str(self.model or "").strip().lower().rsplit("/", 1)[-1]
+        temperature = 1 if re.match(r"^gpt-5(?:$|[-./])", model_id) else 0.1
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": 0.1,
+            "temperature": temperature,
         }
         if reasoning_effort:
             payload["reasoning_effort"] = reasoning_effort
