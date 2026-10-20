@@ -37,7 +37,8 @@ class SQLiteTaskDossierRepository:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        connection = self._connect()
+        try:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS task_dossiers (
@@ -56,6 +57,9 @@ class SQLiteTaskDossierRepository:
                 ON task_dossiers(user_id, task_id, version DESC)
                 """
             )
+            connection.commit()
+        finally:
+            connection.close()
 
     @staticmethod
     def _validate_scope(user_id: object, task_id: object) -> tuple[str, str]:
@@ -69,7 +73,8 @@ class SQLiteTaskDossierRepository:
 
     def load_latest(self, *, user_id: str, task_id: str) -> TaskDossier | None:
         user, task = self._validate_scope(user_id, task_id)
-        with self._connect() as connection:
+        connection = self._connect()
+        try:
             row = connection.execute(
                 """
                 SELECT payload_json FROM task_dossiers
@@ -78,6 +83,8 @@ class SQLiteTaskDossierRepository:
                 """,
                 (user, task),
             ).fetchone()
+        finally:
+            connection.close()
         if row is None:
             return None
         data = json.loads(row["payload_json"])
@@ -97,7 +104,8 @@ class SQLiteTaskDossierRepository:
         user, task = self._validate_scope(user_id, task_id)
         if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise ValueError("version must be a positive integer")
-        with self._connect() as connection:
+        connection = self._connect()
+        try:
             row = connection.execute(
                 """
                 SELECT payload_json FROM task_dossiers
@@ -105,6 +113,8 @@ class SQLiteTaskDossierRepository:
                 """,
                 (user, task, version),
             ).fetchone()
+        finally:
+            connection.close()
         if row is None:
             return None
         dossier = TaskDossier.from_dict(json.loads(row["payload_json"]))
