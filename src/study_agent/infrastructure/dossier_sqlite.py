@@ -5,7 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from core.storage_security import ensure_safe_sqlite_path
+from study_agent.infrastructure.storage_security import ensure_safe_sqlite_path
 from study_agent.domain.task_dossier import TaskDossier
 
 
