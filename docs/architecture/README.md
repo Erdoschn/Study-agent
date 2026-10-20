@@ -140,6 +140,15 @@ For every feature or bug fix:
 5. Add or update architecture tests when dependency rules change.
 6. Update this document only when the architecture contract changes—not for every implementation detail.
 
+## Epistemic integrity and answer auditing
+
+The agent must preserve critical task details across context projection and must not equate model agreement with factual correctness. The [Epistemic Integrity design](epistemic-integrity.md) defines two first-class mechanisms:
+
+- A versioned, user-scoped Task Dossier holding source facts, requirements, open questions and claim provenance. Prompt payloads are views of the Dossier, not replacements for source material; any truncation of critical information is explicit.
+- Counterexample-driven auditing: decompose material claims, attempt to falsify them, and independently validate candidate counterexamples with evidence, deterministic computation, tests or formal tools where available.
+
+The accepted audit outcomes distinguish `REFUTED`, `SUPPORTED_WITH_EVIDENCE`, `NOT_FALSIFIED`, `UNRESOLVED`, `NOT_TESTED` and `INVALID_COUNTEREXAMPLE`. "No counterexample found" never means "proven true". User-facing feedback must identify the exact claim, counterexample/source, violated condition and correction or unresolved check.
+
 ## Migration compatibility
 
 Until migration is complete:
