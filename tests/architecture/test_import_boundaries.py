@@ -90,10 +90,6 @@ def test_new_architecture_layers_use_only_declared_dependencies() -> None:
                 ):
                     violations.append(f"{module} ({layer}) imports forbidden layer/module {imported}")
             elif top_level not in sys.stdlib_module_names:
-                if layer == "infrastructure" and imported == "core.storage_security":
-                    # Transitional adapter: reuse the existing hardened path
-                    # guard until the storage security module itself is migrated.
-                    continue
                 violations.append(f"{module} ({layer}) imports non-standard dependency {imported}")
 
     assert not violations, "Architecture dependency violations:\n" + "\n".join(violations)
