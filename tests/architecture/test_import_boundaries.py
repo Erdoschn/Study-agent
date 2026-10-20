@@ -68,9 +68,9 @@ def test_new_architecture_layers_use_only_declared_dependencies() -> None:
         module = _module_name(path)
         layer = _layer_for(module)
         if layer is None:
-            # The composition root is intentionally allowed to wire concrete
-            # implementations. It is the only current exception.
-            if module == "study_agent.bootstrap":
+            # Package initializers and the composition root are intentionally
+            # allowed to expose packages / wire concrete implementations.
+            if module in {"study_agent", "study_agent.bootstrap"}:
                 continue
             violations.append(f"{path.relative_to(ROOT)} is outside a declared layer")
             continue
