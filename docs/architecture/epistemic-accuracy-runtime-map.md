@@ -2,7 +2,7 @@
 
 > 基线分支：master
 > 核查日期：2026-10-20
-> 性质：静态代码追踪与既有测试映射，不代表执行过完整测试套件。
+> 性质：静态代码追踪 + GitHub Actions 全量测试基线。PR #41 的 Python 3.11、Python 3.13 测试与 Coder sandbox security job 均通过；未修改运行时行为。
 > 目标：明确未来 TaskDossier / 审计能力应当接入的真实位置，防止把 README 的策略图误当成可运行的调度器。
 
 ## 1. 结论摘要
@@ -147,9 +147,14 @@ docs/architecture/migration-plan.md 也明确注明 end-to-end integration remai
 
 本阶段只增加调用图文档和 characterization tests，不改运行时行为。后续接线前应以真实 CI 结果为基线：
 
-- [ ] test/test_execution_routing.py：简单问题仍走 AgentToolLoop，ModelRouter 不选择 execution strategy；未添加独立 direct_verified dispatch。
-- [ ] test/test_teacher_integration.py：ANSWER 草稿经过 Teacher；Teacher 失败保留 Reasoner 草稿；Teacher 可选。
-- [ ] test/test_teaching_validator.py：没有可用 Validator 模型时返回 UNCERTAIN/attempted=False，而不是 PASS。
-- [ ] tests/test_bootstrap.py：共享 composition root 与旧导出兼容。
-- [ ] API tests：旧式和 unified API 的响应格式、取消与清理仍兼容。
-- [ ] tests/test_task_dossier.py / tests/test_dossier_sqlite_repository.py：确认当前只是组件级测试，不把它们算成 runtime integration coverage。
+- [x] test/test_execution_routing.py：简单问题仍走 AgentToolLoop，ModelRouter 不选择 execution strategy；未添加独立 direct_verified dispatch。
+- [x] test/test_teacher_integration.py：ANSWER 草稿经过 Teacher；Teacher 失败保留 Reasoner 草稿；Teacher 可选。
+- [x] test/test_teaching_validator.py：没有可用 Validator 模型时返回 UNCERTAIN/attempted=False，而不是 PASS。
+- [x] tests/test_bootstrap.py：共享 composition root 与旧导出兼容。
+- [x] API tests：旧式和 unified API 的响应格式、取消与清理仍兼容。
+- [x] tests/test_task_dossier.py / tests/test_dossier_sqlite_repository.py：确认当前只是组件级测试，不把它们算成 runtime integration coverage。
+
+
+## Validation result
+
+PR #41 CI completed successfully on Python 3.11 and 3.13, including the separate Coder sandbox security job. These results establish a baseline for the current source tree; they do not imply TaskDossier or counterexample auditing is wired into the live runtime.
