@@ -389,7 +389,13 @@ class AgentReasoner:
         arguments = data.get("arguments", {})
         if not isinstance(arguments, dict):
             arguments = {}
-        tool = str(data.get("tool", "")).strip().lower() if data.get("tool") is not None else None
+        raw_tool = data.get("tool")
+        # Some models return a tool-call object ({"name": "assess"}) instead
+        # of the schema's plain string. Normalize both representations before
+        # validating action/tool consistency.
+        if isinstance(raw_tool, dict):
+            raw_tool = raw_tool.get("name")
+        tool = str(raw_tool).strip().lower() if raw_tool is not None else None
         expected_tools = {
             "SEARCH": "search",
             "CALCULATE": "calculate",
