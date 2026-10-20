@@ -12,6 +12,7 @@
 <script>window.MathJax={tex:{inlineMath:[["$","$"],["\\(","\\)"]],displayMath:[["$$","$$"],["\\[","\\]"]]},svg:{fontCache:"global"}};</script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@4.1.3/tex-svg.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
+.web-toggle{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel2);font-size:12px;white-space:nowrap;cursor:pointer}.web-toggle input{accent-color:var(--ok);width:15px;height:15px;margin:0}.web-toggle:has(input:disabled){opacity:.6;cursor:default}
 :root{color-scheme:dark;--bg:#0f1115;--panel:#151821;--panel2:#1b1f28;--panel3:#232936;--border:#2b313c;--text:#e9ecf1;--muted:#929aaa;--muted2:#697282;--accent:#e7e9ee;--accentText:#111318;--user:#252c38;--danger:#e47074;--ok:#86c98a;--shadow:0 18px 70px rgba(0,0,0,.34)}
 *{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,textarea{font:inherit}button{cursor:pointer}
 .shell{height:100%;display:flex;overflow:hidden}.sidebar{width:280px;min-width:280px;display:flex;flex-direction:column;padding:18px 14px;background:#11141a;border-right:1px solid var(--border)}.brand{display:flex;gap:11px;align-items:center;padding:4px 8px 18px}.mark{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--accent);color:#111;font-weight:800}.brand strong{display:block}.brand small{display:block;color:var(--muted);font-size:11px}
@@ -34,7 +35,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
   <div class="side-bottom"><div class="storage-info" id="storageInfo" role="status">本地存储：尚未检测</div><div class="storage-actions"><button class="secondary" id="checkStorage" type="button">检测占用</button><button class="secondary" id="clearCache" type="button">清除缓存</button></div><button class="secondary" id="clearHistory" type="button">清除全部历史</button><button class="secondary" id="settings">⚙ 设置</button><div class="backend"><div class="dot" id="dot"></div><div><strong id="health">连接检查中</strong><small id="healthDetail">/health</small></div></div></div>
 </aside>
 <section class="main">
-<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><input id="username" class="model-select" style="max-width:145px" maxlength="64" value="" placeholder="用户名" aria-label="用户 Profile" title="不同用户名对应不同学习数据"><select id="modelChoice" class="model-select" aria-label="选择模型"><option value="deepseek-web">Web Model · DeepSeek</option></select><button class="icon" id="refreshModels" title="刷新 Provider 模型列表" aria-label="刷新模型">↻</button><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
+<header class="top"><button class="icon mobile" id="toggle">☰</button><div class="info"><strong>StudyAgent</strong><span id="modelLabel">DeepSeek Web · Browser Model</span></div><input id="username" class="model-select" style="max-width:145px" maxlength="64" value="" placeholder="用户名" aria-label="用户 Profile" title="不同用户名对应不同学习数据"><label class="web-toggle" title="开启时固定使用 DeepSeek Web；关闭时使用下拉框中的 API Model"><input id="useWebModel" type="checkbox" checked><span>使用 Web Model</span></label><select id="modelChoice" class="model-select" aria-label="选择 API Model"><option value="" disabled>未发现 API Model</option></select><button class="icon" id="refreshModels" title="刷新 Provider 模型列表" aria-label="刷新模型">↻</button><button class="icon" id="clear" title="清空当前对话">⌫</button></header>
 <main class="chat" id="chat"><div class="welcome" id="welcome"><div class="mark">S</div><h1>StudyAgent</h1><p>完整的 StudyAgent 会分析、搜索、推理和教学，并通过本地浏览器调用 DeepSeek Web。</p><div class="chips"><span>Markdown</span><span>代码高亮</span><span>LaTeX</span><span>搜索 / 工具状态</span><span>Knowledge Graph</span></div></div><section class="messages" id="messages"></section></main>
 <footer class="composer-wrap"><form class="composer" id="form"><div class="drop-overlay hidden" id="dropOverlay">松开文件，添加到当前对话</div><textarea id="input" maxlength="20000" rows="1" placeholder="输入你的问题…" autocomplete="off"></textarea><input id="fileInput" type="file" multiple hidden><div class="attachments hidden" id="attachments"></div><div class="tools"><div class="left-tools"><button class="attach" id="attach" type="button" title="添加原始附件">📎 添加文件</button><span class="hint">Enter 发送 · Shift+Enter 换行 · 支持拖入</span></div><button class="send" id="send" type="submit">发送</button></div></form><div class="foot">Web Model 接收原始附件；API Model 会在本机提取 PDF/DOCX/XLSX/PPTX 与文本文件内容，图片需使用 Web Model。请勿上传不应交给第三方的文件。对话文本和附件文件名会保存在当前浏览器本地存储，附件二进制不会持久保存；API Key 仅保留在当前页面内存中。请为不同使用者设置不同用户名；用户名只是本地 Profile 标识，不是身份认证。</div></footer>
 </section></div>
@@ -42,7 +43,7 @@ button{border:1px solid var(--border);background:var(--panel2);color:var(--text)
 <script>
 const DEF="/v1",KEY_PREFIX="studyagent.ui.v3.user.",USERNAME_KEY="studyagent.username";
 const $=s=>document.querySelector(s);
-const state={username:localStorage.getItem(USERNAME_KEY)||"",unknownCostApproved:new Set(),conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"deepseek-web"};
+const state={username:localStorage.getItem(USERNAME_KEY)||"",unknownCostApproved:new Set(),conversations:[],active:null,running:false,ctrl:null,pendingFiles:[],base:localStorage.getItem("studyagent.apiBase")||DEF,key:"",model:localStorage.getItem("studyagent.modelChoice")||"",useWebModel:localStorage.getItem("studyagent.useWebModel")!=="false"};
 try{localStorage.removeItem("studyagent.apiKey")}catch(_){}
 const messages=$("#messages"),welcome=$("#welcome"),input=$("#input"),send=$("#send"),chat=$("#chat"),list=$("#list"),fileInput=$("#fileInput"),attachmentsBox=$("#attachments"),dropOverlay=$("#dropOverlay");
 const MAX_UPLOAD_FILES=8,MAX_UPLOAD_FILE_BYTES=48*1024*1024,MAX_UPLOAD_TOTAL_BYTES=48*1024*1024;
@@ -141,16 +142,21 @@ function renderStatus(arr,isRunning){
  line.append(sp,now);box.append(line);
  return box;
 }
-function running(x){state.running=x;send.textContent=x?"取消等待":"发送";send.classList.toggle("stop",x);input.disabled=x;$("#modelChoice").disabled=x;$("#refreshModels").disabled=x;$("#attach").disabled=x}
+function running(x){state.running=x;send.textContent=x?"取消等待":"发送";send.classList.toggle("stop",x);input.disabled=x;$("#useWebModel").disabled=x;$("#modelChoice").disabled=x||state.useWebModel||!$("#modelChoice").options.length;$("#refreshModels").disabled=x;$("#attach").disabled=x}
+function updateModelSelection(){
+ const toggle=$("#useWebModel"),select=$("#modelChoice");
+ state.useWebModel=Boolean(toggle.checked);localStorage.setItem("studyagent.useWebModel",String(state.useWebModel));
+ select.disabled=state.running||state.useWebModel||select.options.length===0;
+ $("#modelLabel").textContent=state.useWebModel?"Web Model · DeepSeek":(select.selectedOptions[0]?.textContent||"API Model · 未配置");
+ $("#attach").disabled=state.running;
+ if(state.pendingFiles.length)$("#healthDetail").textContent=state.useWebModel?"附件将以原始文件发送给 Web Model。":"附件将先在本机提取文档文字，再发送给所选 API Model；图片需使用 Web Model。";
+ if(!state.useWebModel&&!state.model)$("#healthDetail").textContent="没有发现可用 API Model。请配置 Provider，或开启“使用 Web Model”。";
+}
 function setModelChoice(value){
  const select=$("#modelChoice"),valid=Array.from(select.options).some(option=>option.value===value);
- state.model=valid?value:"deepseek-web";
- if(!Array.from(select.options).some(option=>option.value===state.model))state.model=select.options[0]?.value||"deepseek-web";
- localStorage.setItem("studyagent.modelChoice",state.model);select.value=state.model;
- const selected=select.selectedOptions[0];
- $("#modelLabel").textContent=selected?.textContent||state.model;
- $("#attach").disabled=state.running;
- if(state.pendingFiles.length)$("#healthDetail").textContent=state.model==="deepseek-web"?"附件将以原始文件发送给 Web Model。":"附件将先在本机提取文档文字，再发送给所选 API Model；图片请使用 Web Model。"
+ state.model=valid?value:(select.options[0]?.value||"");
+ if(state.model)localStorage.setItem("studyagent.modelChoice",state.model);else localStorage.removeItem("studyagent.modelChoice");
+ select.value=state.model;updateModelSelection();
 }
 async function refreshModelOptions(){
  const response=await fetch(url("/models"),{headers:headers(),cache:"no-store"});
@@ -159,25 +165,32 @@ async function refreshModelOptions(){
  const select=$("#modelChoice"),previous=state.model;
  select.textContent="";
  for(const model of records){
-  if(!model||typeof model.id!=="string"||!model.id)continue;
+  if(!model||typeof model.id!=="string"||!model.id||model.id==="deepseek-web"||model.id==="study-agent")continue;
   const option=document.createElement("option");option.value=model.id;option.dataset.pricingUnknown=model.pricing_unknown?"1":"0";
   option.textContent=(model.display_name||model.id)+(model.pricing_unknown?" · 费用未知":"");
   option.title=(model.provider||"provider unknown")+" · "+model.id+(model.pricing_unknown?" · 请先核实 Provider 定价/额度":"");
   select.append(option);
  }
- if(!select.options.length)throw Error("服务端没有返回可用模型");
- setModelChoice(records.some(item=>item?.id===previous)?previous:select.options[0].value);
+ select.disabled=state.running||state.useWebModel||!select.options.length;
+ setModelChoice(Array.from(select.options).some(option=>option.value===previous)?previous:select.options[0]?.value||"");
 }
 async function health(){
- try{
-  const response=await fetch(url("/health"),{headers:headers(),cache:"no-store"});
-  if(!response.ok)throw Error("HTTP "+response.status);
-  const data=await response.json();
-  $("#dot").className="dot ok";$("#health").textContent="API 在线";
-  $("#healthDetail").textContent=(data.models||[]).length+" 个可用模型";
-  await refreshModelOptions();
- }catch(error){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(error.message||error)}
-}
+  try{
+   const response=await fetch(url("/health"),{headers:headers(),cache:"no-store"});
+   if(!response.ok)throw Error("HTTP "+response.status);
+   const data=await response.json();
+   $("#dot").className="dot ok";$("#health").textContent="API 在线";
+   $("#healthDetail").textContent=(data.models||[]).length+" 个可用模型";
+   try{
+    await refreshModelOptions();
+   }catch(error){
+    $("#healthDetail").textContent="API 在线，但 API Model 列表获取失败："+String(error.message||error)+"。Web Model 仍可单独尝试。";
+   }
+  }catch(error){
+   $("#dot").className="dot err";$("#health").textContent="API 离线";
+   $("#healthDetail").textContent=String(error.message||error);
+  }
+ }
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
@@ -186,7 +199,8 @@ async function sendMessage(){
  // composer. Keep the snapshot for this request only; later messages are text-only
  // unless the user explicitly attaches the files again.
  const filesForRequest=state.pendingFiles.slice();
- const selectedOption=$("#modelChoice").selectedOptions[0];if(selectedOption?.dataset.pricingUnknown==="1"&&!state.unknownCostApproved?.has(state.model)){if(!confirm("该模型由 Provider 的 /models 接口自动发现，但费用/credit 状态未知。请先核实价格。继续发送可能消耗 API 额度或产生费用。是否继续？"))return;if(!state.unknownCostApproved)state.unknownCostApproved=new Set();state.unknownCostApproved.add(state.model)}
+ if(!state.useWebModel&&!state.model){alert("当前没有可用的 API Model。请先配置 Provider，或开启“使用 Web Model”。");return}
+ const selectedOption=$("#modelChoice").selectedOptions[0];if(!state.useWebModel&&selectedOption?.dataset.pricingUnknown==="1"&&!state.unknownCostApproved?.has(state.model)){if(!confirm("该模型由 Provider 的 /models 接口自动发现，但费用/credit 状态未知。请先核实价格。继续发送可能消耗 API 额度或产生费用。是否继续？"))return;if(!state.unknownCostApproved)state.unknownCostApproved=new Set();state.unknownCostApproved.add(state.model)}
  const text=typed||(filesForRequest.length?"请阅读我上传的附件，并根据上下文完成分析。":"");if(!text)return;
  c.messages.push({role:"user",content:text,attachments:filesForRequest.map(file=>file.name)});
  if(c.messages.filter(m=>m.role==="user").length===1)c.title=title(text);
@@ -194,7 +208,7 @@ async function sendMessage(){
  input.value="";autoResize();clearPendingFiles();persist();render();running(true);scroll();
  const ctrl=new AbortController();state.ctrl=ctrl;
  try{
-   const payload={username:state.username,task_id:c.id,allow_unknown_cost:state.unknownCostApproved?.has(state.model)||false,model:state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
+   const payload={username:state.username,task_id:c.id,allow_unknown_cost:!state.useWebModel&&(state.unknownCostApproved?.has(state.model)||false),model:state.useWebModel?"deepseek-web":state.model,messages:c.messages.filter(m=>m.role!=="assistant"||m.done).map(m=>({role:m.role,content:m.content})),stream:true};
   const formData=new FormData();formData.append("request",JSON.stringify(payload));
   for(const file of filesForRequest)formData.append("file",file,file.name);
   const r=await fetch(url("/chat/completions"),{method:"POST",headers:headers(true),body:formData,signal:ctrl.signal});
@@ -238,7 +252,7 @@ function addFiles(fileList){
   state.pendingFiles.push(file);known.add(key);total+=file.size;count++;added++
  }
  renderAttachments();
- if(added)$("#healthDetail").textContent=state.model==="deepseek-web"?"已选择 "+added+" 个文件；将原样上传给 DeepSeek Web":"已选择 "+added+" 个文件；API Model 会在本机提取文档文字（图片需切换到 Web Model）";
+ if(added)$("#healthDetail").textContent=state.useWebModel?"已选择 "+added+" 个文件；将原样上传给 DeepSeek Web":"已选择 "+added+" 个文件；API Model 会在本机提取文档文字（图片需开启 Web Model）";
 }
 function autoResize(){input.style.height="auto";input.style.height=Math.min(input.scrollHeight,220)+"px"}
 function settings(){ $("#base").value=state.base;$("#key").value=state.key;$("#modal").classList.remove("hidden");$("#base").focus()}
@@ -268,7 +282,7 @@ dropTarget.addEventListener("dragenter",e=>{if(!Array.from(e.dataTransfer?.types
 dropTarget.addEventListener("dragover",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect="copy";dropOverlay.classList.remove("hidden")});
 dropTarget.addEventListener("dragleave",e=>{if(!dropTarget.contains(e.relatedTarget))dropOverlay.classList.add("hidden")});
 dropTarget.addEventListener("drop",e=>{if(!Array.from(e.dataTransfer?.types||[]).includes("Files"))return;e.preventDefault();dropOverlay.classList.add("hidden");addFiles(e.dataTransfer.files)});
-load();render();autoResize();health();checkStorage();$("#modelChoice").addEventListener("change",e=>setModelChoice(e.target.value));setInterval(health,30000);
+load();render();autoResize();health();checkStorage();$("#modelChoice").addEventListener("change",e=>setModelChoice(e.target.value));$("#useWebModel").checked=state.useWebModel;$("#useWebModel").addEventListener("change",updateModelSelection);updateModelSelection();setInterval(health,30000);
 </script>
 </body>
 </html>

@@ -422,7 +422,13 @@ def build_single_model_config(api_config: dict[str, Any], model_name: str) -> di
     provider = providers.get(provider_name) if isinstance(providers, dict) else None
     if not isinstance(provider, dict) or not provider.get("enabled", True):
         raise ValueError(f"模型 {model_name} 对应的 Provider 不可用")
-    return {"providers": {provider_name: dict(provider)}, "models": {model_name: dict(model)}}
+    # The frontend has explicitly selected this model. Build a one-model runtime
+    # and do not let registry defaults (disabled/paid flags intended for automatic
+    # routing) silently reject the user's explicit choice. Provider credentials and
+    # endpoint still come only from local configuration.
+    selected_model = dict(model, enabled=True, paid=False)
+    selected_provider = dict(provider, enabled=True)
+    return {"providers": {provider_name: selected_provider}, "models": {model_name: selected_model}}
 
 
 def is_hkust_model_id(model_id: str, config: dict[str, Any]) -> bool:
@@ -938,9 +944,17 @@ class Handler(BaseHTTPRequestHandler):
             if len(messages) > MAX_CHAT_MESSAGES:
                 raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
             model_id = str(request.get("model", MODEL_ID) or MODEL_ID).strip()
-            available_model_ids = set(getattr(self.server, "available_model_ids", [MODEL_ID]))
-            if model_id not in available_model_ids:
-                raise ValueError(f"模型 {model_id} 不存在或当前不可用；请查询 /v1/models。")
+            # Do not treat the asynchronously refreshed /v1/models catalogue as
+            # an execution whitelist. The frontend-selected model is resolved
+            # against local provider/model configuration and instantiated lazily.
+            if model_id != MODEL_ID and model_id != API_MODEL_ID:
+                api_config = getattr(self.server, "api_backend_config", {})
+                model_configs = api_config.get("models", {}) if isinstance(api_config, dict) else {}
+                if not isinstance(model_configs, dict) or model_id not in model_configs:
+                    raise ValueError(
+                        f"前端指定的模型 {model_id!r} 没有对应的本地 Provider 配置。"
+                        "请确认 Provider 的 base_url/api_key 配置正确；模型目录刷新状态不会决定运行权限。"
+                    )
             username = resolve_request_username(request)
             task_id = str(request.get("task_id") or uuid.uuid4().hex).strip()
             if not task_id or len(task_id) > 128 or any(ord(char) < 32 for char in task_id):
@@ -1103,7 +1117,19 @@ class Handler(BaseHTTPRequestHandler):
             if agent is None:
                 single_config = getattr(self.server, "single_model_configs", {}).get(model_id)
                 if single_config is None:
-                    raise RuntimeError(f"模型 {model_id} 没有可用的运行配置")
+                    # Model discovery can finish after a request arrives. Resolve
+                    # the explicit model against the local configured model map
+                    # on demand instead of rejecting it because the catalogue is stale.
+                    api_config = getattr(self.server, "api_backend_config", {})
+                    model_configs = api_config.get("models", {}) if isinstance(api_config, dict) else {}
+                    if isinstance(model_configs, dict) and model_id in model_configs:
+                        single_config = build_single_model_config(api_config, model_id)
+                        self.server.single_model_configs[model_id] = single_config
+                    else:
+                        raise RuntimeError(
+                            f"前端选择的模型 {model_id!r} 缺少本地 Provider/模型配置，"
+                            "无法确定 API 地址与认证方式。"
+                        )
                 with self.server.agent_init_lock:
                     agent = self.server.agents.get(model_id)
                     if agent is None:
