@@ -9,8 +9,8 @@ This map describes the current repository as it exists today. It is intentionall
 | `core/reasoner.py` | Model-backed decision generation and output parsing | `reasoning` | Keep parsing/validation deterministic and independently tested |
 | `core/task_analyzer.py`, `core/planner.py`, `core/goal.py` | Task classification, plan and goal logic | `reasoning` / domain task concepts | Separate model-generated hypotheses from validated domain values |
 | `core/state.py`, `core/knowledge_graph.py`, `core/assessment.py` | Learner state, knowledge relationships and assessment updates | `domain/learner`, `domain/assessment` | User-scoped persistence is a hard invariant |
-| `core/evidence.py` | Evidence normalization, relevance, coverage and verification | `domain/evidence` + infrastructure adapters | Preserve distinction between coverage and proof |
-| `core/teacher.py`, `core/teaching_validator.py`, `core/assessment_generator.py` | Teaching generation, validation and assessment generation | Application use cases + domain policies + model port | Avoid coupling teaching policy to one provider |
+| `core/evidence.py` | Evidence normalization, relevance, coverage and verification | `domain/evidence` + infrastructure adapters | Preserve distinction between coverage and proof; a Dossier must hold source-linked facts and requirements independently of prompt summaries. |
+| `core/teacher.py`, `core/teaching_validator.py`, `core/assessment_generator.py` | Teaching generation, validation and assessment generation | Application use cases + domain policies + model port | Existing validator returns model-judged PASS/REVISE/UNCERTAIN; it does not yet perform validated counterexample-driven auditing. Preserve answer/source traceability; never treat model PASS as proof. |
 | `core/model_registry.py`, `core/model_router.py`, `core/model_factory.py`, `core/model_capabilities.py`, `core/web_model.py` | Model discovery, routing, client construction, capability metadata and browser-backed model adapter | `infrastructure/models` + interface adapter | Keep explicit user model selection authoritative; remote discovery is not an execution permission gate |
 | `tools/search/` | Search interfaces, transport, arXiv/Wikipedia providers and routing | Ports + `infrastructure/search` | Normalize transport failure, empty result and low relevance separately |
 | `core/context_management.py`, `core/user_identity.py`, `core/storage_security.py`, `core/http_security.py`, `core/redaction.py` | Identity, context scope, security and redaction | Application/security infrastructure | Cross-cutting code needs explicit contracts and tests |
@@ -21,6 +21,16 @@ This map describes the current repository as it exists today. It is intentionall
 | `web/` | Static browser UI | UI | Keep UI state/formatting out of domain rules |
 | `coder/` | Coding agent, sandbox, workspace and memory | Separate bounded subsystem | Integrate through the explicit Study Agent bridge |
 | `test/`, `tests/` | Existing tests in two roots | Unit/integration/architecture/evaluation suites | Do not move until test discovery and CI behavior are characterized |
+
+## Newly identified reliability seam
+
+The Task Dossier and counterexample-audit lifecycle are cross-cutting contracts, not extra responsibilities to place inside `Teacher`. Target ownership:
+
+- Dossier/source facts/requirements/claim links: domain entities plus persistence ports/adapters.
+- Dossier construction, projection and version invalidation: application use case.
+- Falsifier role and claim decomposition: reasoning.
+- Counterexample validation: application policy calling independent model/evidence/calculation/test ports; no candidate can validate itself.
+- Audit findings, source spans, test outputs and calibration metrics: structured audit artifacts and observability.
 
 ## Initial high-value seams
 
