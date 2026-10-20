@@ -2,6 +2,13 @@
 
 This plan moves the existing repository toward the modular architecture without a risky big-bang rewrite.
 
+## Current status (architecture branch)
+
+The first structural slice is implemented and its latest CI run passed on Python 3.11 and 3.13, including the separate Coder sandbox security job. It adds `src/study_agent/` domain/ports/application/infrastructure modules, a versioned Dossier repository, counterexample audit contracts/service, a security-module compatibility move, a shared composition root, and architecture/regression tests.
+
+This is not yet the end state described in the target package map. Existing `core/agent.py`, `core/reasoner.py`, `core/teacher.py`, `core/teaching_validator.py`, `core/tool_loop.py`, model routing and learner graph code remain the active runtime. The new Dossier/audit service is currently a testable application component; it is not yet wired into every answer-generation path, and concrete Falsifier/Verifier adapters are not yet implemented.
+
+
 ## Baseline observations
 
 The current repository has useful separations already: `core/agent.py`, `core/tool_loop.py`, `core/reasoner.py`, `core/model_router.py`, `core/evidence.py`, `core/state.py`, `tools/search/`, `integrations/` and `coder/`. The problem is that these boundaries are conventions rather than enforced contracts.
@@ -27,17 +34,20 @@ The root also has two test roots (`test/` and `tests/`), a broad `core/` package
 
 ## Phase 2 — Composition root and application use cases
 
-- Extract dependency construction from `main.py` and scattered entry points into a single composition root.
-- Introduce explicit application use cases for agent execution, assessment and learner-state queries.
-- Keep CLI, HTTP, MCP and Web Model as thin adapters.
+- [x] Extract standard agent dependency construction into `src/study_agent/bootstrap.py`; keep `main.py` builder imports as compatibility exports.
+- [x] Route the standard Study Agent API and browser-backed Study Agent API builders through that composition root, retaining explicit hooks for prewarming and one-model cooldown policy.
+- [ ] Introduce explicit application use cases for the full agent-run, assessment and learner-state lifecycles.
+- [ ] Migrate remaining integrations and examples; keep CLI, HTTP, MCP and Web Model as thin adapters.
 - Keep the current `StudyAgent.run` entry point as a compatibility facade while callers migrate.
 
 **Exit criteria:** entry points depend on application contracts and do not create their own competing reasoning loops.
 
 ## Phase 3 — Ports and provider adapters
 
-- Define narrow model, search, learner-store, event-sink and clock/cancellation contracts.
-- Adapt existing model registry/router/factory and `tools/search/` implementations behind those contracts.
+- [x] Define initial Dossier persistence and counterexample generator/verifier ports.
+- [x] Move the storage-security implementation into `study_agent.infrastructure`, retaining `core.storage_security` as a re-export facade.
+- [ ] Define narrow model, search, learner-store, event-sink and clock/cancellation contracts.
+- [ ] Adapt existing model registry/router/factory and `tools/search/` implementations behind those contracts.
 - Normalize transport, empty, low-relevance, timeout, cancellation and provider errors.
 - Ensure retries are bounded and only applied to retryable failures.
 
@@ -45,17 +55,19 @@ The root also has two test roots (`test/` and `tests/`), a broad `core/` package
 
 ## Phase 4 — Task Dossier and counterexample-driven auditing
 
-This is a reliability milestone, not a prompt-only tweak. Implement the [Epistemic Integrity design](epistemic-integrity.md).
+This is a reliability milestone, not a prompt-only tweak. See the [Epistemic Integrity design](epistemic-integrity.md). The data contracts, SQLite adapter and injectable counterexample audit orchestrator are implemented; end-to-end integration remains open.
 
-- Build a versioned, user-scoped Task Dossier that preserves source references, extracted facts, requirements, unresolved ambiguities and answer-claim links.
-- Replace silent lossy handoffs with role-specific projections that identify their source Dossier version and included requirement/fact IDs.
-- Add explicit claim-level audit records and outcomes. Do not set an unqualified "answer verified" flag from a model's `PASS` response.
-- Introduce a Falsifier that proposes candidate counterexamples for material claims, plus an independent validation step that checks premises, evidence and reproduction.
+- [x] Define immutable, versioned, user/task-scoped Dossier source/fact/requirement/question/claim contracts, validating IDs and references.
+- [x] Implement role-specific Dossier projection that exposes omitted critical facts/requirements and missing claim links.
+- [x] Persist immutable Dossier versions to SQLite under a composite user/task/version key; reject overwrites, version skips and cross-user reads.
+- [x] Add explicit claim-level audit outcomes and a bounded application orchestrator; a model-only judgment cannot promote a candidate to `REFUTED`.
+- [ ] Replace active Reasoner/Teacher/Validator lossy handoffs with role-specific Dossier projections identifying their source Dossier version and included fact/requirement IDs.
+- [ ] Implement production Falsifier and independent Verifier adapters for model-driven candidate discovery, deterministic calculators/formal tools, and reliable source retrieval.
 - Reuse deterministic calculators, tests and authoritative retrieval where possible; model-generated counterexamples remain candidates until validated.
 - Require actionable findings with claim locations, violated assumptions, evidence/reproduction and correction.
 - Add evaluation fixtures for forgotten givens, missing conditions, false counterexamples, boundary cases, source conflicts and unresolved questions.
 
-**Exit criteria:** prompt compression does not silently discard critical requirements; every accepted counterexample is reproducible or source-validated; "not falsified" is never represented as proof; audit feedback is actionable and scoped.
+**Exit criteria:** prompt compression in the live agent does not silently discard critical requirements; accepted counterexamples are reproducible or source-validated; "not falsified" is never represented as proof; audit feedback is actionable and user/task/version scoped. The first two contracts/storage/orchestration portions are in place, but this phase is not complete until runtime integration and adapters pass end-to-end regression tests.
 
 ## Phase 5 — Domain extraction
 
