@@ -127,9 +127,6 @@ class ClaimAuditResult:
         validation_ids = [item.candidate_id for item in self.validations]
         if len(validation_ids) != len(set(validation_ids)):
             raise ValueError("claim audit cannot contain duplicate candidate validations")
-        for candidate in self.candidates:
-            if candidate.target_claim_id != self.claim_id:
-                raise ValueError("candidate counterexample must target the audited claim")
         for validation in self.validations:
             if validation.candidate_id not in candidate_ids:
                 raise ValueError("candidate validation references an unknown candidate")
