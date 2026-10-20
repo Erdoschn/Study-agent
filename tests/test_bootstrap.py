@@ -68,12 +68,12 @@ def test_build_agent_wires_one_shared_model_stack_and_optional_storage(monkeypat
     db_path = tmp_path / "learner.sqlite3"
     agent = bootstrap.build_agent(config, allow_paid=True, knowledge_graph_path=db_path)
 
-    reasoner = next(value for name, value in events if name == "reasoner")
-    teacher = next(value for name, value in events if name == "teacher")
-    assert reasoner.kwargs["model_router"] is teacher.kwargs["model_router"]
-    assert reasoner.kwargs["model_factory"] is teacher.kwargs["model_factory"]
-    assert reasoner.kwargs["allow_paid"] is True
-    assert teacher.kwargs["allow_paid"] is True
+    reasoner_kwargs = next(value for name, value in events if name == "reasoner")
+    teacher_kwargs = next(value for name, value in events if name == "teacher")
+    assert reasoner_kwargs["model_router"] is teacher_kwargs["model_router"]
+    assert reasoner_kwargs["model_factory"] is teacher_kwargs["model_factory"]
+    assert reasoner_kwargs["allow_paid"] is True
+    assert teacher_kwargs["allow_paid"] is True
     assert agent.kwargs["knowledge_graph_path"] == db_path
     assert agent.kwargs["max_steps"] is None
     assert len(agent.kwargs["tool_executor"].kwargs["search_router"].providers) == 2
