@@ -9,6 +9,7 @@ from study_agent.domain.audit import (
     AuditReport,
     CandidateValidation,
     ClaimAuditResult,
+    CounterexampleCandidate,
 )
 from study_agent.domain.task_dossier import AnswerClaim, TaskDossier
 from study_agent.ports.epistemic import CounterexampleGenerator, CounterexampleVerifier
