@@ -30,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
 
 from config.loader import load_config, setup_debug
