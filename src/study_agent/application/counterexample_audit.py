@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import islice
 
 from study_agent.domain.audit import (
     AuditOutcome,
@@ -49,9 +50,23 @@ class CounterexampleAuditService:
         if dossier_claims.get(claim.id) != claim:
             raise ValueError("claim must belong to the supplied dossier version")
 
-        raw_candidates = tuple(self._generator.find_counterexamples(dossier, claim))[
-            : self._policy.max_candidates_per_claim
-        ]
+        try:
+            generated = self._generator.find_counterexamples(dossier, claim)
+            # Limit iteration itself, not just the final tuple; a faulty adapter
+            # must not be able to yield an unbounded sequence.
+            raw_candidates = tuple(
+                islice(iter(generated), self._policy.max_candidates_per_claim)
+            )
+        except Exception as exc:
+            return ClaimAuditResult(
+                claim_id=claim.id,
+                outcome=AuditOutcome.UNRESOLVED,
+                attempted=True,
+                finding=(
+                    "Counterexample generation failed: "
+                    f"{type(exc).__name__}. No conclusion about correctness is implied."
+                ),
+            )
         candidates_list = []
         seen_candidate_ids: set[str] = set()
         malformed_candidate_count = 0
