@@ -120,7 +120,16 @@ class ClaimAuditResult:
             object.__setattr__(self, "outcome", AuditOutcome(self.outcome))
         object.__setattr__(self, "candidates", tuple(self.candidates))
         object.__setattr__(self, "validations", tuple(self.validations))
-        candidate_ids = {item.id for item in self.candidates}
+        candidate_ids_list = [item.id for item in self.candidates]
+        candidate_ids = set(candidate_ids_list)
+        if len(candidate_ids_list) != len(candidate_ids):
+            raise ValueError("claim audit cannot contain duplicate candidate IDs")
+        validation_ids = [item.candidate_id for item in self.validations]
+        if len(validation_ids) != len(set(validation_ids)):
+            raise ValueError("claim audit cannot contain duplicate candidate validations")
+        for candidate in self.candidates:
+            if candidate.target_claim_id != self.claim_id:
+                raise ValueError("candidate counterexample must target the audited claim")
         for validation in self.validations:
             if validation.candidate_id not in candidate_ids:
                 raise ValueError("candidate validation references an unknown candidate")
