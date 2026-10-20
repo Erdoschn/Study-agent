@@ -33,7 +33,8 @@ if str(ROOT) not in sys.path:
 KNOWLEDGE_GRAPH_PATH = ROOT / "data" / "knowledge_graph.sqlite3"
 
 from config.loader import load_config, setup_debug
-from core import AgentReasoner, ModelClientFactory, ModelRegistry, ModelRouter, StudyAgent, Teacher, ToolExecutor
+from core import ModelClientFactory, ModelRegistry, StudyAgent
+from study_agent.bootstrap import build_agent as _build_agent, build_search_router
 from core.__debug__ import debug
 from core.http_security import (
     HTTPRequestError,
@@ -44,7 +45,6 @@ from core.http_security import (
     require_auth_for_non_loopback_bind as _shared_require_auth,
 )
 from core.cancellation import RunCancelled
-from tools.search import ArxivSearchProvider, SearchRouter, WikipediaSearchProvider
 
 
 MODEL_ID = "study-agent"
@@ -91,13 +91,6 @@ def _run_agent_with_cancellation(agent, question: str, cancellation_event: threa
     return run(question)
 
 
-def build_search_router() -> SearchRouter:
-    router = SearchRouter()
-    router.register(ArxivSearchProvider())
-    router.register(WikipediaSearchProvider())
-    return router
-
-
 def _prewarm_browser_model(config: dict[str, Any], model_factory: ModelClientFactory, registry: ModelRegistry) -> str | None:
     """Open the configured browser-backed model before the API starts serving requests."""
     models = registry.available(allow_paid=ALLOW_PAID)
@@ -132,26 +125,20 @@ def _prewarm_browser_model(config: dict[str, Any], model_factory: ModelClientFac
 
 
 def build_agent(config: dict[str, Any]) -> StudyAgent:
-    registry = ModelRegistry(config)
-    model_router = ModelRouter(registry)
-    model_factory = ModelClientFactory(config)
-    reasoner = AgentReasoner(
-        model_router=model_router,
-        model_factory=model_factory,
+    """Use the shared composition root and keep API-specific browser prewarming."""
+    def prewarm(
+        current_config: dict[str, Any],
+        registry: ModelRegistry,
+        _model_router: Any,
+        model_factory: ModelClientFactory,
+    ) -> None:
+        _prewarm_browser_model(current_config, model_factory, registry)
+
+    return _build_agent(
+        config,
         allow_paid=ALLOW_PAID,
-    )
-    teacher = Teacher(
-        model_router=model_router,
-        model_factory=model_factory,
-        allow_paid=ALLOW_PAID,
-    )
-    _prewarm_browser_model(config, model_factory, registry)
-    return StudyAgent(
-        reasoner=reasoner,
-        teacher=teacher,
-        tool_executor=ToolExecutor(search_router=build_search_router()),
-        max_steps=None,
         knowledge_graph_path=KNOWLEDGE_GRAPH_PATH,
+        before_agent=prewarm,
     )
 
 
