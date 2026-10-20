@@ -75,6 +75,8 @@ class DossierFact:
         object.__setattr__(self, "source_refs", tuple(self.source_refs))
         if any(not str(ref).strip() for ref in self.source_refs):
             raise ValueError("fact source references must be non-empty IDs")
+        if self.origin is FactOrigin.SOURCE_EXPLICIT and not self.source_refs:
+            raise ValueError("source_explicit facts require at least one source reference")
 
 
 @dataclass(frozen=True)
