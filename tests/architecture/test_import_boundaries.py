@@ -39,7 +39,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def _layer_for(module: str) -> str | None:
-    for layer in ("domain", "ports", "application"):
+    for layer in ("domain", "ports", "application", "infrastructure"):
         if module == f"study_agent.{layer}" or module.startswith(f"study_agent.{layer}."):
             return layer
     return None
@@ -55,6 +55,12 @@ def _allowed_first_party(layer: str) -> tuple[str, ...]:
             "study_agent.domain",
             "study_agent.ports",
             "study_agent.application",
+        )
+    if layer == "infrastructure":
+        return (
+            "study_agent.domain",
+            "study_agent.ports",
+            "study_agent.infrastructure",
         )
     return ()
 
@@ -84,6 +90,10 @@ def test_new_architecture_layers_use_only_declared_dependencies() -> None:
                 ):
                     violations.append(f"{module} ({layer}) imports forbidden layer/module {imported}")
             elif top_level not in sys.stdlib_module_names:
+                if layer == "infrastructure" and imported == "core.storage_security":
+                    # Transitional adapter: reuse the existing hardened path
+                    # guard until the storage security module itself is migrated.
+                    continue
                 violations.append(f"{module} ({layer}) imports non-standard dependency {imported}")
 
     assert not violations, "Architecture dependency violations:\n" + "\n".join(violations)
