@@ -207,3 +207,19 @@ def test_audit_report_rejects_boolean_dossier_version():
 
     with pytest.raises(ValueError, match="positive integer"):
         AuditReport(user_id="alice", task_id="task", dossier_version=True)
+
+
+
+def test_generator_failure_is_reported_as_unresolved():
+    dossier, claim, _candidate = _fixture()
+
+    class FailingGenerator:
+        def find_counterexamples(self, dossier, claim):
+            raise TimeoutError("falsifier backend unavailable")
+
+    result = CounterexampleAuditService(
+        FailingGenerator(), Verifier(None)
+    ).audit_claim(dossier, claim)
+
+    assert result.outcome is AuditOutcome.UNRESOLVED
+    assert "TimeoutError" in result.finding
