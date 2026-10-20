@@ -43,7 +43,21 @@ The root also has two test roots (`test/` and `tests/`), a broad `core/` package
 
 **Exit criteria:** reasoning and domain tests can use fakes without network calls or real provider configuration.
 
-## Phase 4 — Domain extraction
+## Phase 4 — Task Dossier and counterexample-driven auditing
+
+This is a reliability milestone, not a prompt-only tweak. Implement the [Epistemic Integrity design](epistemic-integrity.md).
+
+- Build a versioned, user-scoped Task Dossier that preserves source references, extracted facts, requirements, unresolved ambiguities and answer-claim links.
+- Replace silent lossy handoffs with role-specific projections that identify their source Dossier version and included requirement/fact IDs.
+- Add explicit claim-level audit records and outcomes. Do not set an unqualified "answer verified" flag from a model's `PASS` response.
+- Introduce a Falsifier that proposes candidate counterexamples for material claims, plus an independent validation step that checks premises, evidence and reproduction.
+- Reuse deterministic calculators, tests and authoritative retrieval where possible; model-generated counterexamples remain candidates until validated.
+- Require actionable findings with claim locations, violated assumptions, evidence/reproduction and correction.
+- Add evaluation fixtures for forgotten givens, missing conditions, false counterexamples, boundary cases, source conflicts and unresolved questions.
+
+**Exit criteria:** prompt compression does not silently discard critical requirements; every accepted counterexample is reproducible or source-validated; "not falsified" is never represented as proof; audit feedback is actionable and scoped.
+
+## Phase 5 — Domain extraction
 
 Extract stable domain rules from broad modules in small, test-protected slices:
 
@@ -56,7 +70,7 @@ Do not split modules solely to reduce line count. Split when there is an indepen
 
 **Exit criteria:** domain rules do not import HTTP, provider SDKs, UI or filesystem/environment-specific code.
 
-## Phase 5 — Compatibility package migration
+## Phase 6 — Compatibility package migration
 
 - Introduce the target `src/study_agent/` package by bounded context.
 - Move one slice at a time, leaving `core.*` and `tools.search.*` compatibility re-exports where needed.
@@ -65,7 +79,7 @@ Do not split modules solely to reduce line count. Split when there is an indepen
 
 **Exit criteria:** package imports reflect ownership, compatibility tests pass, and there is no circular dependency.
 
-## Phase 6 — Test and research architecture
+## Phase 7 — Test and research architecture
 
 - Organize tests by unit, integration, architecture and evaluation intent (physical moves are optional and must not disrupt CI).
 - Add deterministic fixtures for model outputs, provider errors, cancellation, retries, user isolation and evidence quality.
