@@ -2,7 +2,19 @@
 
 ## Status
 
-This document defines the target architecture and the rules for future changes. It is an architectural contract, not a claim that the repository has already been fully migrated. Existing import paths and runtime behavior remain in place until a migration step explicitly changes them.
+This document defines the target architecture and rules for future changes. The repository has completed an initial, CI-validated migration slice, **not a wholesale migration of the legacy `core/` system**.
+
+Implemented in the current architecture branch:
+
+- A `src/study_agent/` package with initial domain, ports, application and infrastructure layers.
+- Versioned Task Dossier contracts, explicit context-loss reporting, counterexample/audit outcomes and an application-level falsification orchestrator.
+- SQLite persistence keyed by user, task and dossier version; storage-security implementation moved to infrastructure while `core.storage_security` remains a compatibility facade.
+- One shared composition root used by the CLI and agent-enabled API builders, with explicit hooks for browser-specific setup and routing policy.
+- CI architecture tests that constrain imports inside the new package and regression tests for dossier traceability, counterexample validation, persistence isolation, composition and compatibility.
+
+Still intentionally **not** claimed complete: the legacy Reasoner/Teacher/tool loop and existing knowledge-graph model still primarily live in `core/`; `Teacher`/`TeachingValidator` are not yet routed through the new Dossier/counterexample audit service; there is not yet a production Falsifier/Verifier adapter backed by live models or deterministic math/code checkers; and the existing test roots have not been physically consolidated. Those changes must follow in smaller migration slices instead of being hidden behind a directory rename.
+
+Existing import paths and runtime behavior remain supported while each bounded context is migrated.
 
 ## Architectural style
 
