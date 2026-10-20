@@ -168,3 +168,42 @@ def test_cross_claim_counterexample_is_rejected_without_verifier_call() -> None:
 def test_audit_is_bounded_and_rejects_invalid_policy() -> None:
     with pytest.raises(ValueError, match="between 1 and 20"):
         FalsificationPolicy(max_candidates_per_claim=0)
+
+
+
+def test_malformed_or_duplicate_generator_candidates_remain_unresolved():
+    dossier, claim, candidate = _fixture()
+    duplicate = CounterexampleCandidate(
+        id=candidate.id,
+        target_claim_id=claim.id,
+        scenario="Duplicate ID with conflicting details",
+        premises_satisfied=("a positive integer",),
+        predicted_result="unknown",
+        contradiction="unknown",
+    )
+    service = CounterexampleAuditService(
+        Generator([candidate, duplicate]),
+        Verifier(None),
+    )
+    result = service.audit_claim(dossier, claim)
+
+    assert result.outcome is AuditOutcome.UNRESOLVED
+    assert len(result.candidates) == 1
+    assert "duplicate candidate" in result.finding
+
+
+def test_non_candidate_generator_output_is_not_mistaken_for_no_counterexample():
+    dossier, claim, _candidate = _fixture()
+    result = CounterexampleAuditService(
+        Generator(["not-a-candidate"]), Verifier(None)
+    ).audit_claim(dossier, claim)
+
+    assert result.outcome is AuditOutcome.UNRESOLVED
+    assert "malformed" in result.finding
+
+
+def test_audit_report_rejects_boolean_dossier_version():
+    from study_agent.domain.audit import AuditReport
+
+    with pytest.raises(ValueError, match="positive integer"):
+        AuditReport(user_id="alice", task_id="task", dossier_version=True)
