@@ -24,6 +24,10 @@ WEB_ROOT = ROOT / "web"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 from config.loader import load_config, setup_debug
 from examples.study_agent_api import Handler as LegacyHandler, build_agent as build_api_agent
 from core import StudyAgent
