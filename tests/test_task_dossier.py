@@ -132,3 +132,13 @@ def test_dossier_versions_must_be_positive_and_user_scoped() -> None:
 
     with pytest.raises(ValueError, match="user_id"):
         TaskDossier(user_id="", task_id="task", version=1)
+
+
+
+def test_source_explicit_fact_requires_source_provenance():
+    with pytest.raises(ValueError, match="source reference"):
+        DossierFact(
+            id="fact-unlinked",
+            statement="A fact said to be explicitly in the source",
+            origin=FactOrigin.SOURCE_EXPLICIT,
+        )
