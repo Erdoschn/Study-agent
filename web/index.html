@@ -175,15 +175,22 @@ async function refreshModelOptions(){
  setModelChoice(Array.from(select.options).some(option=>option.value===previous)?previous:select.options[0]?.value||"");
 }
 async function health(){
- try{
-  const response=await fetch(url("/health"),{headers:headers(),cache:"no-store"});
-  if(!response.ok)throw Error("HTTP "+response.status);
-  const data=await response.json();
-  $("#dot").className="dot ok";$("#health").textContent="API 在线";
-  $("#healthDetail").textContent=(data.models||[]).length+" 个可用模型";
-  await refreshModelOptions();
- }catch(error){$("#dot").className="dot err";$("#health").textContent="API 离线";$("#healthDetail").textContent=String(error.message||error)}
-}
+  try{
+   const response=await fetch(url("/health"),{headers:headers(),cache:"no-store"});
+   if(!response.ok)throw Error("HTTP "+response.status);
+   const data=await response.json();
+   $("#dot").className="dot ok";$("#health").textContent="API 在线";
+   $("#healthDetail").textContent=(data.models||[]).length+" 个可用模型";
+   try{
+    await refreshModelOptions();
+   }catch(error){
+    $("#healthDetail").textContent="API 在线，但 API Model 列表获取失败："+String(error.message||error)+"。Web Model 仍可单独尝试。";
+   }
+  }catch(error){
+   $("#dot").className="dot err";$("#health").textContent="API 离线";
+   $("#healthDetail").textContent=String(error.message||error);
+  }
+ }
 function sseParse(buffer,cb){const parts=buffer.split("\n\n");const rest=parts.pop()||"";for(const part of parts){const line=part.split("\n").find(x=>x.startsWith("data: "));if(line)cb(line.slice(6))}return rest}
 function scroll(){requestAnimationFrame(()=>chat.scrollTo({top:chat.scrollHeight,behavior:"smooth"}))}
 async function sendMessage(){
