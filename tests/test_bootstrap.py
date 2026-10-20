@@ -14,6 +14,7 @@ def test_build_agent_wires_one_shared_model_stack_and_optional_storage(monkeypat
 
     class Router:
         def __init__(self, registry):
+            self.registry = registry
             events.append(("router", registry))
 
     class Factory:
@@ -66,7 +67,26 @@ def test_build_agent_wires_one_shared_model_stack_and_optional_storage(monkeypat
 
     config = {"providers": ["fake"]}
     db_path = tmp_path / "learner.sqlite3"
-    agent = bootstrap.build_agent(config, allow_paid=True, knowledge_graph_path=db_path)
+    hook_state = {}
+
+    def configure_registry(registry):
+        registry.configured = True
+        hook_state["configured_registry"] = registry
+        events.append(("configure_registry", registry))
+
+    def before_agent(current_config, registry, router, factory):
+        assert current_config is config
+        assert registry.configured is True
+        hook_state.update(registry=registry, router=router, factory=factory)
+        events.append(("before_agent", registry))
+
+    agent = bootstrap.build_agent(
+        config,
+        allow_paid=True,
+        knowledge_graph_path=db_path,
+        configure_registry=configure_registry,
+        before_agent=before_agent,
+    )
 
     reasoner_kwargs = next(value for name, value in events if name == "reasoner")
     teacher_kwargs = next(value for name, value in events if name == "teacher")
@@ -77,6 +97,9 @@ def test_build_agent_wires_one_shared_model_stack_and_optional_storage(monkeypat
     assert agent.kwargs["knowledge_graph_path"] == db_path
     assert agent.kwargs["max_steps"] is None
     assert len(agent.kwargs["tool_executor"].kwargs["search_router"].providers) == 2
+    assert hook_state["registry"] is hook_state["router"].registry
+    assert hook_state["factory"] is reasoner_kwargs["model_factory"]
+    assert [name for name, _ in events].index("before_agent") < [name for name, _ in events].index("agent")
 
 
 def test_main_keeps_legacy_builder_exports():
