@@ -275,8 +275,22 @@ class KnowledgeGraph:
                 learner=self._learner_from_dict(learner_payload),
             )
 
+        # Legacy databases may already contain cyclic depends_on links. Retain
+        # valid edges deterministically and skip any edge that would keep the
+        # prerequisite subgraph cyclic; other relation types are not constrained
+        # by the pedagogical DAG invariant.
         self.nodes = nodes
-        self.edges = edges
+        self.edges = {}
+        for key, edge in sorted(edges.items(), key=lambda item: item[0]):
+            if edge.relation == "depends_on" and self._would_create_prerequisite_cycle(
+                edge.target, edge.source
+            ):
+                debug.log(
+                    "KnowledgeGraph",
+                    f"LEGACY PREREQUISITE CYCLE SKIP → {edge.source!r} depends_on {edge.target!r}",
+                )
+                continue
+            self.edges[key] = edge
         debug.log(
             "KnowledgeGraph",
             f"LOAD → {self.storage_path} nodes={len(self.nodes)} edges={len(self.edges)}",
