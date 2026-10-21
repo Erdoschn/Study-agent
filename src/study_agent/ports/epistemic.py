@@ -68,6 +68,11 @@ class AnswerRevisionRepository(Protocol):
 class CoverageLedgerRepository(Protocol):
     """Persist coverage results under the exact answer revision they evaluate."""
 
+    def load(
+        self, *, user_id: str, task_id: str, answer_revision_id: str
+    ) -> CoverageLedger | None:
+        ...
+
     def save(self, ledger: CoverageLedger) -> None:
         ...
 
