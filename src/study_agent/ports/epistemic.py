@@ -44,9 +44,9 @@ class CounterexampleVerifier(Protocol):
 
 
 class AuditReportRepository(Protocol):
-    """Persist audit reports with the owning user/task scope and dossier version."""
+    """Persist reports with user/task/dossier and answer-revision scope."""
 
-    def save(self, report: object) -> None:
+    def save(self, report: AuditReport) -> None:
         ...
 
 
@@ -83,11 +83,4 @@ class PrerequisiteGraphRepository(Protocol):
 
     def save(self, graph: PrerequisiteGraph) -> None:
         """Append the next immutable graph version; reject overwrites and skipped versions."""
-        ...
-
-
-class VersionedAuditReportRepository(Protocol):
-    """Persist reports with user/task/dossier and answer-revision scope."""
-
-    def save(self, report: AuditReport) -> None:
         ...
