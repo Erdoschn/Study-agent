@@ -79,7 +79,7 @@ TaskDossier 负责描述任务，不负责承载所有答案版本的动态状�
 
 ### 3.3 CoverageEntry：针对具体答案版本的覆盖结果
 
-覆盖状态必须绑定 answer_revision_id，而不是直接写回全局 TaskRequirement。建议定义独立的 CoverageOutcome：
+覆盖状态必须绑定 answer_revision_id，而不是直接写回全局 TaskRequirement。AnswerRevision 与 CoverageLedger 使用追加式持久化；覆盖台账保存前必须确认对应答案修订已存在，且 dossier version 一致。答案哈希在序列化读回时复核。建议定义独立的 CoverageOutcome：
 
 - SATISFIED：答案明确满足该要求；
 - OMITTED：要求没有被回答；
@@ -108,7 +108,7 @@ TaskDossier 负责描述任务，不负责承载所有答案版本的动态状�
 - 答案版本通过 knowledge_point_ids 关联其教学主题。教学后，诊断服务以回答所用图版本和该用户的掌握状态计算缺失前置知识，并按先修顺序给出可执行的补学建议。未评估应标为 unknown，不能说成“确认不会”。
 - 现有 core.KnowledgeGraph 同时承载学习者状态和一般语义关系；related_to、used_in 等一般关系允许形成环，不应把所有语义边强行做成 DAG。DAG 不变量只应用于 depends_on 先修子图及新的 PrerequisiteGraph。旧 depends_on 记录的语义是“source 依赖 target”，迁移到新 DAG 时需翻转为 target -> source，并在导入时重新检查环；不能直接复制方向。
 
-本阶段定义 DAG 契约、查询/缺口诊断与 SQLite 版本仓储，并限制 legacy depends_on 子图不得新增循环边。它不自动生成大型领域知识库，也暂不把先修建议接到 Teacher 的最终 UI；真实运行路径接线和用户可见提示在后续阶段进行。
+本阶段定义 DAG 契约、查询/缺口诊断与 SQLite 版本仓储；同时落地 AnswerRevision 与 CoverageLedger 的追加式 SQLite 存储。两类存储均有明确的版本、哈希或 scope 校验，并限制 legacy depends_on 子图不得新增循环边。它不自动生成大型领域知识库，也暂不把先修建议接到 Teacher 的最终 UI；真实运行路径接线和用户可见提示在后续阶段进行。
 
 ## 4. 端到端流程
 
