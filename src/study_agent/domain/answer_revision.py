@@ -214,6 +214,52 @@ class CoverageLedger:
                 raise ValueError("coverage entry scope/version does not match its ledger")
         object.__setattr__(self, "entries", entries)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "user_id": self.user_id,
+            "task_id": self.task_id,
+            "answer_revision_id": self.answer_revision_id,
+            "dossier_version": self.dossier_version,
+            "entries": [
+                {
+                    "user_id": entry.user_id,
+                    "task_id": entry.task_id,
+                    "answer_revision_id": entry.answer_revision_id,
+                    "dossier_version": entry.dossier_version,
+                    "requirement_id": entry.requirement_id,
+                    "outcome": entry.outcome.value,
+                    "rationale": entry.rationale,
+                    "evidence_refs": list(entry.evidence_refs),
+                }
+                for entry in self.entries
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CoverageLedger":
+        if not isinstance(data, dict):
+            raise TypeError("CoverageLedger data must be a dictionary")
+        entries = tuple(
+            CoverageEntry(
+                user_id=item.get("user_id", ""),
+                task_id=item.get("task_id", ""),
+                answer_revision_id=item.get("answer_revision_id", ""),
+                dossier_version=item.get("dossier_version", 1),
+                requirement_id=item.get("requirement_id", ""),
+                outcome=CoverageOutcome(item.get("outcome", CoverageOutcome.UNRESOLVED.value)),
+                rationale=item.get("rationale", ""),
+                evidence_refs=tuple(item.get("evidence_refs", [])),
+            )
+            for item in data.get("entries", [])
+        )
+        return cls(
+            user_id=data.get("user_id", ""),
+            task_id=data.get("task_id", ""),
+            answer_revision_id=data.get("answer_revision_id", ""),
+            dossier_version=data.get("dossier_version", 1),
+            entries=entries,
+        )
+
     def validate_against(
         self,
         dossier: TaskDossier,
