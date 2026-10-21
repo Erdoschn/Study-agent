@@ -171,7 +171,11 @@ class SQLiteAnswerRevisionRepository(_SQLiteAnswerStore):
 
 
 class SQLiteCoverageLedgerRepository(_SQLiteAnswerStore):
-    """Persist one immutable coverage snapshot per answer revision."""
+    """Persist one immutable coverage snapshot per revision.
+
+    Use the same SQLite file as SQLiteAnswerRevisionRepository so the adapter
+    can reject ledgers whose answer revision has not been persisted.
+    """
 
     def load(
         self, *, user_id: str, task_id: str, answer_revision_id: str
@@ -215,6 +219,17 @@ class SQLiteCoverageLedgerRepository(_SQLiteAnswerStore):
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            revision_row = connection.execute(
+                """
+                SELECT dossier_version FROM answer_revisions
+                WHERE user_id = ? AND task_id = ? AND revision_id = ?
+                """,
+                (user, task, ledger.answer_revision_id),
+            ).fetchone()
+            if revision_row is None:
+                raise ValueError("answer revision must be persisted before its coverage ledger")
+            if int(revision_row["dossier_version"]) != ledger.dossier_version:
+                raise ValueError("coverage ledger dossier version does not match its answer revision")
             connection.execute(
                 """
                 INSERT INTO coverage_ledgers
