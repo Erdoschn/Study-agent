@@ -28,8 +28,8 @@ class KnowledgePoint:
     source_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        _required_text(self.id, "knowledge point id")
-        _required_text(self.name, "knowledge point name")
+        object.__setattr__(self, "id", _required_text(self.id, "knowledge point id"))
+        object.__setattr__(self, "name", _required_text(self.name, "knowledge point name"))
         aliases = tuple(_required_text(item, "knowledge point alias") for item in self.aliases)
         refs = tuple(_required_text(item, "knowledge point source reference") for item in self.source_refs)
         if len(aliases) != len(set(aliases)):
@@ -89,7 +89,7 @@ class PrerequisiteGraph:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        _required_text(self.graph_id, "graph_id")
+        object.__setattr__(self, "graph_id", _required_text(self.graph_id, "graph_id"))
         if not isinstance(self.version, int) or isinstance(self.version, bool) or self.version < 1:
             raise ValueError("graph version must be a positive integer")
         if self.schema_version != 1:
