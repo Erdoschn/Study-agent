@@ -100,6 +100,7 @@ class AnswerRevision:
             "revision_id": self.revision_id,
             "dossier_version": self.dossier_version,
             "answer_text": self.answer_text,
+            "content_sha256": self.content_sha256,
             "claims": [
                 {
                     "id": claim.id,
@@ -133,7 +134,7 @@ class AnswerRevision:
             )
             for item in data.get("claims", [])
         )
-        return cls(
+        revision = cls(
             user_id=data.get("user_id", ""),
             task_id=data.get("task_id", ""),
             revision_id=data.get("revision_id", ""),
@@ -145,6 +146,10 @@ class AnswerRevision:
             revision_number=data.get("revision_number", 1),
             schema_version=data.get("schema_version", 1),
         )
+        stored_hash = str(data.get("content_sha256", "") or "").strip()
+        if stored_hash and stored_hash != revision.content_sha256:
+            raise ValueError("stored answer content hash does not match answer_text")
+        return revision
 
 
 class CoverageOutcome(str, Enum):
