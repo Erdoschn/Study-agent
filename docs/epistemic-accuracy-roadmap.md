@@ -237,11 +237,11 @@ Reasoner / Teacher 生成候选答案
 
 ## 10. 分阶段实施路线
 
-### P0 — 运行路径与数据契约
+### P0 — 运行路径侦察与基线（已完成，PR #41）
 
-先追踪执行模式、API 入口、Teacher、TeachingValidator 和现有测试的实际调用图。解决 TaskDossier、AnswerRevision、CoverageEntry、AuditReport 的版本关联、身份来源、覆盖状态和兼容策略。先加 characterization tests，再改行为。
+追踪 CLI、API、共享 composition root、StudyAgent、AgentToolLoop、Teacher 和 TeachingValidator 的实际调用图；纠正 README 中没有对应运行时实现的 direct/direct_verified/reasoner 三分图；用 characterization tests 固定当前行为。
 
-退出条件：有一张可复核的运行时调用图；旧路径和新数据契约的关系明确；schema 迁移与跨用户访问规则有测试。
+退出条件：调用图已记录；Python 3.11、Python 3.13 全量 pytest 和 Coder sandbox security CI 通过。此阶段没有把 TaskDossier 或反例审计接入真实回答路径。
 
 ### P1 — 数据契约与前置知识 DAG
 
