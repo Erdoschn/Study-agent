@@ -51,16 +51,17 @@
 4. 决定现有 TaskDossier v1 claims 字段的兼容迁移方案；如果持久化语义改变，升级 schema_version 并为旧记录提供明确处理策略。
 5. 明确可信 user_id 来源、未认证/缺少身份时的失败行为、内容保留期限和审计数据访问控制。
 6. 为 Finding 设计可选结构化字段：claim_id、answer_span、evidence_refs、violated_condition、validator/method、validation provenance、reproduction 和 unresolved_reason。
-7. 审查 frozen dataclass 内嵌可变 dict/list 的问题，对审计证据采用标准化序列化/不可变包装/哈希等受控方案。
-8. 定义独立的课程前置知识 DAG：KnowledgePoint、PrerequisiteEdge、PrerequisiteGraph、稳定 ID、显式边方向、图版本、来源引用和确定性拓扑顺序。
-9. 在图构造与 SQLite 读取边界强制检查环、自环、重复边、未知节点和版本跳跃；增加有界的节点/边数量。
-10. 定义依赖缺口诊断契约：AnswerRevision 显式关联目标知识点 ID，诊断结果引用 answer_revision_id 和 graph_id/version，掌握度从用户作用域传入。
-11. 为现有 KnowledgeGraph 的 depends_on 语义加循环边拒绝；不把 related_to、used_in 等一般语义关系强行转换为 DAG。
+7. 实现 AnswerRevision 与 CoverageLedger 的序列化契约和 SQLite 追加式仓储；验证答案正文哈希、revision parent 链、scope 隔离，以及 coverage 与持久化答案版本/dossier version 一致。
+8. 审查 frozen dataclass 内嵌可变 dict/list 的问题，对审计证据采用标准化序列化/不可变包装/哈希等受控方案。
+9. 定义独立的课程前置知识 DAG：KnowledgePoint、PrerequisiteEdge、PrerequisiteGraph、稳定 ID、显式边方向、图版本、来源引用和确定性拓扑顺序。
+10. 在图构造与 SQLite 读取边界强制检查环、自环、重复边、未知节点和版本跳跃；增加有界的节点/边数量。
+11. 定义依赖缺口诊断契约：AnswerRevision 显式关联目标知识点 ID，诊断结果引用 answer_revision_id 和 graph_id/version，掌握度从用户作用域传入。
+12. 为现有 KnowledgeGraph 的 depends_on 语义加循环边拒绝；不把 related_to、used_in 等一般语义关系强行转换为 DAG。
 
 ### 产出
 
-- 类型与序列化契约。
-- schema 迁移和兼容测试。
+- AnswerRevision、CoverageLedger、AuditReport 和 PrerequisiteGraph 的数据/端口契约。
+- AnswerRevision 与 CoverageLedger 的 SQLite 持久化、追加版本/父修订/哈希/跨用户隔离测试。
 - 用户隔离、版本引用与不可变性测试。
 - PrerequisiteGraph 的拓扑、循环检测、传递先修查询、缺口诊断与 SQLite 追加版本测试。
 
