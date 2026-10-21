@@ -13,94 +13,53 @@
 
 ## Architecture
 
-```mermaid
-flowchart LR
-
-    USER["User"] --> SA["StudyAgent"]
+~~~mermaid
+flowchart TD
+    USER["User / API Request"] --> ENTRY["CLI or HTTP Adapter"]
+    ENTRY --> COMPOSE["study_agent.bootstrap.build_agent"]
+    COMPOSE --> SA["StudyAgent.run"]
     SA --> TA["TaskAnalyzer"]
-    TA --> ROUTE{"Execution Strategy"}
-    ROUTE -->|direct| DIRECT["Direct Model"]
-    ROUTE -->|direct_verified| VERIFIED["Direct Model + Validator"]
-    ROUTE -->|reasoner| REASONER_PATH["AgentReasoner + ToolLoop"]
-    REASONER_PATH --> LOOP["AgentToolLoop"]
+    TA --> LOOP["AgentToolLoop"]
+    LOOP <--> REASONER["AgentReasoner"]
+    LOOP --> EXECUTOR["ToolExecutor"]
+    EXECUTOR --> SEARCH["SearchRouter"]
+    SEARCH --> WIKI["Wikipedia"]
+    SEARCH --> ARXIV["arXiv"]
+    EXECUTOR --> CALC["Restricted AST Calculator"]
+    EXECUTOR --> VERIFY["Evidence Verification"]
+    LOOP --> ANSWER{"Final action"}
+    ANSWER -->|ANSWER| TEACHER["Teacher"]
+    TEACHER --> VALIDATOR["TeachingValidator (model-based)"]
+    ANSWER -->|Other / pending| STATE["AgentState / Result"]
+    VALIDATOR --> STATE
 
-    subgraph CORE["Agent Core"]
-        TA
-        ROUTE
-        LOOP <--> REASONER["AgentReasoner"]
-        AS["AgentState / StudentState"]
-        LOOP <--> AS
-        TEACHER["Teacher"]
-        KD --> TEACHER
-        KG --> TEACHER
-    end
+    REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"]
+    ROUTER --> CLIENT["ModelClientFactory / Client"]
+    CLIENT --> LLM["Configured Model Provider"]
+    TA -.-> ROUTER
+    REASONER -.-> ROUTER
+    TEACHER -.-> ROUTER
+    VALIDATOR -.-> ROUTER
+~~~
 
-    subgraph MODEL["Model System"]
-        direction LR
-        REGISTRY["ModelRegistry"] --> ROUTER["ModelRouter"] --> CLIENT["Model Client"] --> LLM["LLM API"]
-    end
+当前实际执行路径是：
 
-    subgraph EVIDENCE["Evidence"]
-        EVI["EvidenceStore / Engine"]
-        COVERAGE["Coverage / Relevance"]
-        CLAIM["Claims / Verification"]
-        EVI --> COVERAGE
-        EVI --> CLAIM
-    end
+~~~text
+CLI / HTTP Adapter
+        ↓
+study_agent.bootstrap.build_agent
+        ↓
+StudyAgent.run → TaskAnalyzer
+        ↓
+AgentToolLoop ↔ AgentReasoner
+        ↕
+ToolExecutor: SEARCH / CALCULATE / VERIFY / ASSESS
+        ↓
+ANSWER → Teacher → TeachingValidator
+~~~
 
-    subgraph TOOLS["Tool System"]
-        EXECUTOR["ToolExecutor"]
-        SEARCH["SearchRouter"]
-        WIKI["Wikipedia"]
-        ARXIV["arXiv"]
-        CALC["Calculator"]
-        VERIFY["Verification"]
-        EXECUTOR --> SEARCH
-        SEARCH --> WIKI
-        SEARCH --> ARXIV
-        EXECUTOR --> CALC
-        EXECUTOR --> VERIFY
-    end
+ModelRouter 选择各角色的模型与 reasoning effort；它不负责切换 direct、direct_verified、reasoner 执行策略。当前 StudyAgent.run() 的正常执行路径统一进入 AgentToolLoop，简单问题也由 Reasoner 在第一轮选择 ANSWER。README 中旧的 direct/direct_verified/reasoner 三分策略图已移除，因为当前代码没有对应的独立分派入口。
 
-    CONFIG["providers.json"] --> MODEL
-    TA <--> MODEL
-    DIRECT <--> MODEL
-    VERIFIED <--> MODEL
-    VALIDATOR <--> MODEL
-    TEACHER <--> MODEL
-    REASONER <--> MODEL
-    LOOP --> EXECUTOR
-    EXECUTOR --> EVI
-    EVI --> LOOP
-```
-
-核心执行思想是：
-
-```text
-Question
-   ↓
-Task Analysis
-   ↓
-ModelRouter
-   ↓
-Execution Strategy
-   ├── DIRECT
-   │    └── Direct Model
-   │
-   ├── DIRECT_VERIFIED
-   │    └── Direct Model → TeachingValidator
-   │                         ↓
-   │                    revise if needed
-   │
-   └── REASONER
-        └── AgentReasoner → ToolLoop
-                 ↓
-          Search / Calculate / Verify
-                 ↓
-              Teacher
-```
-
-TaskAnalyzer 先分析任务，再由执行策略选择直接回答、回答后验证，或进入 Reasoner 工具循环。只有进入 Reasoner 路径的请求才会执行 Agent Loop；在循环中，Reasoner 每一轮决定下一步是 ANSWER、SEARCH、CALCULATE、VERIFY、ASSESS 或 STOP。
 ## Agent Reasoning Loop
 
 ```mermaid

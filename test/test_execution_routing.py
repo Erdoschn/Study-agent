@@ -88,3 +88,15 @@ def test_explicit_assessment_permission_is_carried_into_agent_state():
         question="什么是 attention？",
         assessment_requested=False,
     ).assessment_requested is False
+
+
+def test_study_agent_does_not_advertise_a_separate_direct_verified_dispatch():
+    """Characterize the current runtime until an explicit strategy is implemented."""
+    from inspect import signature
+
+    from core.agent import StudyAgent
+
+    parameters = signature(StudyAgent.__init__).parameters
+    assert "execution_strategy" not in parameters
+    assert "execution_mode" not in parameters
+    assert not hasattr(StudyAgent, "run_direct_verified")

@@ -314,3 +314,44 @@ def test_teacher_revises_only_when_validator_finds_major_error():
     assert state.metrics["teaching_validation_status"] == "REVISE"
     assert state.metrics["teaching_validation_major_errors"] == 1
     assert state.metrics["teaching_revision"] is True
+
+
+
+def test_unavailable_validator_does_not_mark_teacher_answer_verified():
+    class Model:
+        name = "teacher-model"
+
+    class Registry:
+        def record_success(self, *args):
+            pass
+
+        def record_failure(self, *args, **kwargs):
+            pass
+
+    class Router:
+        registry = Registry()
+
+        def select_candidates(self, capability, **kwargs):
+            if capability == "teaching":
+                return [Model()]
+            assert capability == "verification"
+            return []
+
+    class Client:
+        def generate(self, system_prompt, user_prompt, json_mode=False):
+            return "教学草稿答案"
+
+    class Factory:
+        def create(self, model):
+            return Client()
+
+    teacher = Teacher(Router(), Factory(), validate_teaching=True)
+    state = AgentState(question="解释电场强度")
+
+    answer = teacher.generate(state, draft_answer="Reasoner 草稿")
+
+    assert "教学草稿答案" in answer
+    assert "【答案校验提示】" in answer
+    assert "未能确认答案完全正确" in answer
+    assert state.metrics["teaching_validation_status"] == "UNCERTAIN"
+    assert state.metrics["teaching_answer_verified"] is False

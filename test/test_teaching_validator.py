@@ -64,3 +64,17 @@ def test_validator_build_prompt_contains_draft_and_context():
     assert "矩母函数是……" in prompt
     assert "Moment generating functions" in prompt
     assert "conceptual" in prompt
+
+
+def test_validator_without_available_model_is_uncertain_not_pass():
+    class Router:
+        def select_candidates(self, capability, **kwargs):
+            assert capability == "verification"
+            return []
+
+    validator = TeachingValidator(Router(), model_factory=object())
+    result = validator.validate(AgentState(question="计算电场强度"), "E = 12 N/C")
+
+    assert result["status"] == "UNCERTAIN"
+    assert result["attempted"] is False
+    assert TeachingValidator.revision_findings(result) == []
