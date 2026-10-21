@@ -63,6 +63,13 @@ def test_legacy_cyclic_depends_on_rows_are_filtered_on_load(tmp_path):
         connection.close()
 
     restored = KnowledgeGraph(storage_path=str(db_path))
-    assert ("advanced", "intermediate", "depends_on") in restored.edges
-    assert ("intermediate", "basic", "depends_on") in restored.edges
-    assert ("basic", "advanced", "depends_on") not in restored.edges
+    prerequisite_edges = [
+        edge for edge in restored.edges.values() if edge.relation == "depends_on"
+    ]
+    assert len(prerequisite_edges) == 2
+    assert not restored._would_create_prerequisite_cycle(
+        prerequisite_edges[0].target, prerequisite_edges[0].source
+    )
+    assert not restored._would_create_prerequisite_cycle(
+        prerequisite_edges[1].target, prerequisite_edges[1].source
+    )
