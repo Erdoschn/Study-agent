@@ -50,8 +50,8 @@ class AnswerRevision:
             raise ValueError("revision_number must be a positive integer")
         if self.schema_version != 1:
             raise ValueError(f"unsupported AnswerRevision schema_version: {self.schema_version}")
-        if not str(self.answer_text or "").strip():
-            raise ValueError("answer_text must not be empty")
+        if not isinstance(self.answer_text, str) or not self.answer_text.strip():
+            raise ValueError("answer_text must be a non-empty string")
 
         parent = str(self.parent_revision_id or "").strip() or None
         object.__setattr__(self, "parent_revision_id", parent)
