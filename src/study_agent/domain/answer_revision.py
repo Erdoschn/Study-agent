@@ -43,7 +43,7 @@ class AnswerRevision:
 
     def __post_init__(self) -> None:
         for name in ("user_id", "task_id", "revision_id"):
-            _required_text(getattr(self, name), name)
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
         if not isinstance(self.dossier_version, int) or isinstance(self.dossier_version, bool) or self.dossier_version < 1:
             raise ValueError("dossier_version must be a positive integer")
         if not isinstance(self.revision_number, int) or isinstance(self.revision_number, bool) or self.revision_number < 1:
@@ -170,7 +170,7 @@ class CoverageEntry:
 
     def __post_init__(self) -> None:
         for name in ("user_id", "task_id", "answer_revision_id", "requirement_id"):
-            _required_text(getattr(self, name), name)
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
         if not isinstance(self.dossier_version, int) or isinstance(self.dossier_version, bool) or self.dossier_version < 1:
             raise ValueError("dossier_version must be a positive integer")
         if not isinstance(self.outcome, CoverageOutcome):
@@ -191,7 +191,7 @@ class CoverageLedger:
 
     def __post_init__(self) -> None:
         for name in ("user_id", "task_id", "answer_revision_id"):
-            _required_text(getattr(self, name), name)
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
         if not isinstance(self.dossier_version, int) or isinstance(self.dossier_version, bool) or self.dossier_version < 1:
             raise ValueError("dossier_version must be a positive integer")
         entries = tuple(self.entries)
