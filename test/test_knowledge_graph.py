@@ -300,3 +300,23 @@ def test_record_assessment_rejects_non_collection_concepts():
         assert False
     except ValueError as exc:
         assert "concepts" in str(exc).lower()
+
+
+
+def test_depends_on_subgraph_rejects_cycles_but_other_semantic_edges_may_cycle():
+    graph = KnowledgeGraph()
+    graph.add_relation("advanced calculus", "calculus", "depends_on")
+    graph.add_relation("calculus", "linear algebra", "depends_on")
+
+    try:
+        graph.add_relation("linear algebra", "advanced calculus", "depends_on")
+    except ValueError as exc:
+        assert "DAG" in str(exc)
+    else:
+        raise AssertionError("cyclic prerequisite chain should be rejected")
+
+    # Related-to links are not prerequisite edges and may legitimately be cyclic.
+    graph.add_relation("calculus", "advanced calculus", "related_to")
+    graph.add_relation("advanced calculus", "calculus", "related_to")
+    assert ("calculus", "advanced_calculus", "related_to") in graph.edges
+    assert ("advanced_calculus", "calculus", "related_to") in graph.edges

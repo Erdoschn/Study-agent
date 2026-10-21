@@ -1,210 +1,287 @@
-# 改进路线：从「能产出答案」到「产出可信知识」
+# 设计修订：从答案生成到可审计的可信知识
 
-> 状态：规划稿（基于现有代码核实，未实现）
-> 目标：尽可能准确地向学习者输出知识与认知
-> 依据：`docs/architecture/epistemic-integrity.md`、`docs/architecture/migration-plan.md`、`src/study_agent/`、`core/teaching_validator.py`
+> 状态：设计稿，尚不代表运行时已经实现。
+> 修订日期：2026-10-20
+> 范围：先接通已有任务档案与审计能力，再逐步开放有可验证依据的检查器。
+> 实施计划：见 [epistemic accuracy implementation plan](epistemic-accuracy-implementation-plan.md)。
 
----
+## 0. 设计原则
 
-## 0. 先把目标拆成可验收的四件事
+本系统是学习辅助工具，不是绝对正确性的 oracle。目标不是承诺“零幻觉”，而是减少可避免的错误、保留题目约束、为可验证的错误提供可复现证据，并把不能确定的部分显式呈现。
 
-「准确输出知识」不是一个能直接测量的性质。它至少是四条不同的问题，混在一起会导致所有改进都变成主观感受：
+必须保持以下原则：
 
-| # | 失败模式 | 学习者侧后果 | 判定性质 |
+1. 流畅表达、另一个模型同意、没有生成反例，都不构成主张正确的证明。
+2. 原始题目和用户明确要求是任务事实的来源；模型摘要只是投影，不得替代原文。
+3. 模型生成的 claim、反例、引用和“已验证”标记均是不可信输入，必须经程序验证后才能提升状态。
+4. 不同答案版本、任务档案版本和审计报告必须显式关联。修订答案不能覆盖旧审计记录。
+5. 校验能力只在其明确定义的适用范围内作出结论。能力范围以外必须返回未校验或未解决状态，不得静默通过。
+6. 新校验器先离线评测或影子运行；未达到门槛之前，不得用它自动阻断或修改用户可见答案。
+7. 失败必须可观察、可归因、可恢复。超时、malformed 输出、来源缺失和校验器异常不得转换成 PASS。
+
+## 1. 四种失败模式
+
+| 类型 | 失败 | 学习者风险 | 主要机制 |
 |---|---|---|---|
-| F1 | 答**错了**（算式、定义、日期、API 行为） | 学到错误事实 | 二值，可证伪 |
-| F2 | 答**漏了**（题设条件、单位、子问题） | 解错题却不知道为什么 | 二值，可对照台账 |
-| F3 | 答**歪了**（把「通常」写成「总是」，把「相关」写成「等同」） | 形成错误心智模型 | 有程度，难证伪 |
-| F4 | 答**得含糊**（该说的不确定没说，或把「没找到反例」说成「已证实」） | 无法判断该不该信 | 状态机正确性 |
+| F1 | 答错：计算、定义、日期、API 行为或事实不正确 | 学到错误知识 | 确定性复算、测试、可靠来源核对 |
+| F2 | 答漏：忽略题设、单位、边界条件或子问题 | 答案与题目不匹配 | 要求台账与答案覆盖记录 |
+| F3 | 答歪：把“通常”写成“总是”，或把相关性写成因果 | 形成错误心智模型 | 范围、假设与概念边界提示 |
+| F4 | 不确定却表达成确定，或把“未找到反例”说成“已证明” | 无法校准信任 | 严格审计状态机和用户可见说明 |
 
-F1/F2 靠**确定性与台账**；F3 靠**解释性表述的边界约束**；F4 靠**认识论状态机的纪律**。
+F1、F2 优先级最高，因为可以从小范围、可核验的任务开始。F3 后置，只先做非阻断提示。F4 的状态纪律贯穿所有阶段。
 
-**本路线的主张**：F4 和 F2 是当前投入产出比最高的两块，因为它们**不需要新增知识资产**，只需要把已有结构接通；F3 的成本最高且永无「准确」，应当**刻意排到最后**，且只允许以「标注」形式存在。
+## 2. 当前实现边界（2026-10-20 核查）
 
----
+### 2.1 已存在的基础
 
-## 1. 现状核实（不是文档声称，是代码实际）
+- **src/study_agent/domain/task_dossier.py** 定义了不可变的 TaskDossier、来源、事实、要求、开放问题、答案 claim 以及角色投影；投影能列出缺失的关键事实与要求。
+- **src/study_agent/infrastructure/dossier_sqlite.py** 提供按用户、任务和版本作用域存储档案的基础。
+- **src/study_agent/domain/audit.py** 定义了 REFUTED、SUPPORTED_WITH_EVIDENCE、NOT_FALSIFIED、UNRESOLVED、NOT_TESTED、INVALID_COUNTEREXAMPLE 等状态，并约束 REFUTED 不能只依赖模型判断。
+- **src/study_agent/application/counterexample_audit.py** 提供有候选数量上限、可注入生成器与验证器的审计编排服务。
+- **core/tool_loop.py** 有受限 AST 算术求值器，可安全地计算白名单内的数值表达式。
 
-### 1.1 已经扎实的部分
+### 2.2 尚未完成的部分
 
-- `src/study_agent/domain/audit.py`：六态 `AuditOutcome`，且 `CandidateValidation.__post_init__` 把「REFUTED 必须 premise 成立 + 矛盾确认 + 非纯模型判定」写进了构造器；`ClaimAuditResult` 在此基础上再要求「至少一条 `confirms_refutation` 且能对上 candidate」。`is_proven_true` 恒为 `False`。**这是把认识论承诺编码为不可绕过的不变量，方向完全正确。**
-- `src/study_agent/application/counterexample_audit.py`：`islice` 限制的是**迭代本身**而非最终 tuple（防无界生成器）；malformed 输出判 `UNRESOLVED` 而**不是** `NOT_FALSIFIED`；跨 claim 的 candidate 直接拒绝且不调用 verifier；单条验证异常不拖垮整次审计。
-- `src/study_agent/domain/task_dossier.py`：`TaskDossier` 不可变、按 user/task/version 作用域；`SOURCE_EXPLICIT` 事实**强制**必须有 source_refs；`project()` 会显式返回 `missing_critical_fact_ids` / `missing_claim_fact_links`，`has_critical_context_loss` 可机读。
-- 测试：`tests/test_counterexample_audit.py` 已覆盖「模型判定不能单独证伪」「无候选≠证明」「malformed≠NOT_FALSIFIED」「verifier 超时→UNRESOLVED」等关键纪律。
+- **docs/architecture/migration-plan.md** 明确指出：TaskDossier 和 CounterexampleAuditService 尚未接入所有真实答案生成路径，生产级反例生成/独立验证适配器尚未完成。
+- **core/agent.py、core/teacher.py、core/teaching_validator.py、core/reasoner.py、core/tool_loop.py** 仍然承载主要运行时行为；TeachingValidator 仍依赖模型审查。
+- 现有 AST 计算器只执行受限算术，不能被描述为已具备单位换算、量纲分析或通用日期验证。
+- README 描述了 direct、direct_verified 和 reasoner 等执行模式，但本次静态核查未确认 direct_verified 的实际运行时分派点与端到端测试闭环。实施前必须先追踪真实调用链，不能假定文档名称对应一个已可接入的钩子。
+- RequirementStatus 当前表示任务要求状态，尚不是针对某个答案版本的完整覆盖结果；模型也尚未把 TaskDossier 的缺失字段系统性地传到最终用户输出。
 
-### 1.2 三个必须正视的缺口（已核实，非推测）
+以上是实现状态，不是目标设计。不能将“类型已存在”描述为“真实请求已使用”。
 
-**缺口 A — 新能力完全没有接线。** grep `core/` 无任何 `CounterexampleAuditService` 引用；唯一相关的是 `core/storage_security.py` 的兼容 re-export。`migration-plan.md:9` 自己写明「not yet wired into every answer-generation path」。**当前用户拿到的每一个答案，走的都是旧的、纯 LLM 的 `TeachingValidator`。**
+## 3. 数据生命周期与责任边界
 
-**缺口 B — 现行校验器仍然是纯 LLM，且没有凭据字段。** `core/teaching_validator.py:296-304` 的 `revision_findings` 只返回 `{claim, verdict, severity, correction}`，**没有 location、没有 evidence、没有 reproduction**。`_normalize_result`（`:42`）也不保留任何可复算字段。这正是 `epistemic-integrity.md` §5「An audit finding is useful only if a student or Teacher can act on it」尚未满足的地方。
+### 3.1 TaskDossier：任务来源的不可变快照
 
-**缺口 C — `NOT_FALSIFIED` 的一个真实伪通过路径。** `counterexample_audit.py:151-161`：当所有候选都无效时判 `NOT_FALSIFIED`。此时 `validations` 非空，但**这些候选可能全是 verifier 直接判 invalid 的垃圾**。而 `test_invalid_candidate_does_not_become_a_confirmed_error`（`tests:111-129`）恰恰把这个行为固化成了期望值。语义上「试过了，都不成立」确实不是证明，但与 `NOT_TESTED` 的区别在用户界面上会消失——学习者看到的是「没报错 = 应该是对的」。
+TaskDossier 负责描述任务，不负责承载所有答案版本的动态状态。它包括：
 
----
+- 可信的 user_id、task_id、dossier_version、schema_version；
+- 原始来源标识、定位符、内容哈希和来源版本；
+- 从来源提取的事实、用户明确陈述、推导事实及模型推断，并明确区分其来源类型；
+- 要求台账、未解决问题、题设边界和输出格式约束；
+- 每次角色投影使用的 dossier 版本以及纳入视图的事实/要求 ID。
 
-## 2. 路线总览
+用户身份必须来自应用认可的身份上下文或受信任 API 边界，不能直接采用模型输出或未经授权的请求字段。身份缺失时，不得退回到跨用户共享的默认档案。
 
-```
-P0  接线 + 台账          ← 零新增知识资产，只接通已有结构
- │   让 Dossier 进入真实请求路径；让 F2 可测
- ▼
-P1  确定性校验落地       ← 唯一的「能说硬话」的地方
- │   arith / calendar / source_ref，接进 Validator 修订回路
- ▼
-P2  状态机纪律与呈现     ← 让 F4 在界面上可见
- │   NOT_FALSIFIED 与 NOT_TESTED 分离；新增 attempted_methods
- ▼
-P3  解释性表述边界       ← F3，成本最高，只做「标注」
- │   绝对化词 / 常见误简化 / 适用范围缺失
- ▼
-P4  评测闭环             ← 决定以上是否真的有效
-```
+来源内容哈希只证明“当前读取内容与所记录哈希是否一致”，本身不证明来源权威或内容真实。进行 source-pin 核验时，必须取得实际来源内容、重新计算哈希，并验证 locator 确实指向目标片段。
 
-**排序原则**：每期都必须满足「不达标就不接进用户可见路径」。宁可三期做完只上线 P0+P1，也不要五期同时半成品——半成品的校验器比没有校验器更危险，因为它消耗信任。
+### 3.2 AnswerRevision：答案和审计的版本锚点
 
----
+新增独立的答案版本概念（名称可按代码风格调整），至少包含：
 
-## 3. P0 — 接线与任务台账（最高优先）
+- answer_revision_id、user_id、task_id、所用 dossier_version；
+- 答案文本及规范化内容哈希；
+- claim 列表及其稳定 ID、答案定位信息、类型、假设、关联的 fact/requirement ID；
+- 父修订版本、生成时间及修订原因。
 
-**为什么最先**：F2（漏掉题设）是学习者-最痛且**最容易做对**的一类，而且 Dossier 的数据结构**已经写完了**，只是没接上。这是投入产出比最高的一步。
+原始答案、修订答案和对应审计记录必须保留可追溯关系。TaskDossier v1 中现有 claims 字段可以在兼容期保留，但不能继续把跨答案版本的 claim 状态混为一个任务档案状态；迁移应通过明确的 schema 版本/兼容策略完成，不可悄悄改变既有序列化含义。
 
-### 3.1 让 Dossier 进入真实请求路径
+### 3.3 CoverageEntry：针对具体答案版本的覆盖结果
 
-- 在 `StudyAgent.run` 的入口处构建 `TaskDossier` v1，而非在 Teacher 之后补建。
-- `Teacher` 与 `TeachingValidator` 不再接收原始 transcript，而是接收 `dossier.project(...)` 的**角色视图**。
-- **关键约束**：任何一次投影若 `has_critical_context_loss` 为真，必须在输出侧可见（不是日志），因为那意味着校验依据本身残缺。
+覆盖状态必须绑定 answer_revision_id，而不是直接写回全局 TaskRequirement。AnswerRevision 与 CoverageLedger 使用追加式持久化；覆盖台账保存前必须确认对应答案修订已存在，且 dossier version 一致。答案哈希在序列化读回时复核。建议定义独立的 CoverageOutcome：
 
-**验收**：`tests/architecture/test_import_boundaries.py` 之外新增集成测试——构造一个「题设有 3 个 critical 条件、其中 1 个被上下文压缩丢弃」的场景，要求系统**不能**静默输出 PASS。
+- SATISFIED：答案明确满足该要求；
+- OMITTED：要求没有被回答；
+- CONTRADICTED：答案与题设或要求明确冲突；
+- NOT_APPLICABLE：有明确、可说明的理由表明此要求不适用；
+- UNRESOLVED：现有内容无法可靠判断。
 
-### 3.2 给 finding 加结构化凭据
+所有 critical requirement 在输出前必须有覆盖结果。OPEN 不能被当作满足；覆盖分析未运行、模型返回 malformed 结果或投影丢失关键约束，都不能转为 SATISFIED。
 
-改 `core/teaching_validator.py::_normalize_result`，向后兼容地新增可选字段：
+保留现有 RequirementStatus.CONFLICTED 来表示来源/任务信息互相冲突；它与答案 CONTRADICTED 不是同一概念。如果新增持久化字段或枚举影响已有格式，必须升级 schema_version 并提供迁移和兼容测试，不要复用一个状态表达两种语义。
 
-```
-claim_id / answer_span / evidence_refs / violated_condition / source = "judge" | "oracle"
-```
+### 3.4 AuditReport：记录一次有限范围的验证
 
-**不破坏**现有 `status/claims/summary` 契约（`:307` 的兼容性约束保持）。`source` 字段是 P1 分级处置的前提。
+每份报告至少引用 user_id、task_id、dossier_version、answer_revision_id、审计策略/版本以及按 claim 组织的结果。审计结果、证据和修订关系都应遵守相同用户隔离、数据保留、脱敏与访问控制规则。
 
-**验收**：现有 `tests/test_teaching_validator_audit_packet.py` 全绿；新增测试证明旧格式输入仍被接受、新字段缺失时行为不变。
+### 3.5 Knowledge Prerequisite DAG：课程知识依赖与学习者掌握度分离
 
-### 3.3 明确定义「答漏了」的判据
+为支持教学后的查缺补漏，增加有版本的先修知识 DAG。它表达“理解目标知识点之前，需要哪些基础知识”，不是学习者掌握程度本身。
 
-不看模型怎么说，而看 **coverage ledger**：每条 `critical=True` 的 `TaskRequirement` 在答案中必须有明确状态（`SATISFIED / OMITTED / CONTRADICTED / NOT_APPLICABLE`）。任何 `OPEN` 在输出时视为**未完成**。
+- KnowledgePoint 使用稳定 ID、名称、别名和来源引用。
+- PrerequisiteEdge 使用明确字段 prerequisite_id -> target_id：边的起点是先修知识，终点是依赖它的目标知识。禁止自环、重复边、缺失节点和任何有向环。
+- 图以 graph_id + version 标识，按版本追加保存。课程内容的修改必须生成新版本，旧版本仍可被已完成的诊断记录引用。
+- 允许一个知识点有多个前置条件及多个后续知识点；因此它是 DAG，不要求是只有单一父节点的树。查询目标知识时，按拓扑学习顺序返回所有传递前置条件。
+- 先修关系必须来自明确的课程依据、可信来源或经过人工确认的关系。模型提出的边只能是候选，不得因“模型认为有关系”就直接当作已验证先修条件。
+- 课程先修图是共享、非个人化的知识结构；学习者的 mastered / familiar / learning / weak / unknown 等掌握状态必须存放在各自用户作用域中，不能写入共享 DAG。
+- 答案版本通过 knowledge_point_ids 关联其教学主题。教学后，诊断服务以回答所用图版本和该用户的掌握状态计算缺失前置知识，并按先修顺序给出可执行的补学建议。未评估应标为 unknown，不能说成“确认不会”。
+- 现有 core.KnowledgeGraph 同时承载学习者状态和一般语义关系；related_to、used_in 等一般关系允许形成环，不应把所有语义边强行做成 DAG。DAG 不变量只应用于 depends_on 先修子图及新的 PrerequisiteGraph。旧 depends_on 记录的语义是“source 依赖 target”，迁移到新 DAG 时需翻转为 target -> source，并在导入时重新检查环；不能直接复制方向。
 
-> 这比「让模型检查是否遗漏」强得多：模型可以漏看，但台账里的 `OPEN` 漏不掉。
+本阶段定义 DAG 契约、查询/缺口诊断与 SQLite 版本仓储；同时落地 AnswerRevision 与 CoverageLedger 的追加式 SQLite 存储。两类存储均有明确的版本、哈希或 scope 校验，并限制 legacy depends_on 子图不得新增循环边。它不自动生成大型领域知识库，也暂不把先修建议接到 Teacher 的最终 UI；真实运行路径接线和用户可见提示在后续阶段进行。
 
----
+## 4. 端到端流程
 
-## 4. P1 — 确定性校验（唯一能说硬话的层）
+~~~text
+可信请求上下文 + 原始来源
+          ↓
+构建/加载 TaskDossier（固定版本）
+          ↓
+生成角色专用视图并检查关键上下文是否丢失
+          ↓
+Reasoner / Teacher 生成候选答案
+          ↓
+创建 AnswerRevision，拆分 claims 并建立 requirement 覆盖台账
+          ↓
+按 claim 类型和适用范围选择验证方法
+          ↓
+独立验证、保存 AuditReport
+          ↓
+若有可复现错误：有限次数修订并创建新 AnswerRevision
+          ↓
+重新检查受影响 claims + 全部 critical requirements
+          ↓
+按证据和未解决状态返回答案与审计说明
+~~~
 
-### 4.1 只做证伪，只做有预言机的类别
+重要规则：
 
-按收益/成本，**只做三项**，都不需要 `sympy`/`z3`：
+1. 每个角色接收到的视图必须标明源 dossier_version 和纳入的事实/要求 ID。critical 条件不能为满足 token 预算而被静默删除。
+2. 若 projection 报告 critical 条件缺失，当前答案不得得到完整 PASS。系统可以返回有用的部分答案，但必须说明校验受限的具体原因。
+3. claim 抽取与 requirement 覆盖可以用模型辅助，但其结果属于候选标注；ID、引用、状态转换和证据关联须由应用层校验。
+4. 每次答案修订都创建新版本，并使依赖旧答案文本或旧来源版本的验证结果失效。
+5. 自动修订次数有上限。修订失败、复审超时或仍有重大未解决项时，应保留可用答案并明确标出风险，不能假报验证通过。
+6. 先建立一条最小、真实、可回归的请求路径，再扩展到其他执行模式。不能仅凭 README 中的模式名称选择集成位置。
 
-| 检查器 | 判定对象 | 预言机 | 误报 |
-|---|---|---|---|
-| `arith` | 算式结果、单位换算、量纲 | `decimal` + AST 白名单（**项目已有**，见 README「Calculator safety」） | ≈0 |
-| `calendar` | 闰年、星期、日期区间 | `dateutil`（已在运行时） | ≈0 |
-| `source_pin` | 「第 N 行是 X」「文件里写了 Y」 | 对照 Dossier 的 `SourceReference.content_hash` + locator | ≈0 |
+## 5. 验证器分层
 
-**复用而非新造**：`arith` 直接用现有 Calculator 的 AST 白名单解释器，`epistemic-integrity.md` §4 的「Use available deterministic tools before adding another model call」即此意。
+### 5.1 模型审查（judge）
 
-### 4.2 输出严格复用 `AuditOutcome`
+模型可以识别可疑主张、提出反例候选、解释潜在问题或建议修订；模型单独给出的 PASS 只能作为一个模型判断，不能冒充独立验证证据。
 
-不发明新枚举——把确定性结果映射到已有六态：算错 → `REFUTED`（`method=CALCULATION` + `reproduction` 必填）；算对 → `SUPPORTED_WITH_EVIDENCE`；不在能力域 → `NOT_TESTED`（**不是** `NOT_FALSIFIED`）。
+### 5.2 确定性算术（第一批 oracle）
 
-### 4.3 分级处置
+复用现有受限 AST 求值器，但新增一个窄、可注入的计算验证接口，避免业务逻辑直接依赖 ToolLoop 内部实现。
 
-- `source="oracle"` + `REFUTED` → **强制修订**（零误报，值得阻塞）
-- `source="judge"` + major → 修订一次（维持现状）
-- 任一 `NOT_TESTED` → **必须呈现为「未校验」，不得呈现为通过**
+在能可靠解析题设参数、表达式、变量绑定和预期量的范围内，比较可复现的实际计算结果。只对被验证的计算 claim 作结论，不能因为一次算术通过就给整段解释打 PASS。
 
----
+以下情况必须返回 NOT_TESTED 或 UNRESOLVED：表达式不在白名单内、参数绑定不确定、输入/单位不明确、结果非有限数值、超时或验证过程异常。
 
-## 5. P2 — 认识论状态机的纪律
+第一阶段不声称已经支持通用单位转换、量纲分析、日历事实或自然语言推理。单位与量纲可以在有独立测试和明确定义后单独扩展；日期检查只有在确认并声明直接依赖后才可列入能力清单。
 
-### 5.1 修掉 `NOT_FALSIFIED` 的伪通过路径
+### 5.3 Source-pin（后续扩展）
 
-`NOT_FALSIFIED` 当前对凭据零要求。建议最小改动：
+对“文件第 N 行写了什么”“来源是否包含某段文字”等 claim，验证器必须读取授权的真实来源、核实 locator、重新计算内容哈希，并保存可复查的来源定位。不存在、不可访问、哈希不匹配或定位歧义时不能声称已核实。
 
-1. 给 `ClaimAuditResult` 增加 `attempted_methods: tuple[CounterexampleMethod, ...]`；
-2. 「无效候选」与「无候选」区分记账：全部候选 invalid → 该 claim 的 `NOT_FALSIFIED` **降级为 `UNRESOLVED`**，理由写「生成的候选全部不成立，不等于主张成立」；
-3. 只有「尝试方法覆盖了 ≥1 个实质性类别」时才允许输出 `NOT_FALSIFIED`。
+### 5.4 反例生成与独立验证
 
-**注意**：这会改变 `tests/test_counterexample_audit.py:111-129` 的期望值。**这是修复，不是回归**——那条测试把「垃圾候选 → NOT_FALSIFIED」固化了，恰恰是缺口 C。
+反例生成器只生成候选，不得自行把候选标为有效。每个候选必须与目标 claim ID 对应，并由独立验证器核查前提是否成立、结果是否可复现、矛盾是否真实存在。
 
-### 5.2 用户可见的措辞契约
+优先复用确定性计算、测试和可信来源；模型生成的解释不能充当独立证据。每个候选的验证异常应被记录为不确定，并且不能抹掉其他候选的有效结果。
 
-| 内部状态 | 允许的措辞 | 禁止的措辞 |
+## 6. 审计状态机与用户可见语义
+
+状态不仅要在枚举中存在，还必须有构造条件、持久化语义、UI 文案和测试。
+
+| 状态 | 精确定义 | 用户可见表达原则 |
 |---|---|---|
-| `REFUTED` | 「这里算错了，反例是…」 | — |
-| `SUPPORTED_WITH_EVIDENCE` | 「有证据支持，依据是…」 | 「已证明」 |
-| `NOT_FALSIFIED` | 「已尝试[方法]，未找到反例」 | 「正确」「已验证」 |
-| `UNRESOLVED` / `NOT_TESTED` | 「这一点没有校验」 | 静默略过 |
+| REFUTED | 至少一个候选满足适用前提，并由非模型单独判断的方法确认其矛盾；计算/测试类结果须可复现 | 指出具体错误、成立条件、证据/复现和修正方式 |
+| SUPPORTED_WITH_EVIDENCE | 存在可追踪证据支持这个范围明确的 claim | “有证据支持”，不得说“已证明” |
+| NOT_FALSIFIED | 至少一个预先定义、适用于该 claim 的实质性检验完整成功执行；在该次检验范围内未找到被确认的反例 | 说明执行了哪些方法及其范围；不得等同于正确或已验证 |
+| UNRESOLVED | 已尝试校验，但因候选无效、证据冲突、malformed 结果、异常或验证不充分而无法下结论 | “尝试校验，但尚不能确定”，并解释原因 |
+| NOT_TESTED | 没有执行适用的有效校验方法，或该 claim 超出已实现能力范围 | 明确“未校验”及原因 |
+| INVALID_COUNTEREXAMPLE | 单个候选未满足前提或没有形成矛盾；这是候选级结果 | 可说明该候选无效，但不得单凭它宣告整体 claim 正确 |
 
-> 最后一行是硬要求：**静默等于暗示通过**。这是整条路线里最便宜、收益最大的一条纪律。
+硬性规则：
 
----
+- 空候选列表或“模型没有想到反例”本身不构成有效检验。除非另有成功运行的、在策略中预定义的有效检验，否则不能返回 NOT_FALSIFIED。
+- 所有候选均无效时，claim 级结果为 UNRESOLVED，而不是把候选级 INVALID_COUNTEREXAMPLE 升格为整体通过。
+- NOT_TESTED 与 UNRESOLVED 不可混用：一个表示没有进行有效检验，一个表示尝试过但未能解决。
+- is_proven_true 一类便利属性必须保持 false；不得为简化 UI 而把 NOT_FALSIFIED 映射成 PASS。
+- REFUTED 的构造必须检查候选 ID、目标 claim ID、前提成立、独立矛盾确认和对应证据/复现。模型判断不能单独满足这些条件。
+- attempted_methods 必须表示真正执行过的、有结果的检查方法，且可关联校验记录；不能只是 LLM 声称“我检查过”。
 
-## 6. P3 — 解释性表述的边界（F3）
+## 7. Finding 的证据契约
 
-**先说清定位**：F3 没有「准确」解，只有「标出来供人判断」。因此本期的产出**只能是标注**，不得阻塞输出。
+每条可操作 finding 至少应支持以下信息：
 
-### 6.1 三类信号（不引入语义相似度、不用 LLM 判分）
+- answer_revision_id、claim_id 和稳定的 answer_span/定位方式；
+- finding 类型、严重级别和被违反的 requirement/fact/assumption；
+- 已解析、可访问的 evidence_refs；
+- 验证方法、校验器版本、输入/输出摘要或 reproduction；
+- 可信来源类型与审计结果，以及必要的修正建议；
+- 若无法核验，明确的 unresolved_reason，而不是猜测性的错误定位。
 
-1. **绝对化词检查**：`总是 / 从不 / 完全 / 唯一 / 必然` 出现在教学生成文本中 → 提示补充边界。**必须按领域白名单排除**（数学的真绝对命题不应被误伤）。
-2. **已知误简化**：维护一份**很小**的、按概念组织的手工词表（如「线程不共享内存」「相关系数等于因果」），命中即标红。这是唯一能精确捕获 F3 的确定性手段。
-3. **适用范围缺失**：解释类表述若不包含「在什么条件下不成立」，标注为待补充。
+兼容现有 TeachingValidator 返回结构时，可以新增可选字段，但保留 status/claims/summary 等旧契约。缺少新字段的旧格式仍可被解析，但不能因此获得更高的证据等级。
 
-### 6.2 为什么刻意不做「覆盖度差分」
+来源字段由可信的程序路径产生：模型输出中的 source="oracle" 不得直接接受。只有实际运行了已注册的确定性 oracle、其输出经过结构验证且输入/输出被记录后，应用层才可标记为 oracle finding。
 
-另一份设计（骨架差分 + 触发词覆盖度）在这里是合理的，但**它的代价是维护领域骨架**，而骨架维护成本随概念线性上升、且「一个错的骨架比没有骨架更危险」。在当前阶段：
+数据类使用 frozen=True 并不意味着嵌套 dict/list 深度不可变。对 reproduction 和证据包应采用标准化序列化、深拷贝/不可变表示或内容哈希，并测试对象创建后不能被悄悄修改审计依据。
 
-- 骨架会引入**新的权威性来源**，需要独立评审流程；
-- 而 F2 已经由 P0 的 requirement ledger 覆盖了「该说没说」的大部分场景，**不需要两套机制。**
+## 8. 可靠性、安全性与运行成本
 
-**结论**：F3 留待 P0–P2 的指标稳定后，仅当 F2 台账证明「遗漏已收敛、剩余错误集中在表述歪曲」时才启动。启动时也**只做 §6.1 的三类信号**，不做完整覆盖度评分。
+- user/task/version 作用域必须贯穿来源、Dossier、AnswerRevision、AuditReport、缓存和遥测；不得用未经验证的 user_id 创建或读取他人的记录。
+- 原文、附件、学习者数据和模型输入不能写入普通日志；只记录必要的 ID、阶段、耗时、状态和脱敏错误。
+- 生成/验证服务必须有候选数量、单条文本大小、总耗时、并发量和取消检查上限。限制迭代次数并不能终止一个永久阻塞的生成器。
+- 仅对明确可重试的瞬时失败进行有上限的重试；校验失败不能通过重复调用直到返回 PASS 来消除。
+- 审计失败不得破坏 Agent 主循环，也不得把失败转换成通过。输出应保留有用答案，同时附带未校验/未解决说明。
+- 不增加第二套重复的任务账本；所有层复用统一 ID、版本和来源引用约定。
+- 规则和校验器变更必须版本化并重跑固定评测集；不允许校验器在无评测门槛的情况下自动扩大判定权限。
 
----
+## 9. 评测指标与放行条件
 
-## 7. P4 — 评测（决定以上是否有效）
+所有评测都必须给出分母、样本量、切片范围与原始计数。小样本不能只呈现百分比。
 
-没有这一层，前面全凭主观。按 `epistemic-integrity.md` §7：
+- 反例精确率：被确认有效的反例数 / 被接受的反例总数。
+- 反例召回率：被成功检出的已知错误数 / 评测集中已知错误总数。
+- 误报率：被错误判为 REFUTED 的 clean claims 数 / clean claims 总数。
+- 有效检验覆盖率：成功完成符合策略要求的有效检验的 claims / 目标 claims 总数；NOT_TESTED 和 UNRESOLVED 不能计作已覆盖。
+- critical requirement 保留率：目标角色视图中实际保留的关键要求数 / 全部关键要求数。
+- 遗漏率：答案未满足的 critical requirements / 全部 critical requirements。
+- 校准准确性：REFUTED、NOT_FALSIFIED、UNRESOLVED、NOT_TESTED 是否按预先定义的 oracle 标签或人工裁定正确区分。
+- 鲁棒性：生成器 malformed、验证器超时、来源缺失、取消、重复 ID、跨 claim 候选和跨用户访问场景的处理正确率。
 
-**必测切片**
-- **细节保留率**：上下文压缩后，critical 条件 / 单位 / 输出格式的保留比例（P0 直接对应）
-- **反例精确率**：被接受的反例中真正成立且真正矛盾的比例
-- **反例召回率**：已知错误中被找到并验证出反例的比例
-- **误报率**：正确主张被误判的比例 → **硬门槛**
-- **校准**：`REFUTED / NOT_FALSIFIED / UNRESOLVED` 是否被正确区分（P2 直接对应）
+建议初期目标是 refutation_precision ≥ 0.95，但必须结合每类原始计数和置信区间解释。任何使用于强制修订的 oracle 验证器，都必须单独满足严格的 clean-case 误报门槛；不能只靠总体平均值达标。初期可把 false_alarm_rate ≤ 0.01 作为强制自动修订的候选门槛，且需在有代表性的独立 clean 样本上验证。若样本量不足以支持该判断，则不得自动阻断，继续影子运行或只显示提示。
 
-**验收门槛（建议）**
-- P0/P1：`refutation_precision ≥ 0.95`
-- P2 起：`false_alarm_rate ≤ 0.10`，否则**不得接进用户可见路径**，只在日志试跑
-- 每个概念样本 < 20 时**报告原始计数**（如「30 个 clean 样本 2 个误报」），不报百分比
+只有当覆盖、误报、证据质量、版本一致性、DAG 一致性和异常恢复全部通过相应门槛时，相关能力才可进入用户可见的强制决策路径。
 
-**必须承认的陷阱**
-1. 自标注循环：至少一部分 clean 样本须来自**独立来源**（教材原文、权威文档）。
-2. 骨架/词表过拟合：指标必须声明适用概念范围与数量。
-3. 「没找到反例」不能计入准确率分子。
+## 10. 分阶段实施路线
 
----
+### P0 — 运行路径侦察与基线（已完成，PR #41）
 
-## 8. 明确不做的事
+追踪 CLI、API、共享 composition root、StudyAgent、AgentToolLoop、Teacher 和 TeachingValidator 的实际调用图；纠正 README 中没有对应运行时实现的 direct/direct_verified/reasoner 三分图；用 characterization tests 固定当前行为。
 
-1. **不做通用自然语言形式化**——形式化本身就是要被检验的环节，把不可靠环节放最前面，后面再准也救不回。
-2. **不追求「幻觉率归零」**——现实目标是：F1/F2 在确定性覆盖域内接近零；F3 从「完全不可见」变为「可见、可定位、需人判断」。
-3. **不让校验器自我进化扩权**——规则变更必须版本化 + 重跑评测。
-4. **不在 P0–P2 完成前启动 F3 骨架工程**——避免用新资产掩盖接线缺口。
-5. **不把「模型也同意」当证据**——`audit.py` 的既有约束必须保持，不得为降低误报率而放宽。
+退出条件：调用图已记录；Python 3.11、Python 3.13 全量 pytest 和 Coder sandbox security CI 通过。此阶段没有把 TaskDossier 或反例审计接入真实回答路径。
 
----
+### P1 — 数据契约与前置知识 DAG
 
-## 9. 一条最先动手的具体改动（建议）
+定义 AnswerRevision、答案版本级 CoverageLedger 和 AuditReport 的版本关联；引入版本化 PrerequisiteGraph、拓扑顺序、循环检测、传递先修查询、学习者缺口诊断以及 SQLite 版本仓储。先修 DAG 与用户掌握状态分开存放。同步给 legacy KnowledgeGraph 的 depends_on 子图增加环检测，但一般语义关系不强制 DAG。
 
-如果只做一件事：
+退出条件：数据契约有序列化/引用/跨用户测试；DAG 具备环、自环、重复边和未知节点测试；缺口诊断引用精确的答案版本与图版本；代码尚未声称这些能力已接入最终教学回答。
 
-> **把 `CounterexampleAuditService` 接进 `direct_verified` 路径，且只接 P1 的 `arith` 检查器，其余 claim 一律返回 `NOT_TESTED` 并在答案里明示「未校验」。**
+### P2 — TaskDossier 与先修诊断接入真实请求路径
 
-理由：它同时验证了「接线（P0）」和「确定性校验（P1）」两个最大缺口，且**零误报风险**（`NOT_TESTED` 不构成任何肯定性断言）。这是唯一一条「即使只做一半也绝不会让系统变得更不可信」的路径。
+在真实请求入口创建档案和答案版本，把关键要求覆盖结果接入 Teacher/Validator；对已识别教学主题查询指定图版本，并结合当前用户掌握状态生成补学建议。先影子运行并记录原因，不以缺口诊断自动断言学生一定不会某知识点。
+
+退出条件：集成测试证明任务条件不静默丢失；答案主题可以映射到稳定知识点 ID；用户掌握度隔离；过期图版本不会被误用于当前建议。
+
+### P3 — 第一项确定性校验
+
+只接入范围严格限定的算术复算路径，并保证计算 claim、输入与复现结果一一对应。单位、量纲、日期和 source-pin 不可仅因被列入计划就算已支持。
+
+退出条件：固定测试集中已知正确/错误的计算案例、模糊输入、非有限结果、越界表达式和验证异常均有预期结果；非 oracle 的模型判断永远不能冒充 oracle。
+
+### P4 — 状态机与可行动反馈
+
+强化 AuditOutcome 和候选验证约束，修正“所有候选无效仍视作 NOT_FALSIFIED”的路径，补足 finding 定位、证据与修订关系，并在用户可见输出区分未校验与未解决。
+
+退出条件：状态转换表有测试覆盖；任意故障都不能产生 PASS；答案修订后旧报告不会被误用于新答案。
+
+### P5 — 评测、影子运行和渐进放量
+
+建立独立 clean 样本和已知错误样本，覆盖遗漏、边界条件、错误来源、错误反例和工具故障。先影子运行，确认阈值后只开放已达标的 claim 类型。
+
+退出条件：报告分母、样本量、原始计数、切片及失败例；有明确关闭开关和回滚步骤。
+
+### P6 — 表述边界提示（后续）
+
+仅当 P0–P5 指标稳定且错误分析显示 F3 是主要剩余问题时启动。绝对化词、已知误简化和适用范围提示按 claim 类型限定，仅提供非阻断标注，不引入未经评审的大型领域骨架。
+
+## 11. 明确暂不做的事
+
+1. 不做通用自然语言形式化，不把模型生成的形式化当作可信事实。
+2. 不承诺幻觉率归零；只对通过评测的狭窄能力范围作有界结论。
+3. 不在 P0–P5 达到放行条件前启动大型概念骨架或自动知识资产生成。
+4. 不允许校验器自行升级判定权限、扩大适用领域或在错误结果上自动学习。
+5. 不通过忽略 UNCERTAIN、重试直到 PASS 或将 NOT_TESTED 合并为 PASS 来提高表面通过率。
+6. 不把新架构的单元测试通过等同于真实浏览器/API/Agent 运行链路已通过集成验证。
