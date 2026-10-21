@@ -79,6 +79,9 @@ class PrerequisiteGap:
 
 @dataclass(frozen=True)
 class PrerequisiteGraph:
+    MAX_POINTS = 10_000
+    MAX_EDGES = 50_000
+
     graph_id: str
     version: int
     points: tuple[KnowledgePoint, ...] = ()
@@ -97,6 +100,10 @@ class PrerequisiteGraph:
             raise TypeError("points must contain KnowledgePoint records")
         if any(not isinstance(item, PrerequisiteEdge) for item in edges):
             raise TypeError("edges must contain PrerequisiteEdge records")
+        if len(points) > self.MAX_POINTS:
+            raise ValueError(f"prerequisite graph exceeds the {self.MAX_POINTS} point limit")
+        if len(edges) > self.MAX_EDGES:
+            raise ValueError(f"prerequisite graph exceeds the {self.MAX_EDGES} edge limit")
         point_ids = tuple(item.id for item in points)
         if len(point_ids) != len(set(point_ids)):
             raise ValueError("prerequisite graph contains duplicate point IDs")
@@ -181,6 +188,8 @@ class PrerequisiteGraph:
         gaps = []
         for point in self.prerequisites_for(target, transitive=True):
             stage = str(learner_stages.get(point.id, "unknown") or "unknown").strip().lower()
+            if stage not in {"unknown", "new", "learning", "familiar", "mastered", "weak"}:
+                stage = "unknown"
             if stage not in normalized_mastered:
                 gaps.append(PrerequisiteGap(
                     target_point_id=target,
