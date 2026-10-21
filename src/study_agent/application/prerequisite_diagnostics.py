@@ -20,12 +20,24 @@ class PrerequisiteDiagnostic:
 
     def __post_init__(self) -> None:
         for name in ("user_id", "task_id", "answer_revision_id", "graph_id"):
-            if not str(getattr(self, name) or "").strip():
+            value = str(getattr(self, name) or "").strip()
+            if not value:
                 raise ValueError(f"{name} must not be empty")
-        if self.graph_version < 1:
-            raise ValueError("graph_version must be positive")
-        object.__setattr__(self, "target_point_ids", tuple(self.target_point_ids))
-        object.__setattr__(self, "gaps", tuple(self.gaps))
+            object.__setattr__(self, name, value)
+        if (
+            not isinstance(self.graph_version, int)
+            or isinstance(self.graph_version, bool)
+            or self.graph_version < 1
+        ):
+            raise ValueError("graph_version must be a positive integer")
+        target_ids = tuple(str(item or "").strip() for item in self.target_point_ids)
+        if any(not item for item in target_ids) or len(target_ids) != len(set(target_ids)):
+            raise ValueError("target_point_ids must be unique non-empty IDs")
+        gaps = tuple(self.gaps)
+        if any(item.target_point_id not in target_ids for item in gaps):
+            raise ValueError("prerequisite gap references an unrequested target point")
+        object.__setattr__(self, "target_point_ids", target_ids)
+        object.__setattr__(self, "gaps", gaps)
 
 
 def diagnose_prerequisite_gaps(
