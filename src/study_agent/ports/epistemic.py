@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence
 
-from study_agent.domain.audit import CandidateValidation, CounterexampleCandidate
+from study_agent.domain.audit import AuditReport, CandidateValidation, CounterexampleCandidate
+from study_agent.domain.answer_revision import AnswerRevision, CoverageLedger
+from study_agent.domain.prerequisite_graph import PrerequisiteGraph
 from study_agent.domain.task_dossier import AnswerClaim, TaskDossier
 
 
@@ -42,7 +44,43 @@ class CounterexampleVerifier(Protocol):
 
 
 class AuditReportRepository(Protocol):
-    """Persist audit reports with the owning user/task scope and dossier version."""
+    """Persist reports with user/task/dossier and answer-revision scope."""
 
-    def save(self, report: object) -> None:
+    def save(self, report: AuditReport) -> None:
+        ...
+
+
+class AnswerRevisionRepository(Protocol):
+    """User/task-scoped append-only answer revisions."""
+
+    def load_latest(self, *, user_id: str, task_id: str) -> AnswerRevision | None:
+        ...
+
+    def load_revision(
+        self, *, user_id: str, task_id: str, revision_id: str
+    ) -> AnswerRevision | None:
+        ...
+
+    def save(self, revision: AnswerRevision) -> None:
+        ...
+
+
+class CoverageLedgerRepository(Protocol):
+    """Persist coverage results under the exact answer revision they evaluate."""
+
+    def save(self, ledger: CoverageLedger) -> None:
+        ...
+
+
+class PrerequisiteGraphRepository(Protocol):
+    """Versioned, shared curriculum DAG repository; learner mastery is separate."""
+
+    def load_latest(self, *, graph_id: str) -> PrerequisiteGraph | None:
+        ...
+
+    def load_version(self, *, graph_id: str, version: int) -> PrerequisiteGraph | None:
+        ...
+
+    def save(self, graph: PrerequisiteGraph) -> None:
+        """Append the next immutable graph version; reject overwrites and skipped versions."""
         ...

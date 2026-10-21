@@ -275,8 +275,22 @@ class KnowledgeGraph:
                 learner=self._learner_from_dict(learner_payload),
             )
 
+        # Legacy databases may already contain cyclic depends_on links. Retain
+        # valid edges deterministically and skip any edge that would keep the
+        # prerequisite subgraph cyclic; other relation types are not constrained
+        # by the pedagogical DAG invariant.
         self.nodes = nodes
-        self.edges = edges
+        self.edges = {}
+        for key, edge in sorted(edges.items(), key=lambda item: item[0]):
+            if edge.relation == "depends_on" and self._would_create_prerequisite_cycle(
+                edge.target, edge.source
+            ):
+                debug.log(
+                    "KnowledgeGraph",
+                    f"LEGACY PREREQUISITE CYCLE SKIP → {edge.source!r} depends_on {edge.target!r}",
+                )
+                continue
+            self.edges[key] = edge
         debug.log(
             "KnowledgeGraph",
             f"LOAD → {self.storage_path} nodes={len(self.nodes)} edges={len(self.edges)}",
@@ -518,6 +532,32 @@ class KnowledgeGraph:
         }
 
 
+    def _would_create_prerequisite_cycle(self, prerequisite_id: str, dependent_id: str) -> bool:
+        """Check the depends_on subgraph as prerequisite -> dependent edges.
+
+        Legacy storage records source depends_on target (source needs target),
+        so the pedagogical DAG orientation is target -> source. Other semantic
+        relations are deliberately excluded because they need not be acyclic.
+        """
+        adjacency: dict[str, list[str]] = {}
+        for edge in self.edges.values():
+            if edge.relation == "depends_on":
+                adjacency.setdefault(edge.target, []).append(edge.source)
+
+        # Adding prerequisite_id -> dependent_id forms a cycle exactly when
+        # dependent_id can already reach prerequisite_id.
+        pending = [dependent_id]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current == prerequisite_id:
+                return True
+            if current in seen:
+                continue
+            seen.add(current)
+            pending.extend(adjacency.get(current, ()))
+        return False
+
     def add_relation(
         self,
         source: str,
@@ -568,6 +608,11 @@ class KnowledgeGraph:
 
         key = (source_id, target_id, str(relation))
         edge = self.edges.get(key)
+        if relation == "depends_on" and edge is None:
+            if self._would_create_prerequisite_cycle(target_id, source_id):
+                raise ValueError(
+                    "先修知识关系不能形成循环依赖；depends_on 子图必须保持 DAG。"
+                )
         if edge is None:
             if len(self.edges) >= self.MAX_EDGES:
                 debug.log("KnowledgeGraph", f"EDGE LIMIT → rejected relation={source!r} -[{relation}]-> {target!r}")

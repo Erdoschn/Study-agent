@@ -149,6 +149,10 @@ class AuditReport:
     task_id: str
     dossier_version: int
     results: tuple[ClaimAuditResult, ...] = ()
+    # Optional during migration so existing callers remain source-compatible.
+    # Production audits should populate this to bind findings to an answer version.
+    answer_revision_id: str | None = None
+    audit_policy_version: str = ""
 
     def __post_init__(self) -> None:
         if not str(self.user_id or "").strip() or not str(self.task_id or "").strip():
@@ -159,6 +163,9 @@ class AuditReport:
             or self.dossier_version < 1
         ):
             raise ValueError("dossier_version must be a positive integer")
+        revision_id = str(self.answer_revision_id or "").strip() or None
+        object.__setattr__(self, "answer_revision_id", revision_id)
+        object.__setattr__(self, "audit_policy_version", str(self.audit_policy_version or "").strip())
         object.__setattr__(self, "results", tuple(self.results))
         ids = [result.claim_id for result in self.results]
         if len(ids) != len(set(ids)):

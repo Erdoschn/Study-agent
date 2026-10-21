@@ -223,3 +223,20 @@ def test_generator_failure_is_reported_as_unresolved():
 
     assert result.outcome is AuditOutcome.UNRESOLVED
     assert "TimeoutError" in result.finding
+
+
+
+def test_audit_report_can_be_linked_to_answer_revision_without_breaking_legacy_shape():
+    from study_agent.domain.audit import AuditReport
+
+    legacy = AuditReport(user_id="learner-1", task_id="task-1", dossier_version=1)
+    linked = AuditReport(
+        user_id="learner-1",
+        task_id="task-1",
+        dossier_version=1,
+        answer_revision_id="answer-revision-7",
+        audit_policy_version="counterexample-v1",
+    )
+    assert legacy.answer_revision_id is None
+    assert linked.answer_revision_id == "answer-revision-7"
+    assert linked.audit_policy_version == "counterexample-v1"
