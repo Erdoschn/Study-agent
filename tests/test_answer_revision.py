@@ -178,3 +178,11 @@ def test_coverage_ledger_rejects_cross_revision_entries_and_unknown_requirement_
     )
     with pytest.raises(ValueError, match="unknown requirements"):
         ledger.validate_against(dossier, revision)
+
+
+
+def test_answer_revision_deserialization_rejects_tampered_content_hash():
+    payload = _revision().to_dict()
+    payload["answer_text"] = "tampered answer"
+    with pytest.raises(ValueError, match="content hash"):
+        AnswerRevision.from_dict(payload)
