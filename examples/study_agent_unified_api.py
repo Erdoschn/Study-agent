@@ -45,6 +45,14 @@ from core.user_identity import UserProfileLimitError, normalize_username, user_g
 from core.model_capabilities import ModelCapabilityCache
 from core.file_ingestion import extract_attachments_to_text
 from core.context_management import context_scope
+from datetime import datetime
+from core.question_files import (
+    load_question_generation_state,
+    read_assessment_file,
+    save_assessment_files,
+    save_question_generation_state,
+)
+from study_agent.application.runtime_epistemic import persist_runtime_epistemic_artifacts
 
 MODEL_ID = "deepseek-web"
 API_MODEL_ID = "study-agent"
@@ -693,6 +701,36 @@ def _user_progress_message(module: str, message: str) -> str | None:
     return None
 
 
+
+def _completed_conversation_turn_count(messages: list[Any]) -> int:
+    """Count complete user-to-assistant turns; generated quiz cards are not turns."""
+    count = 0
+    pending_user = False
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip().lower()
+        content = Handler._message_text(item.get("content"))
+        if role == "user" and content:
+            pending_user = True
+        elif role == "assistant" and content and pending_user:
+            count += 1
+            pending_user = False
+    return count
+
+
+def _public_question_generation_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Return display-safe state without reference answers or filesystem paths."""
+    return {
+        "completed_turn_count": int(state.get("completed_turn_count", 0)),
+        "question_file": str(state.get("question_file", "")),
+        "answer_file": str(state.get("answer_file", "")),
+        "primary_concept": str(state.get("primary_concept", "")),
+        "question_text": str(state.get("question_text", ""))[:8_000],
+        "user_token": str(state.get("user_token", "")),
+    }
+
+
 def sse(data: dict[str, Any]) -> bytes:
     return ("data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode()
 
@@ -902,6 +940,30 @@ class Handler(BaseHTTPRequestHandler):
             cache = getattr(self.server, "model_capability_cache", None)
             self._json({"server": cache.storage_info() if cache else {"bytes": 0, "items": 0}})
             return
+        file_match = re.fullmatch(r"/(?:v1/)?assessment/files/([0-9a-f]{64})/([A-Za-z0-9_-]+\.md)", path)
+        if file_match:
+            try:
+                target = read_assessment_file(
+                    file_match.group(1), file_match.group(2), root=ROOT / "出题"
+                )
+                raw = target.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Content-Disposition", f'inline; filename="{target.name}"')
+                self._cors()
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(raw)
+            except FileNotFoundError:
+                self._json({"error": {"message": "找不到该 Markdown 文件。", "type": "not_found"}}, 404)
+            except (ValueError, PermissionError):
+                self._json({"error": {"message": "Markdown 文件路径无效或不允许访问。", "type": "invalid_request_error"}}, 400)
+            return
         self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
 
     def do_DELETE(self) -> None:
@@ -937,6 +999,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(result, 200 if result.get("status") == "ok" else 202)
             except Exception as exc:
                 self._json({"status": "error", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}, 502)
+            return
+        if urlparse(self.path).path in {"/assessment/generate", "/v1/assessment/generate"}:
+            self._handle_assessment_generate()
             return
         if urlparse(self.path).path != "/v1/chat/completions":
             self._json({"error": {"message": "Not found", "type": "invalid_request_error"}}, 404)
@@ -996,9 +1061,9 @@ class Handler(BaseHTTPRequestHandler):
                     f"total_bytes={sum(len(item['buffer']) for item in attachments)}",
                 )
             if request.get("stream", True):
-                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id)
+                self._stream(question, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id, source_messages=messages)
             else:
-                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id)
+                result = self._run(question, lambda _: None, attachments=runtime_attachments, model_id=model_id, username=username, task_id=task_id, source_messages=messages)
                 answer = str(result.final_answer or "").strip()
                 if not answer:
                     raise RuntimeError("StudyAgent 完成但 final_answer 为空")
@@ -1026,6 +1091,171 @@ class Handler(BaseHTTPRequestHandler):
                     "type": "server_error",
                 }
             }, 500)
+
+    def _handle_assessment_generate(self) -> None:
+        """Generate and persist a quiz pair from the current completed conversation."""
+        acquired = False
+        factory = None
+        cancellation_event = threading.Event()
+        try:
+            request = self._body()
+            messages = request.get("messages", [])
+            if not isinstance(messages, list):
+                raise ValueError("messages 必须是数组")
+            if len(messages) > MAX_CHAT_MESSAGES:
+                raise ValueError(f"messages 数量超过 {MAX_CHAT_MESSAGES} 条。")
+            turn_count = _completed_conversation_turn_count(messages)
+            if turn_count < 1:
+                self._json({"error": {"message": "请先完成至少一轮学习对话，再生成练习题。", "type": "invalid_request_error"}}, 400)
+                return
+
+            model_id = str(request.get("model", MODEL_ID) or MODEL_ID).strip()
+            if model_id != MODEL_ID and model_id != API_MODEL_ID:
+                api_config = getattr(self.server, "api_backend_config", {})
+                model_configs = api_config.get("models", {}) if isinstance(api_config, dict) else {}
+                if not isinstance(model_configs, dict) or model_id not in model_configs:
+                    raise ValueError(f"未配置可用于出题的模型：{model_id}")
+                model_entry = model_configs.get(model_id, {})
+                if isinstance(model_entry, dict) and model_entry.get("pricing_unknown") and not request.get("allow_unknown_cost", False):
+                    raise ValueError("该模型的费用状态未知；请先确认费用后重试。")
+
+            username = resolve_request_username(request)
+            task_id = str(request.get("task_id") or "").strip()
+            if not task_id or len(task_id) > 128 or any(ord(char) < 32 for char in task_id):
+                raise ValueError("task_id 格式无效。")
+
+            # Serialise the state check and model call so concurrent clicks cannot
+            # create two assessments for the same completed conversation.
+            _RUN_LOCK.acquire()
+            acquired = True
+            old_state = load_question_generation_state(username, task_id, root=ROOT / "出题")
+            if old_state is not None and turn_count <= int(old_state.get("completed_turn_count", 0)):
+                self._json({
+                    "error": {
+                        "message": "当前对话轮次已经出过题。请先继续一轮新的学习对话，再重新出题。",
+                        "type": "assessment_already_generated",
+                    },
+                    "assessment_generation": _public_question_generation_state(old_state),
+                }, 409)
+                return
+
+            agent = getattr(self.server, "agents", {}).get(model_id)
+            factories = getattr(self.server, "model_factories", {})
+            factory = factories.get(model_id) if isinstance(factories, dict) else None
+            if agent is None:
+                single_configs = getattr(self.server, "single_model_configs", {})
+                single_config = single_configs.get(model_id) if isinstance(single_configs, dict) else None
+                if single_config is None:
+                    api_config = getattr(self.server, "api_backend_config", {})
+                    model_configs = api_config.get("models", {}) if isinstance(api_config, dict) else {}
+                    if isinstance(model_configs, dict) and model_id in model_configs:
+                        single_config = build_single_model_config(api_config, model_id)
+                        self.server.single_model_configs[model_id] = single_config
+                    else:
+                        raise ValueError(f"模型 {model_id!r} 没有可用的本地配置。")
+                with self.server.agent_init_lock:
+                    agent = getattr(self.server, "agents", {}).get(model_id)
+                    if agent is None:
+                        agent = build_api_agent(single_config)
+                        self.server.agents[model_id] = agent
+                        factory = getattr(getattr(agent, "reasoner", None), "model_factory", None)
+                        self.server.model_factories[model_id] = factory
+            agent = get_or_create_profile_agent(self.server, agent, username, model_id)
+            if factory is None:
+                factory = getattr(getattr(agent, "reasoner", None), "model_factory", None)
+            graph = getattr(agent, "knowledge_graph", None)
+            reload_graph = getattr(graph, "load", None)
+            if callable(reload_graph):
+                reload_graph()
+            generator = getattr(agent, "assessment_generator", None)
+            if generator is None:
+                raise RuntimeError("当前模型未配置 Assessment Generator。")
+
+            learner_context = {}
+            last_user_message = next(
+                (self._message_text(item.get("content")) for item in reversed(messages)
+                 if isinstance(item, dict) and item.get("role") == "user"
+                 and self._message_text(item.get("content"))),
+                "",
+            )
+            context_for = getattr(graph, "context_for", None)
+            if callable(context_for) and last_user_message:
+                try:
+                    learner_context = context_for(last_user_message, limit=10)
+                except Exception:
+                    learner_context = {}
+
+            begin_run = getattr(factory, "begin_run", None)
+            end_run = getattr(factory, "end_run", None)
+            try:
+                if callable(begin_run):
+                    begin_run(cancellation_event)
+                with context_scope(username, task_id):
+                    assessment = generator.generate_from_conversation(
+                        messages,
+                        regenerate=old_state is not None,
+                        previous_question=(old_state or {}).get("question_text", ""),
+                        learner_context=learner_context,
+                    )
+                files = save_assessment_files(assessment, username, root=ROOT / "出题")
+                new_state = {
+                    "completed_turn_count": turn_count,
+                    "question_file": files["question_file"],
+                    "answer_file": files["answer_file"],
+                    "question_text": str(assessment["question"])[:8_000],
+                    "user_token": files["user_token"],
+                    "primary_concept": str(assessment["primary_concept"])[:300],
+                    "generated_at": datetime.now().isoformat(timespec="seconds"),
+                }
+                try:
+                    save_question_generation_state(
+                        username, task_id, new_state, root=ROOT / "出题"
+                    )
+                except Exception:
+                    for field in ("question_file", "answer_file"):
+                        try:
+                            (Path(files["directory"]) / files[field]).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    raise
+                self._json({
+                    "status": "ok",
+                    "primary_concept": assessment["primary_concept"],
+                    "question_type": assessment["question_type"],
+                    "question": assessment["question"],
+                    "user_token": files["user_token"],
+                    "question_file": files["question_file"],
+                    "answer_file": files["answer_file"],
+                    "question_path": files["question_path"],
+                    "answer_path": files["answer_path"],
+                    "question_url_path": files["question_url_path"],
+                    "answer_url_path": files["answer_url_path"],
+                    "regenerated": old_state is not None,
+                    "completed_turn_count": turn_count,
+                })
+            finally:
+                if callable(end_run):
+                    try:
+                        end_run(cancellation_event)
+                    except Exception as exc:
+                        debug.log("StudyAgentUnifiedAPI", f"ASSESSMENT CLEANUP FAILED → {type(exc).__name__}")
+        except UserProfileLimitError as exc:
+            self._json({"error": {"message": str(exc), "type": "profile_limit_exceeded"}}, 429)
+        except ValueError as exc:
+            self._json({"error": {"message": str(exc), "type": "invalid_request_error"}}, 400)
+        except Exception as exc:
+            reference = uuid.uuid4().hex[:8]
+            debug.log("StudyAgentUnifiedAPI", f"ASSESSMENT GENERATION FAILED → ref={reference}, error_type={type(exc).__name__}")
+            self._json({
+                "error": {
+                    "message": f"出题失败（参考编号 {reference}）。详细原因请查看本地 API 终端。",
+                    "type": "assessment_generation_error",
+                    "reference": reference,
+                }
+            }, 502)
+        finally:
+            if acquired:
+                _RUN_LOCK.release()
 
     def _handle_bridge_request(self) -> None:
         """Compatibility bridge for local Coder clients."""
@@ -1088,6 +1318,7 @@ class Handler(BaseHTTPRequestHandler):
         model_id: str = MODEL_ID,
         username: str = "local",
         task_id: str | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> Any:
         cancellation_event = cancellation_event or threading.Event()
         task_id = str(task_id or uuid.uuid4().hex)
@@ -1162,6 +1393,43 @@ class Handler(BaseHTTPRequestHandler):
                 emit(f"🔄 已进入 Agent Loop：模型={model_id}，分析 / 搜索 / 推理 / 教学")
                 with context_scope(username, task_id):
                     result = _run_agent_with_cancellation(agent, question, cancellation_event)
+                source_question = "\n\n".join(
+                    self._message_text(item.get("content"))
+                    for item in (source_messages or [])
+                    if isinstance(item, dict)
+                    and str(item.get("role", "")).strip().lower() == "user"
+                    and self._message_text(item.get("content"))
+                ).strip() or question
+                try:
+                    artifacts = persist_runtime_epistemic_artifacts(
+                        username=username,
+                        task_id=task_id,
+                        question=source_question,
+                        result=result,
+                        data_root=getattr(self.server, "data_root", ROOT / "data"),
+                        max_profiles=getattr(self.server, "max_user_profiles", None),
+                    )
+                    result.metrics["epistemic_artifacts"] = {
+                        "dossier_version": artifacts.dossier_version,
+                        "answer_revision_id": artifacts.answer_revision_id,
+                        "revision_number": artifacts.revision_number,
+                        "coverage_count": artifacts.coverage_count,
+                        "coverage_unresolved_count": artifacts.coverage_unresolved_count,
+                        "prerequisite_graph_version": (
+                            artifacts.prerequisite_diagnostic.graph_version
+                            if artifacts.prerequisite_diagnostic else None
+                        ),
+                    }
+                    if artifacts.prerequisite_note:
+                        result.final_answer = str(result.final_answer or "").rstrip() + artifacts.prerequisite_note
+                        emit("🧭 已按课程先修 DAG 整理查缺补漏建议")
+                    emit("📚 本轮答案版本与任务档案已记录；尚未逐项核验的要求保持“待核实”")
+                except Exception as exc:
+                    debug.log(
+                        "StudyAgentUnifiedAPI",
+                        f"EPISTEMIC PERSISTENCE FAILED → {type(exc).__name__}",
+                    )
+                    emit("⚠️ 本轮回答已生成，但学习审计记录未能完整保存；本次回答仍可使用")
                 emit(f"✓ Agent 完成：steps={result.step_count}, evidence={len(result.evidence)}, claims={len(result.claims)}")
                 return result
             finally:
@@ -1199,6 +1467,7 @@ class Handler(BaseHTTPRequestHandler):
         model_id: str = MODEL_ID,
         username: str = "local",
         task_id: str | None = None,
+        source_messages: list[dict[str, Any]] | None = None,
     ) -> None:
         task_id = str(task_id or uuid.uuid4().hex)
         self.send_response(200)
@@ -1230,6 +1499,7 @@ class Handler(BaseHTTPRequestHandler):
                         model_id=model_id,
                         username=username,
                         task_id=task_id,
+                        source_messages=source_messages,
                     ),
                 ))
             except Exception as exc:

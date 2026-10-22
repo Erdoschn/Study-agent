@@ -556,3 +556,13 @@ def test_web_frontend_progress_timeline_is_deduplicated_and_bounded():
     assert "a.statuses.length>60" in source
     assert "arr.slice(-7,-1)" in source
 
+
+def test_web_frontend_has_guarded_assessment_button_and_separate_file_links():
+    source = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+    assert 'id="assessmentButton"' in source
+    assert 'url("/assessment/generate")' in source
+    assert "正在出题，请稍等" in source
+    assert "awaitingNewTurn" in source
+    assert "state.questionRunning" in source
+    assert "打开题目 Markdown" in source
+    assert "打开参考答案 Markdown" in source

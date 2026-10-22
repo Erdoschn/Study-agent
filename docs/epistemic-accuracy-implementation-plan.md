@@ -162,3 +162,11 @@
 ## 开工第一步（现在）
 
 Phase 0 已在 PR #41 中完成并通过 CI。当前开工范围是 Phase 1：建立答案版本/覆盖契约与前置知识 DAG 的数据模型和约束测试。Teacher/UI 接线仍要等数据契约与集成测试明确后再做。
+
+
+## 2026-10-22 实施记录：P2 运行时影子切片
+
+- Unified API 的已完成答案现在会尝试追加保存任务来源、TaskDossier 版本、AnswerRevision 哈希版本，以及与该答案版本关联的 CoverageLedger。
+- 从原始请求文本中保守提取的要求，当前统一保留为 UNRESOLVED；这不是通过/失败结论，也不代表要求一定被遗漏。
+- 只有提供版本化 graph_id=curriculum 的 DAG 数据库时，才会生成先修缺口建议。可用 STUDY_AGENT_CURRICULUM_DB 指向数据库；默认检查 data/curriculum_prerequisites.sqlite3。
+- 运行时保存失败只发出状态提示，不覆盖或阻断已经生成的教学回答。Teacher 内部的语义覆盖核查和生产级 CounterexampleVerifier 仍需后续完成。

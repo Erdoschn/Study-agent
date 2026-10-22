@@ -29,3 +29,6 @@ Thumbs.db
 data/browser-environment/
 data/*.sqlite3
 data/*.db
+
+# Generated exercises and reference answers are local learner artifacts, not source files.
+出题/
