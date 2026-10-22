@@ -154,7 +154,15 @@ def read_assessment_file(
         raise ValueError("题目文件 Profile 标识无效。")
     safe_name = _safe_filename(filename)
     base = output_root(root)
-    profile = ensure_private_directory(base / token)
+    profile = base / token
+    try:
+        profile_status = profile.lstat()
+    except FileNotFoundError as exc:
+        raise FileNotFoundError("找不到该用户的 Markdown 目录。") from exc
+    if stat.S_ISLNK(profile_status.st_mode) or not stat.S_ISDIR(profile_status.st_mode):
+        raise PermissionError("用户 Markdown 目录必须是普通目录。")
+    if os.name == "nt" and getattr(profile_status, "st_file_attributes", 0) & 0x400:
+        raise PermissionError("用户 Markdown 目录禁止使用 Windows reparse point。")
     candidate = profile / safe_name
     try:
         status = candidate.lstat()

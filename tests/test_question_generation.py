@@ -242,3 +242,9 @@ def test_runtime_prerequisite_advice_uses_configured_dag_and_says_unknown_is_una
     assert artifacts.prerequisite_diagnostic.gaps[0].learner_stage == "unknown"
     assert "尚未评估" in artifacts.prerequisite_note
     assert "一定不会" in artifacts.prerequisite_note
+    database_path = tmp_path / "data" / "users" / profile_token("alice") / "epistemic.sqlite3"
+    persisted_revision = SQLiteAnswerRevisionRepository(database_path).load_latest(
+        user_id="alice", task_id="task-456"
+    )
+    assert persisted_revision is not None
+    assert persisted_revision.answer_text == result.final_answer.rstrip() + artifacts.prerequisite_note

@@ -257,41 +257,26 @@ def persist_runtime_epistemic_artifacts(
     dossier_repository.save(dossier)
 
     previous_revision = revision_repository.load_latest(user_id=user, task_id=task)
+    revision_number = 1 if previous_revision is None else previous_revision.revision_number + 1
+    parent_revision_id = previous_revision.revision_id if previous_revision else None
+    revision_id = uuid.uuid4().hex
+    claims = _model_claims(getattr(result, "claims", ()))
+
+    # Build a provisional in-memory revision so the diagnostic can bind to the
+    # exact revision ID. The diagnostic itself becomes part of the final stored
+    # answer; it must not be appended only after persistence.
     revision = AnswerRevision(
         user_id=user,
         task_id=task,
-        revision_id=uuid.uuid4().hex,
+        revision_id=revision_id,
         dossier_version=dossier.version,
         answer_text=answer,
-        claims=_model_claims(getattr(result, "claims", ())),
+        claims=claims,
         knowledge_point_ids=graph_targets,
-        parent_revision_id=previous_revision.revision_id if previous_revision else None,
-        revision_number=1 if previous_revision is None else previous_revision.revision_number + 1,
+        parent_revision_id=parent_revision_id,
+        revision_number=revision_number,
     )
     revision.validate_against(dossier)
-    revision_repository.save(revision)
-
-    entries = tuple(
-        CoverageEntry(
-            user_id=user,
-            task_id=task,
-            answer_revision_id=revision.revision_id,
-            dossier_version=dossier.version,
-            requirement_id=requirement.id,
-            outcome=CoverageOutcome.UNRESOLVED,
-            rationale="尚未完成针对本条要求的逐项核查；不能将此记录视为已满足。",
-        )
-        for requirement in dossier.requirements
-    )
-    ledger = CoverageLedger(
-        user_id=user,
-        task_id=task,
-        answer_revision_id=revision.revision_id,
-        dossier_version=dossier.version,
-        entries=entries,
-    )
-    ledger.validate_against(dossier, revision)
-    coverage_repository.save(ledger)
 
     diagnostic = None
     diagnostic_note = ""
@@ -318,6 +303,45 @@ def persist_runtime_epistemic_artifacts(
                 + f"\n\n<sub>课程图：{diagnostic.graph_id} v{diagnostic.graph_version}；"
                 f"基于答案版本 {diagnostic.answer_revision_id[:8]} 的非阻断建议。</sub>"
             )
+
+    final_answer = answer.rstrip() + diagnostic_note
+    if diagnostic_note:
+        revision = AnswerRevision(
+            user_id=user,
+            task_id=task,
+            revision_id=revision_id,
+            dossier_version=dossier.version,
+            answer_text=final_answer,
+            claims=claims,
+            knowledge_point_ids=graph_targets,
+            parent_revision_id=parent_revision_id,
+            revision_number=revision_number,
+        )
+        revision.validate_against(dossier)
+
+    # Persist only the final answer revision, then its coverage ledger.
+    revision_repository.save(revision)
+    entries = tuple(
+        CoverageEntry(
+            user_id=user,
+            task_id=task,
+            answer_revision_id=revision.revision_id,
+            dossier_version=dossier.version,
+            requirement_id=requirement.id,
+            outcome=CoverageOutcome.UNRESOLVED,
+            rationale="尚未完成针对本条要求的逐项核查；不能将此记录视为已满足。",
+        )
+        for requirement in dossier.requirements
+    )
+    ledger = CoverageLedger(
+        user_id=user,
+        task_id=task,
+        answer_revision_id=revision.revision_id,
+        dossier_version=dossier.version,
+        entries=entries,
+    )
+    ledger.validate_against(dossier, revision)
+    coverage_repository.save(ledger)
 
     unresolved = sum(item.outcome is CoverageOutcome.UNRESOLVED for item in entries)
     return RuntimeEpistemicResult(
