@@ -182,17 +182,22 @@ def test_runtime_persists_dossier_revision_and_unresolved_coverage(tmp_path):
         domain="physics",
         student=SimpleNamespace(known_topics=set(), weak_topics=set()),
     )
+    graph_path = tmp_path / "data" / "users" / profile_token("alice") / "knowledge_graph.sqlite3"
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    database = graph_path.with_name("epistemic.sqlite3")
+    dossier_repository = SQLiteTaskDossierRepository(database)
+    revision_repository = SQLiteAnswerRevisionRepository(database)
+    coverage_repository = SQLiteCoverageLedgerRepository(database)
     artifacts = persist_runtime_epistemic_artifacts(
         username="alice",
         task_id="task-123",
         question="Explain the field and include assumptions.",
         result=result,
-        data_root=tmp_path / "data",
-        max_profiles=10,
-        curriculum_db_path=tmp_path / "missing-curriculum.sqlite3",
+        dossier_repository=dossier_repository,
+        revision_repository=revision_repository,
+        coverage_repository=coverage_repository,
+        curriculum_graph=None,
     )
-    graph_path = (tmp_path / "data" / "users" / profile_token("alice") / "knowledge_graph.sqlite3")
-    database = graph_path.with_name("epistemic.sqlite3")
     dossier = SQLiteTaskDossierRepository(database).load_latest(user_id="alice", task_id="task-123")
     revision = SQLiteAnswerRevisionRepository(database).load_latest(user_id="alice", task_id="task-123")
     assert dossier is not None and dossier.version == 1
@@ -227,14 +232,20 @@ def test_runtime_prerequisite_advice_uses_configured_dag_and_says_unknown_is_una
         domain="physics",
         student=SimpleNamespace(known_topics=set(), weak_topics=set()),
     )
+    graph_path = tmp_path / "data" / "users" / profile_token("alice") / "knowledge_graph.sqlite3"
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    database_path = graph_path.with_name("epistemic.sqlite3")
     artifacts = persist_runtime_epistemic_artifacts(
         username="alice",
         task_id="task-456",
         question="Please explain Gauss's law and include the assumptions.",
         result=result,
-        data_root=tmp_path / "data",
-        max_profiles=10,
-        curriculum_db_path=curriculum_path,
+        dossier_repository=SQLiteTaskDossierRepository(database_path),
+        revision_repository=SQLiteAnswerRevisionRepository(database_path),
+        coverage_repository=SQLiteCoverageLedgerRepository(database_path),
+        curriculum_graph=SQLitePrerequisiteGraphRepository(curriculum_path).load_latest(
+            graph_id="curriculum"
+        ),
     )
     assert artifacts.prerequisite_diagnostic is not None
     assert artifacts.prerequisite_diagnostic.graph_version == 1

@@ -53,6 +53,12 @@ from core.question_files import (
     save_question_generation_state,
 )
 from study_agent.application.runtime_epistemic import persist_runtime_epistemic_artifacts
+from study_agent.infrastructure.answer_revision_sqlite import (
+    SQLiteAnswerRevisionRepository,
+    SQLiteCoverageLedgerRepository,
+)
+from study_agent.infrastructure.dossier_sqlite import SQLiteTaskDossierRepository
+from study_agent.infrastructure.prerequisite_graph_sqlite import SQLitePrerequisiteGraphRepository
 
 MODEL_ID = "deepseek-web"
 API_MODEL_ID = "study-agent"
@@ -700,6 +706,22 @@ def _user_progress_message(module: str, message: str) -> str | None:
 
     return None
 
+
+
+def _load_curriculum_graph():
+    """Composition-root adapter for the shared, versioned prerequisite DAG."""
+    configured = os.getenv("STUDY_AGENT_CURRICULUM_DB", "").strip()
+    path = Path(configured).expanduser() if configured else ROOT / "data" / "curriculum_prerequisites.sqlite3"
+    if not path.is_absolute():
+        path = ROOT / path
+    if path.is_symlink() or not path.exists() or not path.is_file():
+        return None
+    try:
+        repository = SQLitePrerequisiteGraphRepository(path)
+        return repository.load_latest(graph_id="curriculum")
+    except Exception as exc:
+        debug.log("StudyAgentUnifiedAPI", f"CURRICULUM DAG UNAVAILABLE → {type(exc).__name__}")
+        return None
 
 
 def _completed_conversation_turn_count(messages: list[Any]) -> int:
@@ -1401,13 +1423,22 @@ class Handler(BaseHTTPRequestHandler):
                     and self._message_text(item.get("content"))
                 ).strip() or question
                 try:
+                    user_id = normalize_username(username)
+                    user_graph_database = user_graph_path(
+                        user_id,
+                        data_root=getattr(self.server, "data_root", ROOT / "data"),
+                        max_profiles=getattr(self.server, "max_user_profiles", None),
+                    )
+                    epistemic_database = user_graph_database.with_name("epistemic.sqlite3")
                     artifacts = persist_runtime_epistemic_artifacts(
-                        username=username,
+                        username=user_id,
                         task_id=task_id,
                         question=source_question,
                         result=result,
-                        data_root=getattr(self.server, "data_root", ROOT / "data"),
-                        max_profiles=getattr(self.server, "max_user_profiles", None),
+                        dossier_repository=SQLiteTaskDossierRepository(epistemic_database),
+                        revision_repository=SQLiteAnswerRevisionRepository(epistemic_database),
+                        coverage_repository=SQLiteCoverageLedgerRepository(epistemic_database),
+                        curriculum_graph=_load_curriculum_graph(),
                     )
                     result.metrics["epistemic_artifacts"] = {
                         "dossier_version": artifacts.dossier_version,

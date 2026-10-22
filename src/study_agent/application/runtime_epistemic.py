@@ -8,15 +8,11 @@ learning weakness.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-from core.storage_security import ensure_private_directory
-from core.user_identity import normalize_username, user_graph_path
 
 from study_agent.application.prerequisite_diagnostics import (
     PrerequisiteDiagnostic,
@@ -38,12 +34,11 @@ from study_agent.domain.task_dossier import (
     TaskDossier,
     TaskRequirement,
 )
-from study_agent.infrastructure.answer_revision_sqlite import (
-    SQLiteAnswerRevisionRepository,
-    SQLiteCoverageLedgerRepository,
+from study_agent.ports.epistemic import (
+    AnswerRevisionRepository,
+    CoverageLedgerRepository,
+    TaskDossierRepository,
 )
-from study_agent.infrastructure.dossier_sqlite import SQLiteTaskDossierRepository
-from study_agent.infrastructure.prerequisite_graph_sqlite import SQLitePrerequisiteGraphRepository
 
 
 _REQUIREMENT_HINT = re.compile(
@@ -161,33 +156,21 @@ def _learner_stages(graph: PrerequisiteGraph, result: Any) -> dict[str, str]:
     return stages
 
 
-def _curriculum_graph(
-    curriculum_db_path: str | Path | None,
-) -> PrerequisiteGraph | None:
-    configured = curriculum_db_path or os.getenv("STUDY_AGENT_CURRICULUM_DB", "")
-    if not configured:
-        return None
-    path = Path(configured).expanduser()
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parents[3] / path
-    if not path.exists() or path.is_symlink() or not path.is_file():
-        return None
-    repository = SQLitePrerequisiteGraphRepository(path)
-    return repository.load_latest(graph_id="curriculum")
-
-
 def persist_runtime_epistemic_artifacts(
     *,
     username: object,
     task_id: object,
     question: str,
     result: Any,
-    data_root: str | Path,
-    max_profiles: int | None = None,
-    curriculum_db_path: str | Path | None = None,
+    dossier_repository: TaskDossierRepository,
+    revision_repository: AnswerRevisionRepository,
+    coverage_repository: CoverageLedgerRepository,
+    curriculum_graph: PrerequisiteGraph | None = None,
 ) -> RuntimeEpistemicResult:
     """Persist one immutable answer revision and a conservative coverage ledger."""
-    user = normalize_username(username)
+    user = str(username or "").strip()
+    if not user:
+        raise ValueError("username must not be empty")
     task = str(task_id or "").strip()
     if not task or len(task) > 128 or any(ord(char) < 32 for char in task):
         raise ValueError("task_id 格式无效。")
@@ -195,27 +178,12 @@ def persist_runtime_epistemic_artifacts(
     if not answer:
         raise ValueError("不能为没有最终答案的任务建立 AnswerRevision。")
 
-    graph: PrerequisiteGraph | None = None
-    try:
-        graph = _curriculum_graph(curriculum_db_path)
-    except Exception:
-        # A missing or invalid curriculum graph must not make answering unavailable.
-        graph = None
+    graph = curriculum_graph if isinstance(curriculum_graph, PrerequisiteGraph) else None
 
     graph_targets: tuple[str, ...] = ()
     domain = str(getattr(result, "domain", "") or "")
     if graph is not None:
         graph_targets = _matching_knowledge_points(graph, _request_text(question), domain)
-
-    profile_graph_path = user_graph_path(
-        user,
-        data_root=data_root,
-        max_profiles=max_profiles,
-    )
-    database_path = ensure_private_directory(profile_graph_path.parent) / "epistemic.sqlite3"
-    dossier_repository = SQLiteTaskDossierRepository(database_path)
-    revision_repository = SQLiteAnswerRevisionRepository(database_path)
-    coverage_repository = SQLiteCoverageLedgerRepository(database_path)
 
     previous_dossier = dossier_repository.load_latest(user_id=user, task_id=task)
     dossier_version = 1 if previous_dossier is None else previous_dossier.version + 1
