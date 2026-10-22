@@ -14,6 +14,8 @@ def test_prompt_config_loads_role_specific_prompts():
     assert get_prompt("study_agent.teacher")
     assert get_prompt("study_agent.teaching_validator")
     assert get_prompt("study_agent.assessment")
+    assert get_prompt("study_agent.question_generation")
+    assert get_prompt("study_agent.question_regeneration")
     assert get_prompt("study_agent.teacher_revision")
     assert get_prompt("coder.reasoner")
     assert get_prompt("web_model.json_contract")
@@ -140,3 +142,12 @@ def test_model_router_passes_thinking_decision_to_browser_model_without_prompt_d
     ) == "ok"
     assert client.deep_thinking is True
     assert client.system_prompt == "ROLE INSTRUCTIONS"
+
+def test_standard_task_prompts_do_not_trigger_assessment_generation():
+    task_prompt = get_prompt("study_agent.task_analyzer")
+    reasoner_prompt = get_prompt("study_agent.reasoner")
+    assert "assessment_requested" not in task_prompt
+    assert "assessment_concept" not in task_prompt
+    assert "ASSESS" not in reasoner_prompt
+    assert "assessment_requested" not in reasoner_prompt
+    assert get_prompt("study_agent.question_generation") != get_prompt("study_agent.question_regeneration")
